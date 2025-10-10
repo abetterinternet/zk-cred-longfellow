@@ -34,7 +34,11 @@ This test vector was generated using [`longfellow-zk/lib/zk/zk-test.cc`][rfc-1-t
 commit 87474f308020535e57a778a82394a14106f8be5b and the serializations for circuits, layers and
 quads at that version.
 
+The linear and quadratic constraints in the test vector were generated using
+[this branch][rfc-1-test-vector-constraints] of longfellow-zk.
+
 [rfc-1-test-vector]: https://github.com/google/longfellow-zk/blob/87474f308020535e57a778a82394a14106f8be5b/lib/zk/zk_test.cc
+[rfc-1-test-vector-constraints]: https://github.com/tgeoghegan/longfellow-zk/tree/constraint-test-vector
 
 ### `longfellow-mac-circuit-902a955fbb22323123aac5b69bdf3442e6ea6f80-1`
 

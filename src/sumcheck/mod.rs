@@ -11,6 +11,7 @@ use crate::{
 use std::{iter::repeat_with, mem::swap};
 
 mod bind;
+mod constraints;
 
 /// Proof constructed by sumcheck.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,35 +59,15 @@ impl<FE: CodecFieldElement> Proof<FE> {
     where
         PadGenerator: FnMut() -> FE,
     {
-        // Initialize the transcript per "special rules for the first message", with adjustments to
-        // match longfellow-zk.
-        // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
-        // 3.1.3 item 1 says to append the "Prover message", "which is usually a commitment".
-        // longfellow-zk doesn't do this at this stage, but see remark below.
-
-        // 3.1.3 item 2: write circuit ID
-        transcript.write_byte_array(&circuit.id)?;
-        // 3.1.3 item 2: write inputs. Per the specification, this should be an array of field
-        // elements, but longfellow-zk writes each input as an individual field element. Also,
-        // longfellow-zk only appends the *public* inputs, but the specification isn't clear about
-        // that.
-        for input in evaluation.public_inputs(circuit.num_public_inputs.into()) {
-            transcript.write_field_element(input)?;
-        }
-
-        // 3.1.3 item 2: write outputs. We should look at the output layer of `evaluation` here and
-        // write an array of field elements. But longfellow-zk writes a single zero, regardless of
-        // how many outputs the actual circuit has.
-        transcript.write_field_element(&FE::ZERO)?;
         // Specification interpretation verification: all the outputs should be zero
         for output in evaluation.outputs() {
             assert_eq!(output, &FE::ZERO);
         }
 
-        // 3.1.3 item 3: write an array of zero bytes. The spec implies that its length should be
-        // the number of arithmetic gates in the circuit, but longfellow-zk uses the number of quads
-        // aka the number of terms.
-        transcript.write_byte_array(vec![0u8; circuit.num_quads()].as_slice())?;
+        transcript.initialize(
+            circuit,
+            evaluation.public_inputs(circuit.num_public_inputs.into()),
+        )?;
 
         // After Fiat-Shamir initialization, but before proving the layers, longfellow-zk writes all
         // the inputs to the circuit (public and private) to the transcript. This presumably
@@ -94,31 +75,8 @@ impl<FE: CodecFieldElement> Proof<FE> {
         transcript.write_field_element_array(evaluation.inputs())?;
 
         // Choose the bindings for the output layer.
-        // longfellow-zk allocates two 40 element arrays and then re-uses them for each layer's
-        // bindings. This saves allocations, but you have to keep track of the current length of the
-        // bindings when calling SumcheckArray::bind. We could probably simulate that by taking a
-        // &mut [FE] from a Vec<FE>?
-        // However this optimization also introduces a bug: their TranscriptSumcheck::begin_layer
-        // samples enough elements from the FSPRF to fill the array _up to its allocated size_,
-        // regardless of the number of output wires. This means the FSPRF gets fast-forwarded by
-        // 80 - circuit.logw, and since no writes occur between this point and when we next
-        // sample field elements, that affects the rest of the protocol run. In order to be
-        // compatible with their test vector, we generate and discard an equal number of field
-        // elements.
-        // https://github.com/google/longfellow-zk/issues/71
-        // longfellow-zk first samples 40 elements for bindings used for circuit copies, a feature
-        // which did not make it into the specification or our implementation. Thus these field
-        // elements are never used anywhere.
-        const LONGFELLOW_ZK_MAX_BINDINGS: usize = 40;
-        transcript.generate_challenge::<FE>(LONGFELLOW_ZK_MAX_BINDINGS)?;
-        // The spec says to generate "circuit.lv" field elements, which I think has to mean the
-        // number of bits needed to describe an output wire, because the idea is that binding to
-        // challenges of this length will reduce the 3D quad down to 2D.
-        let output_wire_bindings = transcript.generate_challenge(circuit.logw())?;
+        let output_wire_bindings = transcript.generate_output_wire_bindings(circuit)?;
         let mut bindings = [output_wire_bindings.clone(), output_wire_bindings];
-        // longfellow-zk then samples 40 more elements to fill G[0]. We already sampled enough to
-        // fill its actual size, so fast-forward the FSPRF to catch up to longfellow-zk.
-        transcript.generate_challenge::<FE>(LONGFELLOW_ZK_MAX_BINDINGS - circuit.logw())?;
 
         let mut proof = Proof {
             layers: Vec::with_capacity(circuit.num_layers.into()),
@@ -247,10 +205,8 @@ impl<FE: CodecFieldElement> Proof<FE> {
                         p2: evaluate_polynomial(FE::SUMCHECK_P2) - pad_polynomials[hand].p2,
                     };
 
-                    // Commit to the padded polynomial. The spec isn't clear on this, but
-                    // longfellow-zk writes individual field elements.
-                    transcript.write_field_element(&poly_evaluation.p0)?;
-                    transcript.write_field_element(&poly_evaluation.p2)?;
+                    // Commit to the padded polynomial.
+                    transcript.write_polynomial(&poly_evaluation)?;
 
                     proof_polynomials[hand] = poly_evaluation;
 
@@ -390,9 +346,9 @@ impl<FE: CodecFieldElement> ProofLayer<FE> {
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.4
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.5
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Polynomial<FE> {
-    p0: FE,
-    p2: FE,
+pub struct Polynomial<FE> {
+    pub p0: FE,
+    pub p2: FE,
 }
 
 #[cfg(test)]
@@ -416,7 +372,7 @@ mod tests {
         let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
 
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
-        let mut transcript = Transcript::initialize(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test").unwrap();
 
         let proof = Proof::new(
             &circuit,

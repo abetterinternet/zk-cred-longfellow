@@ -218,6 +218,7 @@ use quadratic_extension::QuadraticExtension;
 #[cfg(test)]
 mod tests {
     use rand::RngCore;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     use crate::{
         Codec,
@@ -502,5 +503,10 @@ mod tests {
             total_rejections += rejections;
         }
         assert_eq!(total_rejections, 0);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn sample() {
+        FieldP128::sample();
     }
 }

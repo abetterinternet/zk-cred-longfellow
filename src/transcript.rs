@@ -1,7 +1,7 @@
 //! Implements a transcript of prover messages, used to apply the Fiat-Shamir transform to an
 //! interactive protocol.
 //!
-//! https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3
+//! <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3>
 
 use crate::fields::CodecFieldElement;
 use aes::{
@@ -54,7 +54,8 @@ impl Transcript {
     /// The specification is not clear about what `session_id` is, but in the C++ implementation,
     /// it's an opaque byte buffer ([1]).
     ///
-    /// https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.1.1
+    /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.1.1>
+    ///
     /// [1]: https://github.com/google/longfellow-zk/blob/87474f308020535e57a778a82394a14106f8be5b/lib/random/transcript.h#L76
     pub fn initialize(session_id: &[u8]) -> Result<Self, anyhow::Error> {
         let mut transcript = Self {
@@ -70,7 +71,7 @@ impl Transcript {
 
     /// Write a field element to the transcript.
     ///
-    /// https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.1.2
+    /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.1.2>
     pub fn write_field_element<FE: CodecFieldElement>(
         &mut self,
         field_element: &FE,
@@ -111,7 +112,7 @@ impl Transcript {
 
     /// Write a slice of bytes to the transcript.
     ///
-    /// https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.2
+    /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.2>
     pub fn write_byte_array(&mut self, bytes: &[u8]) -> Result<(), anyhow::Error> {
         // Length prefix is 8 bytes, so reject slices that are too big
         if bytes.len() > usize::try_from(u64::MAX).context("can't fit u64::MAX in a usize")? {
@@ -173,7 +174,7 @@ impl Transcript {
 ///
 /// XXX: Could we just use the XOF from crate prio?
 ///
-/// https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.2
+/// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.2>
 #[derive(Clone, Debug)]
 pub struct FiatShamirPseudoRandomFunction {
     cipher: Aes256,

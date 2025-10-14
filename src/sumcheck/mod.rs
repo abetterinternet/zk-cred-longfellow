@@ -19,8 +19,8 @@ pub struct Proof<FieldElement> {
 }
 
 impl<FE: CodecFieldElement> Proof<FE> {
-    /// Decode a proof from the bytes. This can't be an implementation of [`Codec`] because we need
-    /// the circuit this is a proof of to know how many layers there are.
+    /// Decode a proof from the bytes. This can't be an implementation of [`Codec`][crate::Codec]
+    /// because we need the circuit this is a proof of to know how many layers there are.
     pub fn decode(
         circuit: &Circuit,
         bytes: &mut std::io::Cursor<&[u8]>,
@@ -313,7 +313,7 @@ struct ProofLayer<FieldElement> {
 
 /// Proof layer serialization corresponds to PaddedTranscriptLayer in [7.3][1].
 ///
-/// https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.3
+/// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.3>
 impl<FE: CodecFieldElement> ProofLayer<FE> {
     /// Decode a proof layer from the bytes. We can't implement [`Codec`] here because we need some
     /// context (the corresponding circuit layer) to determine how many elements the layer should

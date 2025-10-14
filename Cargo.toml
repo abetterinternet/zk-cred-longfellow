@@ -18,5 +18,8 @@ sha2 = "0.10.9"
 subtle = "2.6.1"
 zstd = "0.13.3"
 
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -72,7 +72,7 @@ pub trait CodecFieldElement:
     fn sample() -> Self {
         Self::sample_from_source(|num_bytes| {
             let mut bytes = vec![0; num_bytes];
-            rand::thread_rng().fill_bytes(&mut bytes);
+            rand::rng().fill_bytes(&mut bytes);
 
             bytes
         })
@@ -476,7 +476,7 @@ mod tests {
         for _ in 0..count {
             let (_, rejections) = FieldP256::sample_counting_rejections(|num_bytes| {
                 let mut bytes = vec![0; num_bytes];
-                rand::thread_rng().fill_bytes(&mut bytes);
+                rand::rng().fill_bytes(&mut bytes);
 
                 bytes
             });
@@ -495,7 +495,7 @@ mod tests {
         for _ in 0..100 {
             let (_, rejections) = FieldP521::sample_counting_rejections(|num_bytes| {
                 let mut bytes = vec![0; num_bytes];
-                rand::thread_rng().fill_bytes(&mut bytes);
+                rand::rng().fill_bytes(&mut bytes);
 
                 bytes
             });

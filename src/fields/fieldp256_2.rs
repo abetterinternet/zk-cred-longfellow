@@ -23,6 +23,10 @@ impl FieldElement for FieldP256_2 {
     fn from_u128(value: u128) -> Self {
         Self(QuadraticExtension::<FieldP256>::from_u128(value))
     }
+
+    fn square(&self) -> Self {
+        Self(QuadraticExtension::square(&self.0))
+    }
 }
 
 impl Debug for FieldP256_2 {

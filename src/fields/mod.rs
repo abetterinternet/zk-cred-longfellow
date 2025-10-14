@@ -51,6 +51,9 @@ pub trait FieldElement:
     fn is_zero(&self) -> Choice {
         self.ct_eq(&Self::ZERO)
     }
+
+    /// Square a field element.
+    fn square(&self) -> Self;
 }
 
 /// An element of a finite field with a defined serialization format.
@@ -405,6 +408,15 @@ mod tests {
         let mut temp = three;
         temp -= F::ONE;
         assert_eq!(temp, F::TWO);
+
+        for x in [F::ZERO, F::ONE, three, nine, neg_one] {
+            assert_eq!(x.square(), x * x);
+        }
+        let mut value = F::from(u64::MAX);
+        for _ in 0..20 {
+            assert_eq!(value.square(), value * value);
+            value *= value;
+        }
     }
 
     fn field_element_test_codec<F: CodecFieldElement>() {

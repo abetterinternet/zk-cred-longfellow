@@ -15,8 +15,8 @@ use crate::{
         fieldp128::ops::{
             fiat_p128_add, fiat_p128_from_bytes, fiat_p128_from_montgomery,
             fiat_p128_montgomery_domain_field_element, fiat_p128_mul,
-            fiat_p128_non_montgomery_domain_field_element, fiat_p128_opp, fiat_p128_sub,
-            fiat_p128_to_bytes, fiat_p128_to_montgomery,
+            fiat_p128_non_montgomery_domain_field_element, fiat_p128_opp, fiat_p128_square,
+            fiat_p128_sub, fiat_p128_to_bytes, fiat_p128_to_montgomery,
         },
     },
 };
@@ -82,6 +82,12 @@ impl FieldElement for FieldP128 {
 
     fn from_u128(value: u128) -> Self {
         Self::from_u128_const(value)
+    }
+
+    fn square(&self) -> Self {
+        let mut out = fiat_p128_montgomery_domain_field_element([0; 2]);
+        fiat_p128_square(&mut out, &self.0);
+        Self(out)
     }
 }
 

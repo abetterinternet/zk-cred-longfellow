@@ -40,6 +40,20 @@ impl<B: FieldElement> FieldElement for QuadraticExtension<B> {
             imag: B::ZERO,
         }
     }
+
+    fn square(&self) -> Self {
+        // We use schoolbook multiplication for squaring. Only three multiplications are required,
+        // and this does not use as many additions or subtractions as Karatsuba multiplication.
+        //
+        // (a + bx)^2 = a^2 + 2abx + b^2*x^2
+        // (a + bx)^2 = a^2 + 2abx + b^2*x^2 - b^2(x^2 + 1) (mod x^2 + 1)
+        // (a + bx)^2 = a^2 - b^2 + 2abx (mod x^2 + 1)
+        let cross = self.real * self.imag;
+        Self {
+            real: self.real.square() - self.imag.square(),
+            imag: cross + cross,
+        }
+    }
 }
 
 impl<B: Debug> Debug for QuadraticExtension<B> {
@@ -245,10 +259,13 @@ mod tests {
         assert_eq!(neg_1 * x + x, FieldP256_2::ZERO);
         let x_plus_one = x + FieldP256_2::ONE;
         assert_eq!(x_plus_one * x_plus_one, x + x);
-        assert_eq!(
-            (FieldP256_2::from(3) + FieldP256_2::from(7) * x)
-                * (FieldP256_2::from(2) + FieldP256_2::from(11) * x),
-            -FieldP256_2::from(71) + FieldP256_2::from(47) * x
-        );
+        assert_eq!(x_plus_one.square(), x + x);
+
+        let a = FieldP256_2::from(3) + FieldP256_2::from(7) * x;
+        let b = FieldP256_2::from(2) + FieldP256_2::from(11) * x;
+        assert_eq!(a * b, -FieldP256_2::from(71) + FieldP256_2::from(47) * x);
+
+        assert_eq!(a.square(), a * a);
+        assert_eq!(b.square(), b * b);
     }
 }

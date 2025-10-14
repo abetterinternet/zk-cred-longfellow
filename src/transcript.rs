@@ -8,7 +8,7 @@ use aes::{
     Aes256,
     cipher::{BlockEncrypt, KeyInit},
 };
-use anyhow::{Context, anyhow};
+use anyhow::Context;
 use crypto_common::{BlockSizeUser, generic_array::GenericArray};
 use sha2::{Digest, Sha256};
 
@@ -90,17 +90,14 @@ impl Transcript {
         field_elements: &[FE],
     ) -> Result<(), anyhow::Error> {
         // Length prefix is 8 bytes, so reject slices that are too big
-        if field_elements.len()
-            > usize::try_from(u64::MAX).context("can't fit u64::MAX in a usize")?
-        {
-            return Err(anyhow!("field element array too big for transcript"));
-        }
+        let length = u64::try_from(field_elements.len())
+            .context("field element array too big for transcript")?;
 
         // Write tag for field element array
         self.write_bytes(Tag::FieldElementArray.into())?;
 
         // Write length of array as little endian bytes
-        self.write_bytes(&(field_elements.len() as u64).to_le_bytes())?;
+        self.write_bytes(&length.to_le_bytes())?;
 
         // Write array
         for field_element in field_elements {
@@ -115,15 +112,13 @@ impl Transcript {
     /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.2>
     pub fn write_byte_array(&mut self, bytes: &[u8]) -> Result<(), anyhow::Error> {
         // Length prefix is 8 bytes, so reject slices that are too big
-        if bytes.len() > usize::try_from(u64::MAX).context("can't fit u64::MAX in a usize")? {
-            return Err(anyhow!("byte array too big for transcript"));
-        }
+        let length = u64::try_from(bytes.len()).context("byte array too big for transcript")?;
 
         // Write tag for byte array.
         self.write_bytes(Tag::ByteArray.into())?;
 
         // Write length of array as 8 little endian bytes
-        self.write_bytes(&(bytes.len() as u64).to_le_bytes())?;
+        self.write_bytes(&length.to_le_bytes())?;
 
         // Write array
         self.write_bytes(bytes)?;

@@ -206,6 +206,7 @@ impl TryFrom<SerializedFieldElement> for u128 {
     }
 }
 
+pub mod field2_128;
 pub mod fieldp128;
 pub mod fieldp256;
 pub mod fieldp256_2;
@@ -222,8 +223,9 @@ mod tests {
     use crate::{
         Codec,
         fields::{
-            CodecFieldElement, FieldElement, FieldId, SerializedFieldElement, fieldp128::FieldP128,
-            fieldp256::FieldP256, fieldp256_2::FieldP256_2,
+            CodecFieldElement, FieldElement, FieldId, SerializedFieldElement,
+            field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
+            fieldp256_2::FieldP256_2,
         },
     };
     use std::io::Cursor;
@@ -352,6 +354,11 @@ mod tests {
         FieldP521::from_u128(111).roundtrip();
     }
 
+    #[test]
+    fn field_2_128_roundtrip() {
+        Field2_128::from_u128(0xdeadbeef12345678f00faaaabbbbcccc).roundtrip();
+    }
+
     #[allow(clippy::op_ref, clippy::eq_op)]
     fn field_element_test_large_characteristic<F: FieldElement>() {
         let three = F::from(3);
@@ -419,7 +426,7 @@ mod tests {
         }
     }
 
-    fn field_element_test_codec<F: CodecFieldElement>() {
+    fn field_element_test_codec<F: CodecFieldElement>(decode_is_fallible: bool) {
         let three = F::from(3);
         let nine = F::from(9);
         let neg_one = -F::ONE;
@@ -433,7 +440,12 @@ mod tests {
         }
 
         let max_int_encoded = vec![0xffu8; F::num_bytes()];
-        F::decode(&mut Cursor::new(&max_int_encoded)).unwrap_err();
+        let result = F::decode(&mut Cursor::new(&max_int_encoded));
+        if decode_is_fallible {
+            result.unwrap_err();
+        } else {
+            result.unwrap();
+        }
 
         let zero_encoded = vec![0u8; F::num_bytes()];
         assert_eq!(F::decode(&mut Cursor::new(&zero_encoded)).unwrap(), F::ZERO);
@@ -448,24 +460,29 @@ mod tests {
     #[test]
     fn test_field_p256() {
         field_element_test_large_characteristic::<FieldP256>();
-        field_element_test_codec::<FieldP256>();
+        field_element_test_codec::<FieldP256>(true);
     }
 
     #[test]
     fn test_field_p128() {
         field_element_test_large_characteristic::<FieldP128>();
-        field_element_test_codec::<FieldP128>();
+        field_element_test_codec::<FieldP128>(true);
     }
 
     #[test]
     fn test_field_p521() {
         field_element_test_large_characteristic::<FieldP521>();
-        field_element_test_codec::<FieldP521>();
+        field_element_test_codec::<FieldP521>(true);
     }
 
     #[test]
     fn test_field_p256_squared() {
         field_element_test_large_characteristic::<FieldP256_2>();
+    }
+
+    #[test]
+    fn test_field_2_128() {
+        field_element_test_codec::<Field2_128>(false);
     }
 
     #[test]
@@ -502,6 +519,25 @@ mod tests {
             total_rejections += rejections;
         }
         assert_eq!(total_rejections, 0);
+    }
+
+    #[test]
+    fn sample_binary_field() {
+        // GF(2^128) has an order that is a power of two, so we should never trigger rejection
+        // sampling when generating random field elements.
+        for _ in 0..100 {
+            let (_, rejections) = Field2_128::sample_counting_rejections(|num_bytes| {
+                let mut bytes = vec![0; num_bytes];
+                rand::rng().fill_bytes(&mut bytes);
+
+                bytes
+            });
+            assert_eq!(rejections, 0);
+        }
+
+        // Check that no bits are getting masked off when generating elements.
+        let element = Field2_128::sample_from_source(|num_bytes| vec![0xff; num_bytes]);
+        assert_eq!(element.get_encoded().unwrap(), vec![0xffu8; 16]);
     }
 
     #[wasm_bindgen_test(unsupported = test)]

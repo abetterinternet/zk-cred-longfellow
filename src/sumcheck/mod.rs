@@ -313,7 +313,7 @@ struct ProofLayer<FieldElement> {
 
 /// Proof layer serialization corresponds to PaddedTranscriptLayer in [7.3][1].
 ///
-/// https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.3
+/// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.3>
 impl<FE: CodecFieldElement> ProofLayer<FE> {
     /// Decode a proof layer from the bytes. We can't implement [`Codec`] here because we need some
     /// context (the corresponding circuit layer) to determine how many elements the layer should

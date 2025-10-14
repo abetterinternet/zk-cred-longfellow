@@ -38,11 +38,10 @@ pub trait FieldElement:
     const ZERO: Self;
     /// The multiplicative of the field.
     const ONE: Self;
-    /// 1 + 1 in the field, if applicable.
+    /// The third evaluation point used by sumcheck.
     ///
-    /// TODO: This will need to be renamed for characteristic two fields. We need a third evaluation
-    /// point for the sumcheck protocol, and the spec's convention is to use x for GF(2)\[x\]/(Q(x)).
-    const TWO: Self;
+    /// This will be 2 for large characteristic fields, and x for fields of characteristic two.
+    const SUMCHECK_P2: Self;
 
     /// Project an integer into the field.
     fn from_u128(value: u128) -> Self;
@@ -361,7 +360,7 @@ mod tests {
 
         assert_eq!(F::from(0), F::ZERO);
         assert_eq!(F::from(1), F::ONE);
-        assert_eq!(F::from(2), F::TWO);
+        assert_eq!(F::from(2), F::SUMCHECK_P2);
 
         assert_ne!(F::ZERO, F::ONE);
         assert_ne!(F::ONE, three);
@@ -374,11 +373,11 @@ mod tests {
         temp += F::ONE;
         assert_eq!(temp, F::ZERO);
 
-        assert_eq!(F::ONE + &F::ONE, F::TWO);
-        assert_eq!(F::ONE + F::ONE, F::TWO);
+        assert_eq!(F::ONE + &F::ONE, F::SUMCHECK_P2);
+        assert_eq!(F::ONE + F::ONE, F::SUMCHECK_P2);
         let mut temp = F::ONE;
         temp += F::ONE;
-        assert_eq!(temp, F::TWO);
+        assert_eq!(temp, F::SUMCHECK_P2);
 
         assert_eq!(three + &F::ZERO, three);
         assert_eq!(three + F::ZERO, three);
@@ -408,7 +407,7 @@ mod tests {
         assert_eq!(three - F::ZERO, three);
         let mut temp = three;
         temp -= F::ONE;
-        assert_eq!(temp, F::TWO);
+        assert_eq!(temp, F::SUMCHECK_P2);
 
         for x in [F::ZERO, F::ONE, three, nine, neg_one] {
             assert_eq!(x.square(), x * x);

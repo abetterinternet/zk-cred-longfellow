@@ -244,7 +244,7 @@ impl<FE: CodecFieldElement> Proof<FE> {
                     // Evaluate the polynomial at P0 and P2, subtracting the pad
                     let poly_evaluation = Polynomial {
                         p0: evaluate_polynomial(FE::ZERO) - pad_polynomials[hand].p0,
-                        p2: evaluate_polynomial(FE::TWO) - pad_polynomials[hand].p2,
+                        p2: evaluate_polynomial(FE::SUMCHECK_P2) - pad_polynomials[hand].p2,
                     };
 
                     // Commit to the padded polynomial. The spec isn't clear on this, but

@@ -29,8 +29,8 @@ impl<B: FieldElement> FieldElement for QuadraticExtension<B> {
         imag: B::ZERO,
     };
 
-    const TWO: Self = Self {
-        real: B::TWO,
+    const SUMCHECK_P2: Self = Self {
+        real: B::SUMCHECK_P2,
         imag: B::ZERO,
     };
 

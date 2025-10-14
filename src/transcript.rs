@@ -55,6 +55,7 @@ impl Transcript {
     /// it's an opaque byte buffer ([1]).
     ///
     /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.1.1>
+    ///
     /// [1]: https://github.com/google/longfellow-zk/blob/87474f308020535e57a778a82394a14106f8be5b/lib/random/transcript.h#L76
     pub fn initialize(session_id: &[u8]) -> Result<Self, anyhow::Error> {
         let mut transcript = Self {

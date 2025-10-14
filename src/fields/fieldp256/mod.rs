@@ -15,8 +15,8 @@ use crate::{
         fieldp256::ops::{
             fiat_p256_add, fiat_p256_from_bytes, fiat_p256_from_montgomery,
             fiat_p256_montgomery_domain_field_element, fiat_p256_mul,
-            fiat_p256_non_montgomery_domain_field_element, fiat_p256_opp, fiat_p256_sub,
-            fiat_p256_to_bytes, fiat_p256_to_montgomery,
+            fiat_p256_non_montgomery_domain_field_element, fiat_p256_opp, fiat_p256_square,
+            fiat_p256_sub, fiat_p256_to_bytes, fiat_p256_to_montgomery,
         },
     },
 };
@@ -77,6 +77,12 @@ impl FieldElement for FieldP256 {
 
     fn from_u128(value: u128) -> Self {
         Self::from_u128_const(value)
+    }
+
+    fn square(&self) -> Self {
+        let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
+        fiat_p256_square(&mut out, &self.0);
+        Self(out)
     }
 }
 

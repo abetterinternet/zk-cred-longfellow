@@ -13,9 +13,9 @@ use crate::{
     fields::{
         CodecFieldElement, FieldElement,
         fieldp521::ops::{
-            fiat_p521_carry_add, fiat_p521_carry_mul, fiat_p521_carry_opp, fiat_p521_carry_sub,
-            fiat_p521_from_bytes, fiat_p521_loose_field_element, fiat_p521_relax,
-            fiat_p521_tight_field_element, fiat_p521_to_bytes,
+            fiat_p521_carry_add, fiat_p521_carry_mul, fiat_p521_carry_opp, fiat_p521_carry_square,
+            fiat_p521_carry_sub, fiat_p521_from_bytes, fiat_p521_loose_field_element,
+            fiat_p521_relax, fiat_p521_tight_field_element, fiat_p521_to_bytes,
         },
     },
 };
@@ -68,6 +68,14 @@ impl FieldElement for FieldP521 {
 
     fn from_u128(value: u128) -> Self {
         Self::from_u128_const(value)
+    }
+
+    fn square(&self) -> Self {
+        let mut loose = fiat_p521_loose_field_element([0; 9]);
+        fiat_p521_relax(&mut loose, &self.0);
+        let mut out = fiat_p521_tight_field_element([0; 9]);
+        fiat_p521_carry_square(&mut out, &loose);
+        Self(out)
     }
 }
 

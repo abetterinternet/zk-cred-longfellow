@@ -232,8 +232,9 @@ mod tests {
     use super::*;
     use crate::fields::{FieldElement, fieldp256::FieldP256};
     use std::iter::Iterator;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn deterministic() {
         fn run_transcript() -> Vec<FieldP256> {
             let mut transcript = Transcript::initialize(b"test").unwrap();
@@ -262,7 +263,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn distinct_session_id() {
         let mut transcript1 = Transcript::initialize(b"test1").unwrap();
         transcript1.write_byte_array(b"some bytes").unwrap();
@@ -278,7 +279,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn distinct_messages() {
         let mut transcript1 = Transcript::initialize(b"test").unwrap();
         transcript1.write_byte_array(b"some bytes").unwrap();
@@ -294,7 +295,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn writing_messages_changes_challenge() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
         transcript.write_byte_array(b"some bytes").unwrap();
@@ -308,7 +309,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn writing_messages_resets_challenge() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
         transcript.write_byte_array(b"some bytes").unwrap();
@@ -330,7 +331,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_vector() {
         // FSPRF test vector adapted from longfellow-zk/lib/random/transcript_test.cc
         // https://github.com/google/longfellow-zk/blob/7a329b35b846fa5b9eca6f0143d0197a73e126a2/lib/random/transcript_test.cc#L97
@@ -381,7 +382,7 @@ mod tests {
     // These allow us to verify that we writing each type of transcript message, as well as writing
     // all of them together, yields the expected challenges.
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
 
@@ -430,7 +431,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_byte_array() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
 
@@ -451,7 +452,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_single_field_element() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
 
@@ -473,7 +474,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_field_element_array() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
 

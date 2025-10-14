@@ -27,3 +27,24 @@ jobs:
         RUSTDOCFLAGS: "-D warnings"
     - name: Test
       run: cargo test
+
+  wasm-build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+    - name: Install Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: "22"
+    - name: Install cargo-binstall
+      uses: cargo-bins/cargo-binstall@v1.15.7
+    - name: Install wasm-pack
+      run: cargo binstall wasm-pack --version 0.13.1
+    - uses: actions/checkout@v5
+    - name: Build
+      run: wasm-pack build
+    - name: Test
+      run: wasm-pack test --node

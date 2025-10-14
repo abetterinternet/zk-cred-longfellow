@@ -110,7 +110,7 @@ impl Size {
 /// Describes how to encode and decode an object from a byte sequence, per the rules in
 /// [draft-google-cfrg-libzk-00 section 7][1].
 ///
-/// Adapted from [prio::codec].
+/// Adapted from [prio::codec](https://docs.rs/prio/0.17.0/prio/codec/index.html).
 ///
 /// [1]: https://www.ietf.org/archive/id/draft-google-cfrg-libzk-00.html#section-7
 pub trait Codec: Sized + PartialEq + Eq + std::fmt::Debug {

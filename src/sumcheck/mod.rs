@@ -19,8 +19,8 @@ pub struct Proof<FieldElement> {
 }
 
 impl<FE: CodecFieldElement> Proof<FE> {
-    /// Decode a proof from the bytes. This can't be an implementation of [`Codec`] because we need
-    /// the circuit this is a proof of to know how many layers there are.
+    /// Decode a proof from the bytes. This can't be an implementation of [`Codec`][crate::Codec]
+    /// because we need the circuit this is a proof of to know how many layers there are.
     pub fn decode(
         circuit: &Circuit,
         bytes: &mut std::io::Cursor<&[u8]>,

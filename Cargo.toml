@@ -17,3 +17,6 @@ serde_json = { version = "1.0" }
 sha2 = "0.10.9"
 subtle = "2.6.1"
 zstd = "0.13.3"
+
+[lib]
+crate-type = ["cdylib", "rlib"]

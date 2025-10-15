@@ -475,6 +475,7 @@ pub(crate) mod tests {
         fs::File,
         io::{BufReader, Cursor, Read},
     };
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     #[test]
     fn roundtrip_quad() {
@@ -672,6 +673,30 @@ pub(crate) mod tests {
                 .iter()
                 .any(|output: &FieldP128| *output != FieldP128::ZERO)
         );
+    }
+
+    /// This test uses `include_bytes!()` instead of reading from files at runtime, so it can be run
+    /// in a browser.
+    #[wasm_bindgen_test(unsupported = test)]
+    fn evaluate_circuit_longfellow_rfc_1_true_include_bytes() {
+        let circuit_bytes = include_bytes!(
+            "../test-vectors/circuit/longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b.circuit.zst"
+        );
+        let serialized_circuit = zstd::decode_all(Cursor::new(&circuit_bytes)).unwrap();
+        let circuit = Circuit::decode(&mut Cursor::new(&serialized_circuit)).unwrap();
+
+        let test_vector: CircuitTestVector = serde_json::from_slice(include_bytes!(
+            "../test-vectors/circuit/longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b.json"
+        ))
+        .unwrap();
+
+        assert_eq!(circuit.num_quads(), test_vector.quads as usize);
+
+        let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
+
+        for output in evaluation.outputs() {
+            assert_eq!(*output, FieldP128::ZERO);
+        }
     }
 
     /// This creates a simple circuit that exercises in-circuit assertions.

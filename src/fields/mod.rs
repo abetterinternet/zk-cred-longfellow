@@ -72,7 +72,7 @@ pub trait CodecFieldElement:
     fn sample() -> Self {
         Self::sample_from_source(|num_bytes| {
             let mut bytes = vec![0; num_bytes];
-            rand::thread_rng().fill_bytes(&mut bytes);
+            rand::rng().fill_bytes(&mut bytes);
 
             bytes
         })
@@ -218,6 +218,7 @@ use quadratic_extension::QuadraticExtension;
 #[cfg(test)]
 mod tests {
     use rand::RngCore;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     use crate::{
         Codec,
@@ -476,7 +477,7 @@ mod tests {
         for _ in 0..count {
             let (_, rejections) = FieldP256::sample_counting_rejections(|num_bytes| {
                 let mut bytes = vec![0; num_bytes];
-                rand::thread_rng().fill_bytes(&mut bytes);
+                rand::rng().fill_bytes(&mut bytes);
 
                 bytes
             });
@@ -495,12 +496,17 @@ mod tests {
         for _ in 0..100 {
             let (_, rejections) = FieldP521::sample_counting_rejections(|num_bytes| {
                 let mut bytes = vec![0; num_bytes];
-                rand::thread_rng().fill_bytes(&mut bytes);
+                rand::rng().fill_bytes(&mut bytes);
 
                 bytes
             });
             total_rejections += rejections;
         }
         assert_eq!(total_rejections, 0);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn sample() {
+        FieldP128::sample();
     }
 }

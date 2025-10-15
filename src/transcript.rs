@@ -8,7 +8,7 @@ use aes::{
     Aes256,
     cipher::{BlockEncrypt, KeyInit},
 };
-use anyhow::{Context, anyhow};
+use anyhow::Context;
 use crypto_common::{BlockSizeUser, generic_array::GenericArray};
 use sha2::{Digest, Sha256};
 
@@ -90,17 +90,14 @@ impl Transcript {
         field_elements: &[FE],
     ) -> Result<(), anyhow::Error> {
         // Length prefix is 8 bytes, so reject slices that are too big
-        if field_elements.len()
-            > usize::try_from(u64::MAX).context("can't fit u64::MAX in a usize")?
-        {
-            return Err(anyhow!("field element array too big for transcript"));
-        }
+        let length = u64::try_from(field_elements.len())
+            .context("field element array too big for transcript")?;
 
         // Write tag for field element array
         self.write_bytes(Tag::FieldElementArray.into())?;
 
         // Write length of array as little endian bytes
-        self.write_bytes(&(field_elements.len() as u64).to_le_bytes())?;
+        self.write_bytes(&length.to_le_bytes())?;
 
         // Write array
         for field_element in field_elements {
@@ -115,15 +112,13 @@ impl Transcript {
     /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.2>
     pub fn write_byte_array(&mut self, bytes: &[u8]) -> Result<(), anyhow::Error> {
         // Length prefix is 8 bytes, so reject slices that are too big
-        if bytes.len() > usize::try_from(u64::MAX).context("can't fit u64::MAX in a usize")? {
-            return Err(anyhow!("byte array too big for transcript"));
-        }
+        let length = u64::try_from(bytes.len()).context("byte array too big for transcript")?;
 
         // Write tag for byte array.
         self.write_bytes(Tag::ByteArray.into())?;
 
         // Write length of array as 8 little endian bytes
-        self.write_bytes(&(bytes.len() as u64).to_le_bytes())?;
+        self.write_bytes(&length.to_le_bytes())?;
 
         // Write array
         self.write_bytes(bytes)?;
@@ -237,8 +232,9 @@ mod tests {
     use super::*;
     use crate::fields::{FieldElement, fieldp256::FieldP256};
     use std::iter::Iterator;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn deterministic() {
         fn run_transcript() -> Vec<FieldP256> {
             let mut transcript = Transcript::initialize(b"test").unwrap();
@@ -267,7 +263,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn distinct_session_id() {
         let mut transcript1 = Transcript::initialize(b"test1").unwrap();
         transcript1.write_byte_array(b"some bytes").unwrap();
@@ -283,7 +279,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn distinct_messages() {
         let mut transcript1 = Transcript::initialize(b"test").unwrap();
         transcript1.write_byte_array(b"some bytes").unwrap();
@@ -299,7 +295,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn writing_messages_changes_challenge() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
         transcript.write_byte_array(b"some bytes").unwrap();
@@ -313,7 +309,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn writing_messages_resets_challenge() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
         transcript.write_byte_array(b"some bytes").unwrap();
@@ -335,7 +331,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_vector() {
         // FSPRF test vector adapted from longfellow-zk/lib/random/transcript_test.cc
         // https://github.com/google/longfellow-zk/blob/7a329b35b846fa5b9eca6f0143d0197a73e126a2/lib/random/transcript_test.cc#L97
@@ -386,7 +382,7 @@ mod tests {
     // These allow us to verify that we writing each type of transcript message, as well as writing
     // all of them together, yields the expected challenges.
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
 
@@ -435,7 +431,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_byte_array() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
 
@@ -456,7 +452,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_single_field_element() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
 
@@ -478,7 +474,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_field_element_array() {
         let mut transcript = Transcript::initialize(b"test").unwrap();
 

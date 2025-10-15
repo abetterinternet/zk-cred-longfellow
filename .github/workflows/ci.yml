@@ -44,8 +44,6 @@ jobs:
     - name: Install wasm-pack
       run: cargo binstall wasm-pack --version 0.13.1
     - uses: actions/checkout@v5
-    - name: Build
-      run: wasm-pack build
     - name: Test (Node.js)
       run: wasm-pack test --node
     - name: Test (Firefox)

@@ -1,7 +1,9 @@
 //! Various finite field implementations.
 use crate::{
     Codec,
-    fields::{fieldp128::FieldP128, fieldp256::FieldP256},
+    fields::{
+        field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256, fieldp521::FieldP521,
+    },
 };
 use anyhow::{Context, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -131,6 +133,10 @@ pub enum FieldId {
     None = 0,
     /// NIST P256.
     P256 = 1,
+    /// NIST P521.
+    P521 = 3,
+    /// GF(2^128).
+    GF2_128 = 4,
     /// [`FieldP128`]
     FP128 = 6,
     // TODO: other field IDs as we need them
@@ -143,8 +149,10 @@ impl TryFrom<u8> for FieldId {
         match value {
             0 => Ok(Self::None),
             1 => Ok(Self::P256),
+            3 => Ok(Self::P521),
+            4 => Ok(Self::GF2_128),
             6 => Ok(Self::FP128),
-            _ => Err(anyhow!("unknown field ID")),
+            _ => Err(anyhow!("unknown field ID {value}")),
         }
     }
 }
@@ -171,6 +179,8 @@ impl FieldId {
         match self {
             FieldId::None => 0,
             FieldId::P256 => FieldP256::num_bytes(),
+            FieldId::P521 => FieldP521::num_bytes(),
+            FieldId::GF2_128 => Field2_128::num_bytes(),
             FieldId::FP128 => FieldP128::num_bytes(),
         }
     }

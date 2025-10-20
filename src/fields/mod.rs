@@ -1,7 +1,9 @@
 //! Various finite field implementations.
 use crate::{
     Codec,
-    fields::{fieldp128::FieldP128, fieldp256::FieldP256},
+    fields::{
+        field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256, fieldp521::FieldP521,
+    },
 };
 use anyhow::{Context, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -131,9 +133,22 @@ pub enum FieldId {
     None = 0,
     /// NIST P256.
     P256 = 1,
+    /// NIST P384.
+    P384 = 2,
+    /// NIST P521.
+    P521 = 3,
+    /// GF(2^128).
+    GF2_128 = 4,
+    /// GF(2^16).
+    GF2_16 = 5,
     /// [`FieldP128`]
     FP128 = 6,
-    // TODO: other field IDs as we need them
+    // FieldID values for the following fields are not supported:
+    // * Prime fields with modulus 2^64 - 59 or 2^64 - 2^32 + 1.
+    // * Quadratic extension field F_{2^64 - 59}^2.
+    // * secp256k1 base field.
+    // * Variable-length FieldID values specifying custom prime fields or
+    //   quadratic extension fields.
 }
 
 impl TryFrom<u8> for FieldId {
@@ -143,8 +158,12 @@ impl TryFrom<u8> for FieldId {
         match value {
             0 => Ok(Self::None),
             1 => Ok(Self::P256),
+            2 => Ok(Self::P384),
+            3 => Ok(Self::P521),
+            4 => Ok(Self::GF2_128),
+            5 => Ok(Self::GF2_16),
             6 => Ok(Self::FP128),
-            _ => Err(anyhow!("unknown field ID")),
+            _ => Err(anyhow!("unknown field ID {value}")),
         }
     }
 }
@@ -171,6 +190,10 @@ impl FieldId {
         match self {
             FieldId::None => 0,
             FieldId::P256 => FieldP256::num_bytes(),
+            FieldId::P384 => 48,
+            FieldId::P521 => FieldP521::num_bytes(),
+            FieldId::GF2_128 => Field2_128::num_bytes(),
+            FieldId::GF2_16 => 2,
             FieldId::FP128 => FieldP128::num_bytes(),
         }
     }

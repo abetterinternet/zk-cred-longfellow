@@ -12,6 +12,7 @@ use std::{iter::repeat_with, mem::swap};
 
 mod bind;
 mod constraints;
+mod symbolic;
 
 /// Proof constructed by sumcheck.
 #[derive(Clone, Debug, PartialEq, Eq)]

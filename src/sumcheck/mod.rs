@@ -91,7 +91,7 @@ impl<FE: CodecFieldElement> Proof<FE> {
             // The combined quad, aka QZ[g, l, r], a three dimensional array.
             let combined_quad = circuit.combined_quad(layer_index, beta)?;
 
-            // Bind the combined quad to g.
+            // Bind the combined quad to G.
             let mut bound_quad = combined_quad
                 .bind(&bindings[0])
                 .elementwise_sum(&combined_quad.bind(&bindings[1]).scale(alpha));
@@ -226,8 +226,13 @@ impl<FE: CodecFieldElement> Proof<FE> {
             }
 
             // Specification interpretation verification: over the course of the loop above, we bind
-            // left_wires and right_wires to single field elements enough times that both should be
-            // reduced to a single non-zero element.
+            // bound_quad, left_wires and right_wires to single field elements enough times that all
+            // should be reduced to a single non-zero element.
+            for i in 1..bound_quad.len() {
+                for j in 1..bound_quad[i].len() {
+                    assert_eq!(bound_quad[i][j], FE::ZERO, "bound quad: {bound_quad:?}");
+                }
+            }
             for left_wire in left_wires.iter().skip(1) {
                 assert_eq!(left_wire, &FE::ZERO, "left wires: {left_wires:#?}");
             }

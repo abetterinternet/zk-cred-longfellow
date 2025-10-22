@@ -86,7 +86,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
             circuit.layers.iter().map(CircuitLayer::logw).collect(),
         );
 
-        transcript.initialize(&circuit, public_inputs)?;
+        transcript.initialize(circuit, public_inputs)?;
 
         // Choose the bindings for the output layer.
         // The spec says to generate "circuit.lv" field elements, which I think has to mean the
@@ -149,7 +149,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
 
             for (round, polynomial_pair) in proof_layer.polynomials.iter().enumerate() {
                 for (hand, polynomial) in polynomial_pair.iter().enumerate() {
-                    transcript.write_polynomial(&polynomial)?;
+                    transcript.write_polynomial(polynomial)?;
 
                     let challenge = transcript.generate_challenge(1)?;
                     new_bindings[hand][round] = challenge[0];

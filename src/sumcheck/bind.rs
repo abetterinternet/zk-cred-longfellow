@@ -260,7 +260,7 @@ pub fn bindeq<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
     );
     let mut bound = vec![FE::ZERO; output_len];
 
-    if input.len() == 0 {
+    if input.is_empty() {
         bound[0] = FE::ONE;
     } else {
         let a = bindeq(&input[1..]);

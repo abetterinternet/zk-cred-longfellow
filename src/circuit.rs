@@ -135,7 +135,7 @@ impl Circuit {
         F::try_from(
             &self
                 .constant_table
-                .get(usize::from(index))
+                .get(index)
                 .ok_or_else(|| anyhow!("index {} not present in constant table", index))?
                 .clone()
                 .0,
@@ -316,7 +316,7 @@ impl Circuit {
                 vec![FE::ZERO; self.layers[layer_index].num_wires()];
                 self.layers[layer_index].num_wires()
             ];
-            num_gates.into()
+            num_gates
         ];
 
         for quad in &self.layers[layer_index].quads {

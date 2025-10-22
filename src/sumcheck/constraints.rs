@@ -21,7 +21,7 @@ use crate::{
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.4.2
 // We don't yet examine these outside of test code, so allow dead code for now.
 #[allow(dead_code)]
-pub struct LinearConstraintTerm<FieldElement> {
+pub struct LinearConstraintLhsTerm<FieldElement> {
     /// The constraint number or row of A. This is an index into the vector `b`, which we represent
     /// as `ProofConstraints::linear_constraint_rhs`. This is `c` in the specification.
     constraint_number: usize,
@@ -43,7 +43,7 @@ pub struct QuadraticConstraint {
 
 pub struct ProofConstraints<FieldElement> {
     /// Terms contributing to the left hand sides of linear constraints.
-    linear_constraint_lhs: Vec<LinearConstraintTerm<FieldElement>>,
+    linear_constraint_lhs: Vec<LinearConstraintLhsTerm<FieldElement>>,
 
     /// Vector of right hand sides of linear constraints.
     linear_constraint_rhs: Vec<FieldElement>,
@@ -186,7 +186,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                     // linear constraint LHS terms.
                     constraints
                         .linear_constraint_lhs
-                        .push(LinearConstraintTerm {
+                        .push(LinearConstraintLhsTerm {
                             constraint_number: layer_index,
                             witness_index: p0_witness_index,
                             constant_factor: lag_i(FE::ZERO, challenge[0]),
@@ -194,7 +194,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                     // No constraint for P1, because it gets interpolated.
                     constraints
                         .linear_constraint_lhs
-                        .push(LinearConstraintTerm {
+                        .push(LinearConstraintLhsTerm {
                             constraint_number: layer_index,
                             witness_index: p2_witness_index,
                             constant_factor: lag_i(FE::SUMCHECK_P2, challenge[0]),
@@ -220,7 +220,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
             // - (Q * layer_proof.vr) * sym_layer_pad.vl
             constraints
                 .linear_constraint_lhs
-                .push(LinearConstraintTerm {
+                .push(LinearConstraintLhsTerm {
                     constraint_number: layer_index,
                     witness_index: vl_witness,
                     constant_factor: -bound_quad[0][0] * proof_layer.vr,
@@ -228,7 +228,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
             // - (Q * layer_proof.vl) * sym_layer_pad.vr
             constraints
                 .linear_constraint_lhs
-                .push(LinearConstraintTerm {
+                .push(LinearConstraintLhsTerm {
                     constraint_number: layer_index,
                     witness_index: vr_witness,
                     constant_factor: -bound_quad[0][0] * proof_layer.vl,
@@ -236,7 +236,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
             // - Q * sym_layer_pad.vl_vr
             constraints
                 .linear_constraint_lhs
-                .push(LinearConstraintTerm {
+                .push(LinearConstraintLhsTerm {
                     constraint_number: layer_index,
                     witness_index: vl_vr_witness,
                     constant_factor: -bound_quad[0][0],
@@ -284,7 +284,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
         {
             constraints
                 .linear_constraint_lhs
-                .push(LinearConstraintTerm {
+                .push(LinearConstraintLhsTerm {
                     constraint_number: input_layer_index,
                     witness_index: private_input_witness,
                     constant_factor: eq2[private_input_index + circuit.num_public_inputs()],
@@ -296,7 +296,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
         // Linear constraint LHS term for sym_layer_pad.vl
         constraints
             .linear_constraint_lhs
-            .push(LinearConstraintTerm {
+            .push(LinearConstraintLhsTerm {
                 constraint_number: input_layer_index,
                 witness_index: vl_witness,
                 constant_factor: -FE::ONE,
@@ -305,7 +305,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
         // Linear constraint LHS term for sym_layer_pad.vr
         constraints
             .linear_constraint_lhs
-            .push(LinearConstraintTerm {
+            .push(LinearConstraintLhsTerm {
                 constraint_number: input_layer_index,
                 witness_index: vr_witness,
                 constant_factor: -gamma,
@@ -332,7 +332,7 @@ mod tests {
     use super::*;
     use crate::{
         circuit::{Evaluation, tests::CircuitTestVector},
-        fields::fieldp128::FieldP128,
+        fields::{FieldElement, fieldp128::FieldP128},
         sumcheck::Prover,
     };
 
@@ -372,7 +372,7 @@ mod tests {
                 + 2
         );
 
-        for lhs_term in constraints.linear_constraint_lhs {
+        for lhs_term in &constraints.linear_constraint_lhs {
             // All LHS terms should refer to an element of the RHS vector.
             assert!(lhs_term.constraint_number < constraints.linear_constraint_rhs.len());
             assert!(lhs_term.witness_index < witness_layout.length());
@@ -387,6 +387,22 @@ mod tests {
             constraints.quadratic_constraints.len(),
             circuit.num_layers()
         );
+
+        let mut lhs_summed = vec![FieldP128::ZERO; constraints.linear_constraint_rhs.len()];
+        for LinearConstraintLhsTerm {
+            constraint_number,
+            witness_index,
+            constant_factor,
+        } in constraints.linear_constraint_lhs
+        {
+            lhs_summed[constraint_number] += proof.witness[witness_index] * constant_factor;
+        }
+
+        assert_eq!(lhs_summed, constraints.linear_constraint_rhs);
+
+        for QuadraticConstraint { x, y, z } in constraints.quadratic_constraints {
+            assert_eq!(proof.witness[x] * proof.witness[y], proof.witness[z]);
+        }
 
         // Transcripts should have received the same sequence of writes.
         assert_eq!(proof.transcript, constraint_transcript);

@@ -167,6 +167,11 @@ impl Circuit {
         usize::from(self.num_inputs) - self.num_public_inputs()
     }
 
+    /// The number of outputs from the ciruit.
+    pub fn num_outputs(&self) -> usize {
+        self.num_outputs.into()
+    }
+
     /// Evaluate the circuit with the provided inputs.
     ///
     /// Bugs: taking inputs as u128 is inadequate for larger fields like P256.
@@ -198,7 +203,7 @@ impl Circuit {
             .enumerate()
         {
             let next_layer_num_wires = if layer_index == output_layer_index {
-                self.num_outputs
+                self.num_outputs()
             } else {
                 self.layers[
                     // index from the end because we are iterating self.layers in reverse
@@ -206,14 +211,14 @@ impl Circuit {
                     // next layer of the circuit is -1
                     - 1
                 ]
-                .num_wires
+                .num_wires()
             };
             // A single gate may receive contributions from multiple quads, so preallocate a vector
             // of length matching the next layer's number of input wires, and accumulate quad
             // outputs into that.
             // Depending on the circuit compiler, it's possible that there will be unused elements
             // in this vector.
-            let mut gate_outputs = vec![FE::ZERO; next_layer_num_wires.into()];
+            let mut gate_outputs = vec![FE::ZERO; next_layer_num_wires];
 
             // Note which gates receive contributions from Z quads.
             let mut z_gate_indexes = HashSet::new();
@@ -256,7 +261,7 @@ impl Circuit {
 
                 // Specification interpretation verification: this should never happen. We check
                 // this condition in roundtrip_circuit_test_vector, but not in deserialization.
-                if quad.gate_index >= next_layer_num_wires {
+                if quad.gate_index() >= next_layer_num_wires {
                     panic!(
                         "quad {quad_index} on layer {layer_index} contains gate index {} exceeding \
                         the next layer's number of input wires {next_layer_num_wires}",
@@ -298,9 +303,9 @@ impl Circuit {
     ) -> Result<Vec<Vec<Vec<FE>>>, anyhow::Error> {
         // The number of gates on this layer is the number of input wires to the next layer
         let num_gates = if layer_index == 0 {
-            self.num_outputs
+            self.num_outputs()
         } else {
-            self.layers[layer_index - 1].num_wires
+            self.layers[layer_index - 1].num_wires()
         };
 
         // Outer vector: index by gate number
@@ -308,8 +313,8 @@ impl Circuit {
             // Inner vector: index by left wire number
             vec![
                 // Innermost vector: index by right wire number
-                vec![FE::ZERO; self.layers[layer_index].num_wires.into()];
-                self.layers[layer_index].num_wires.into()
+                vec![FE::ZERO; self.layers[layer_index].num_wires()];
+                self.layers[layer_index].num_wires()
             ];
             num_gates.into()
         ];
@@ -423,6 +428,11 @@ impl CircuitLayer {
     /// The number of bits needed to describe a wire on this layer.
     pub fn logw(&self) -> usize {
         self.logw.into()
+    }
+
+    /// Number of wires entering the layer, hence the number of inputs.
+    pub fn num_wires(&self) -> usize {
+        self.num_wires.into()
     }
 }
 
@@ -628,14 +638,14 @@ pub(crate) mod tests {
                 assert!(quad.const_table_index < circuit.constant_table.len());
 
                 let next_layer_num_wires = if layer_index == 0 {
-                    circuit.num_outputs
+                    circuit.num_outputs()
                 } else {
                     // The Longfellow convention is that layer 0 is outputs and layer num_layers is
                     // inputs, so the next layer of the circuit is -1.
                     // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.3.1
-                    circuit.layers[layer_index - 1].num_wires
+                    circuit.layers[layer_index - 1].num_wires()
                 };
-                if quad.gate_index >= next_layer_num_wires {
+                if quad.gate_index() >= next_layer_num_wires {
                     panic!(
                         "quad {quad_index} on layer {layer_index} has gate number {} exceeding the \
                         number of input wires on the next layer",

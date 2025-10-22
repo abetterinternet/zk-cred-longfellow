@@ -9,10 +9,9 @@ use std::ops::Range;
 ///   - polynomials at each layer (2 * 2 * logw elements per circuit layer)
 ///   - vl, vr and vl * vr for each layer of the circuit (three elements per circuit layer)
 ///
-/// The prover and verifier both manipulate these quantities symbolically (see
-/// [`sumcheck::symbolic::SymbolicExpression`]), so this structure doesn't actually contain witness
-/// values. Rather, it is used to determine where in the witness vector a given value occurs so that
-/// the right challenge value can be looked up later.
+/// The prover and verifier both manipulate these quantities symbolically, so this structure doesn't
+/// actually contain witness values. Rather, it is used to determine where in the witness vector a
+/// given value occurs so that the right challenge value can be looked up later.
 pub(crate) struct WitnessLayout {
     /// The number of private inputs to the circuit.
     num_private_inputs: usize,
@@ -72,6 +71,16 @@ impl WitnessLayout {
         // p0 and p2 are always adjacent in the witness vector
         (start, start + 1)
     }
+
+    /// Total length of the witness vector.
+    #[cfg(test)]
+    pub(crate) fn length(&self) -> usize {
+        self.num_private_inputs
+            // three wire witnesses per layer
+            + self.logw.len() * 3
+            // four polynomial witnesses per logw
+            + 4 * self.logw.iter().sum::<usize>()
+    }
 }
 
 #[cfg(test)]
@@ -82,16 +91,16 @@ mod tests {
 
     #[test]
     fn witness_layout() {
-        let layout = WitnessLayout::new(3, vec![0, 3, 2]);
         // private inputs:    private_input_0 | private_input_1 | private_input_2 |
         // layer 0: logw = 0: vl | vr | vl * vr
         // layer 1: logw = 3: p0_hand0_round0 | p2_hand0_round0 | p0_hand1_round0 | p2_hand1_round0
-        //                    | p0_hand0_round1 | p2_hand0_round1 | p0_hand1_round1 | p2_hand1_round1
-        //                    | p0_hand0_round2 | p2_hand0_round2 | p0_hand1_round2 | p2_hand1_round2
-        //                    | vl | vr | vl * vr
+        //                  | p0_hand0_round1 | p2_hand0_round1 | p0_hand1_round1 | p2_hand1_round1
+        //                  | p0_hand0_round2 | p2_hand0_round2 | p0_hand1_round2 | p2_hand1_round2
+        //                  | vl | vr | vl * vr
         // layer 2: logw = 2: p0_hand0_round0 | p2_hand0_round0 | p0_hand1_round0 | p2_hand1_round0
-        //                    | p0_hand0_round1 | p2_hand0_round1 | p0_hand1_round1 | p2_hand1_round1
-        //                    | vl | vr | vl * vr
+        //                  | p0_hand0_round1 | p2_hand0_round1 | p0_hand1_round1 | p2_hand1_round1
+        //                  | vl | vr | vl * vr
+        let layout = WitnessLayout::new(3, vec![0, 3, 2]);
 
         assert_eq!(layout.private_input_witness_indices(), 0..3);
 
@@ -124,5 +133,7 @@ mod tests {
         // Layer 3 does not exist.
         catch_unwind(|| layout.polynomial_witness_indices(3, 0, 0)).unwrap_err();
         catch_unwind(|| layout.wire_witness_indices(3)).unwrap_err();
+
+        assert_eq!(layout.length(), 32);
     }
 }

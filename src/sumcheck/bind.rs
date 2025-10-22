@@ -258,13 +258,14 @@ pub fn bindeq<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
             .try_into()
             .expect("array length too big to exponentiate!"),
     );
-    let mut bound = Vec::with_capacity(output_len);
+    let mut bound = vec![FE::ZERO; output_len];
 
     if input.len() == 0 {
         bound[0] = FE::ONE;
     } else {
         let a = bindeq(&input[1..]);
-        for index in 0..output_len {
+        // usize::div rounds towards zero
+        for index in 0..output_len / 2 {
             bound[2 * index] = (FE::ONE - input[0]) * a[index];
             bound[2 * index + 1] = input[0] * a[index];
         }

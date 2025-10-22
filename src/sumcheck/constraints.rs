@@ -19,6 +19,8 @@ use crate::{
 /// together into one of the elements of `ProofConstraints::linear_constraint_rhs`.
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.4.2
+// We don't yet examine these outside of test code, so allow dead code for now.
+#[allow(dead_code)]
 pub struct LinearConstraintTerm<FieldElement> {
     /// The constraint number or row of A. This is an index into the vector `b`, which we represent
     /// as `ProofConstraints::linear_constraint_rhs`. This is `c` in the specification.
@@ -120,8 +122,8 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
 
             // Allocate room for the new bindings this layer will generate
             let mut new_bindings = [
-                vec![FE::ZERO; circuit_layer.logw.into()],
-                vec![FE::ZERO; circuit_layer.logw.into()],
+                vec![FE::ZERO; circuit_layer.logw()],
+                vec![FE::ZERO; circuit_layer.logw()],
             ];
 
             // For each layer, we output a linear constraint:
@@ -340,7 +342,6 @@ fn lag_i<FE: CodecFieldElement>(i: FE, x: FE) -> FE {
 mod tests {
     use super::*;
     use crate::{
-        Size,
         circuit::{Evaluation, tests::CircuitTestVector},
         fields::fieldp128::FieldP128,
     };
@@ -350,7 +351,10 @@ mod tests {
         let (_, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
 
-        assert_eq!(circuit.num_copies, Size(1));
+        let witness_layout = WitnessLayout::new(
+            circuit.num_private_inputs(),
+            circuit.layers.iter().map(CircuitLayer::logw).collect(),
+        );
 
         // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
         let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
@@ -370,16 +374,31 @@ mod tests {
         let mut constraint_transcript = Transcript::new(b"test").unwrap();
         let constraints = ProofConstraints::from_proof(
             &circuit,
-            evaluation.public_inputs(circuit.num_public_inputs.into()),
+            evaluation.public_inputs(circuit.num_public_inputs()),
             &mut constraint_transcript,
             &proof,
         )
         .unwrap();
 
         assert_eq!(
+            constraints.linear_constraint_lhs.len(),
+            3 * circuit.num_layers()
+                + circuit.logw_sum() * 2 * 2
+                + circuit.num_private_inputs()
+                + 2
+        );
+
+        for lhs_term in constraints.linear_constraint_lhs {
+            // All LHS terms should refer to an element of the RHS vector.
+            assert!(lhs_term.constraint_number < constraints.linear_constraint_rhs.len());
+            assert!(lhs_term.witness_index < witness_layout.length());
+        }
+
+        assert_eq!(
             constraints.linear_constraint_rhs.len(),
             circuit.num_layers() + 1
         );
+
         assert_eq!(
             constraints.quadratic_constraints.len(),
             circuit.num_layers()

@@ -11,7 +11,7 @@ use crate::{
 use std::{iter::repeat_with, mem::swap};
 
 mod bind;
-mod constraints;
+pub mod constraints;
 mod witness;
 
 /// Proof constructed by sumcheck.
@@ -27,7 +27,7 @@ impl<FE: CodecFieldElement> Proof<FE> {
         circuit: &Circuit,
         bytes: &mut std::io::Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
-        let mut proof_layers = Vec::with_capacity(circuit.num_layers.into());
+        let mut proof_layers = Vec::with_capacity(circuit.num_layers());
 
         for circuit_layer in &circuit.layers {
             proof_layers.push(ProofLayer::decode(circuit_layer, bytes)?);
@@ -67,7 +67,7 @@ impl<FE: CodecFieldElement> Proof<FE> {
 
         transcript.initialize(
             circuit,
-            evaluation.public_inputs(circuit.num_public_inputs.into()),
+            evaluation.public_inputs(circuit.num_public_inputs()),
         )?;
 
         // After Fiat-Shamir initialization, but before proving the layers, longfellow-zk writes all
@@ -80,7 +80,7 @@ impl<FE: CodecFieldElement> Proof<FE> {
         let mut bindings = [output_wire_bindings.clone(), output_wire_bindings];
 
         let mut proof = Proof {
-            layers: Vec::with_capacity(circuit.num_layers.into()),
+            layers: Vec::with_capacity(circuit.num_layers()),
         };
 
         for (layer_index, layer) in circuit.layers.iter().enumerate() {
@@ -108,10 +108,7 @@ impl<FE: CodecFieldElement> Proof<FE> {
             let mut bound_quad = bound_quad.remove(0);
 
             // Allocate room for the new bindings this layer will generate
-            let mut new_bindings = [
-                vec![FE::ZERO; layer.logw.into()],
-                vec![FE::ZERO; layer.logw.into()],
-            ];
+            let mut new_bindings = [vec![FE::ZERO; layer.logw()], vec![FE::ZERO; layer.logw()]];
 
             // Generate the pad for this layer. The pad has the same structure as the proof since the
             // one has to be subtracted from the other.
@@ -128,7 +125,7 @@ impl<FE: CodecFieldElement> Proof<FE> {
                         },
                     ]
                 })
-                .take(layer.logw.into())
+                .take(layer.logw())
                 .collect(),
                 vl: pad_generator(),
                 vr: pad_generator(),
@@ -141,7 +138,7 @@ impl<FE: CodecFieldElement> Proof<FE> {
                     p0: FE::ZERO,
                     p2: FE::ZERO
                 }; 2];
-                layer.logw.into()
+                layer.logw()
             ];
 
             // (VL, VR) = wires

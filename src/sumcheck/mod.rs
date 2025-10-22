@@ -5,7 +5,10 @@
 use crate::{
     circuit::{Circuit, CircuitLayer, Evaluation},
     fields::CodecFieldElement,
-    sumcheck::bind::{ElementwiseSum, SumcheckArray},
+    sumcheck::{
+        bind::{ElementwiseSum, SumcheckArray},
+        witness::WitnessLayout,
+    },
     transcript::Transcript,
 };
 use std::{iter::repeat_with, mem::swap};
@@ -14,82 +17,97 @@ mod bind;
 pub mod constraints;
 mod witness;
 
-/// Proof constructed by sumcheck.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Proof<FieldElement> {
-    layers: Vec<ProofLayer<FieldElement>>,
+/// Generate a sumcheck proof of evaluation of a circuit.
+#[derive(Clone, Debug)]
+pub struct Prover<'a, PadGenerator> {
+    circuit: &'a Circuit,
+    pad_generator: PadGenerator,
+    write_all_inputs_to_transcript: bool,
+    session_id: &'a str,
 }
 
-impl<FE: CodecFieldElement> Proof<FE> {
-    /// Decode a proof from the bytes. This can't be an implementation of [`Codec`][crate::Codec]
-    /// because we need the circuit this is a proof of to know how many layers there are.
-    pub fn decode(
-        circuit: &Circuit,
-        bytes: &mut std::io::Cursor<&[u8]>,
-    ) -> Result<Self, anyhow::Error> {
-        let mut proof_layers = Vec::with_capacity(circuit.num_layers());
-
-        for circuit_layer in &circuit.layers {
-            proof_layers.push(ProofLayer::decode(circuit_layer, bytes)?);
-        }
-
-        Ok(Self {
-            layers: proof_layers,
-        })
-    }
-
-    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
-        // Encode the layers as a fixed length array. That is, no length prefix.
-        for layer in &self.layers {
-            layer.encode(bytes)?;
-        }
-
-        Ok(())
-    }
+/// Sumcheck proof plus some extra data useful for validation.
+#[derive(Clone, Debug)]
+// We don't yet examine these outside of test code, so allow dead code for now.
+#[allow(dead_code)]
+pub struct ProverResult<FE> {
+    /// The sumcheck proof from which Ligero constraints may be generated.
+    proof: Proof<FE>,
+    /// The witnesses computed while computing the proof. The witness vector is never actually used
+    /// by the prover during the protocol. It is recorded only to help validate the correctness of
+    /// later steps.
+    witness: Vec<FE>,
+    /// The transcript after all the proof messages have been written to it.
+    transcript: Transcript,
 }
 
-impl<FE: CodecFieldElement> Proof<FE> {
+impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGenerator> {
+    pub fn new(circuit: &'a Circuit, pad_generator: PadGenerator, session_id: &'a str) -> Self {
+        Self {
+            circuit,
+            pad_generator,
+            write_all_inputs_to_transcript: false,
+            session_id,
+        }
+    }
+
+    /// After Fiat-Shamir initialization, but before proving the layers, longfellow-zk's
+    /// sumcheck/prover.h (used by zk_test.cc to generate test vectors) writes all the inputs
+    /// to the circuit (public and private) to the transcript. This presumably constitutes
+    /// the "prover message" described in 3.1.3 item 1.
+    ///
+    /// We optionally emulate this behavior for compatibility with test vectors.
+    ///
+    /// See discussion in https://github.com/google/longfellow-zk/issues/37,
+    /// https://github.com/google/longfellow-zk/issues/70
+    pub fn with_write_all_inputs_to_transcript(mut self, enable: bool) -> Self {
+        self.write_all_inputs_to_transcript = enable;
+        self
+    }
+
     /// Construct a padded proof of the transcript of the given evaluation of the circuit and return
     /// the prover messages needed for the verifier to reconstruct the transcript.
-    pub fn new<PadGenerator>(
-        circuit: &Circuit,
+    pub fn prove(
+        &mut self,
         evaluation: &Evaluation<FE>,
-        transcript: &mut Transcript,
-        mut pad_generator: PadGenerator,
-    ) -> Result<Proof<FE>, anyhow::Error>
-    where
-        PadGenerator: FnMut() -> FE,
-    {
+    ) -> Result<ProverResult<FE>, anyhow::Error> {
         // Specification interpretation verification: all the outputs should be zero
         for output in evaluation.outputs() {
             assert_eq!(output, &FE::ZERO);
         }
 
+        let witness_layout = WitnessLayout::from_circuit(self.circuit);
+        let mut witness = Vec::with_capacity(witness_layout.length());
+
+        // Witness vector starts with private inputs
+        witness.extend(evaluation.private_inputs(self.circuit.num_public_inputs()));
+
+        let mut transcript = Transcript::new(self.session_id.as_bytes())?;
+
         transcript.initialize(
-            circuit,
-            evaluation.public_inputs(circuit.num_public_inputs()),
+            self.circuit,
+            evaluation.public_inputs(self.circuit.num_public_inputs()),
         )?;
 
-        // After Fiat-Shamir initialization, but before proving the layers, longfellow-zk writes all
-        // the inputs to the circuit (public and private) to the transcript. This presumably
-        // constitutes the "prover message" described in 3.1.3 item 1.
-        transcript.write_field_element_array(evaluation.inputs())?;
+        if self.write_all_inputs_to_transcript {
+            transcript.write_field_element_array(evaluation.inputs())?;
+        }
 
         // Choose the bindings for the output layer.
-        let output_wire_bindings = transcript.generate_output_wire_bindings(circuit)?;
+        let output_wire_bindings = transcript.generate_output_wire_bindings(self.circuit)?;
         let mut bindings = [output_wire_bindings.clone(), output_wire_bindings];
 
         let mut proof = Proof {
-            layers: Vec::with_capacity(circuit.num_layers()),
+            layers: Vec::with_capacity(self.circuit.num_layers()),
         };
 
-        for (layer_index, layer) in circuit.layers.iter().enumerate() {
+        for (layer_index, layer) in self.circuit.layers.iter().enumerate() {
             // Choose alpha and beta for this layer
             let alpha = transcript.generate_challenge(1)?[0];
             let beta = transcript.generate_challenge(1)?[0];
 
             // The combined quad, aka QZ[g, l, r], a three dimensional array.
-            let combined_quad = circuit.combined_quad(layer_index, beta)?;
+            let combined_quad = self.circuit.combined_quad(layer_index, beta)?;
 
             // Bind the combined quad to G.
             let mut bound_quad = combined_quad
@@ -116,19 +134,19 @@ impl<FE: CodecFieldElement> Proof<FE> {
                 polynomials: repeat_with(|| {
                     [
                         Polynomial {
-                            p0: pad_generator(),
-                            p2: pad_generator(),
+                            p0: (self.pad_generator)(),
+                            p2: (self.pad_generator)(),
                         },
                         Polynomial {
-                            p0: pad_generator(),
-                            p2: pad_generator(),
+                            p0: (self.pad_generator)(),
+                            p2: (self.pad_generator)(),
                         },
                     ]
                 })
                 .take(layer.logw())
                 .collect(),
-                vl: pad_generator(),
-                vr: pad_generator(),
+                vl: (self.pad_generator)(),
+                vr: (self.pad_generator)(),
             };
 
             // Allocate the proof for this layer. The zero values in the polynomial are not
@@ -198,9 +216,15 @@ impl<FE: CodecFieldElement> Proof<FE> {
                     };
 
                     // Evaluate the polynomial at P0 and P2, subtracting the pad
+                    let unpadded_p0 = evaluate_polynomial(FE::ZERO);
+                    let unpadded_p2 = evaluate_polynomial(FE::SUMCHECK_P2);
+
+                    // Add unpadded polynomials to the witness.
+                    witness.extend([unpadded_p0, unpadded_p2]);
+
                     let poly_evaluation = Polynomial {
-                        p0: evaluate_polynomial(FE::ZERO) - pad_polynomials[hand].p0,
-                        p2: evaluate_polynomial(FE::SUMCHECK_P2) - pad_polynomials[hand].p2,
+                        p0: unpadded_p0 - pad_polynomials[hand].p0,
+                        p2: unpadded_p2 - pad_polynomials[hand].p2,
                     };
 
                     // Commit to the padded polynomial.
@@ -237,6 +261,13 @@ impl<FE: CodecFieldElement> Proof<FE> {
                 assert_eq!(right_wire, &FE::ZERO, "right wires: {right_wires:#?}");
             }
 
+            // Add unpadded vl, vr and vl * vr to the witness
+            witness.extend([
+                left_wires.element(0),
+                right_wires.element(0),
+                left_wires.element(0) * right_wires.element(0),
+            ]);
+
             let layer_proof = ProofLayer {
                 polynomials: layer_proof_polynomials,
                 vl: left_wires.element(0) - layer_pad.vl,
@@ -252,9 +283,49 @@ impl<FE: CodecFieldElement> Proof<FE> {
             bindings = new_bindings;
         }
 
-        Ok(proof)
+        Ok(ProverResult {
+            proof,
+            witness,
+            transcript,
+        })
     }
 }
+
+/// Proof constructed by sumcheck.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Proof<FieldElement> {
+    layers: Vec<ProofLayer<FieldElement>>,
+}
+
+impl<FE: CodecFieldElement> Proof<FE> {
+    /// Decode a proof from the bytes. This can't be an implementation of [`Codec`][crate::Codec]
+    /// because we need the circuit this is a proof of to know how many layers there are.
+    pub fn decode(
+        circuit: &Circuit,
+        bytes: &mut std::io::Cursor<&[u8]>,
+    ) -> Result<Self, anyhow::Error> {
+        let mut proof_layers = Vec::with_capacity(circuit.num_layers());
+
+        for circuit_layer in &circuit.layers {
+            proof_layers.push(ProofLayer::decode(circuit_layer, bytes)?);
+        }
+
+        Ok(Self {
+            layers: proof_layers,
+        })
+    }
+
+    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        // Encode the layers as a fixed length array. That is, no length prefix.
+        for layer in &self.layers {
+            layer.encode(bytes)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<FE: CodecFieldElement> Proof<FE> {}
 
 /// Sumcheck proof for a circuit layer.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -374,31 +445,30 @@ mod tests {
         // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
         let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
 
-        // Matches session used in longfellow-zk/lib/zk/zk_test.cc
-        let mut transcript = Transcript::new(b"test").unwrap();
-
-        let proof = Proof::new(
+        let proof = Prover::new(
             &circuit,
-            &evaluation,
-            &mut transcript,
             // Transcript/FSPRF output is deterministic for a given session ID and sequence of
             // inputs, but the pad is implied to be constructed of uniformly sampled field elements.
             // To get deterministic output we can test against vectors, fix the pad source to
             // always yield zero.
             || FieldP128::ZERO,
+            // Matches session used in longfellow-zk/lib/zk/zk_test.cc
+            "test",
         )
+        .with_write_all_inputs_to_transcript(true)
+        .prove(&evaluation)
         .unwrap();
 
         let test_vector_decoded =
             Proof::decode(&circuit, &mut Cursor::new(&test_vector.serialized_proof)).unwrap();
 
         assert_eq!(
-            proof, test_vector_decoded,
+            proof.proof, test_vector_decoded,
             "ours: {proof:#?}\n\ntheirs: {test_vector_decoded:#?}"
         );
 
         let mut proof_encoded = Vec::new();
-        proof.encode(&mut proof_encoded).unwrap();
+        proof.proof.encode(&mut proof_encoded).unwrap();
 
         assert_eq!(proof_encoded.len(), test_vector.serialized_proof.len());
         assert_eq!(proof_encoded, test_vector.serialized_proof);

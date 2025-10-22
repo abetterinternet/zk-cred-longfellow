@@ -354,6 +354,11 @@ impl<FieldElement> Evaluation<FieldElement> {
         &self.inputs()[..num_public_inputs]
     }
 
+    /// Get the private inputs for this evaluation.
+    pub fn private_inputs(&self, num_public_inputs: usize) -> &[FieldElement] {
+        &self.inputs()[num_public_inputs..]
+    }
+
     pub fn inputs(&self) -> &[FieldElement] {
         &self.wires[self.wires.len() - 1]
     }

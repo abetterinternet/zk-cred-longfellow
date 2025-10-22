@@ -1,5 +1,6 @@
 //! Implements the witness vector, referred to as W in the specification.
 
+use crate::circuit::{Circuit, CircuitLayer};
 use std::ops::Range;
 
 /// The witness vector W. This is a 1D vector containing values known to the prover but not the
@@ -20,6 +21,13 @@ pub(crate) struct WitnessLayout {
 }
 
 impl WitnessLayout {
+    pub(crate) fn from_circuit(circuit: &Circuit) -> Self {
+        Self::new(
+            circuit.num_private_inputs(),
+            circuit.layers.iter().map(CircuitLayer::logw).collect(),
+        )
+    }
+
     pub(crate) fn new(num_private_inputs: usize, logw: Vec<usize>) -> Self {
         Self {
             num_private_inputs,
@@ -73,7 +81,6 @@ impl WitnessLayout {
     }
 
     /// Total length of the witness vector.
-    #[cfg(test)]
     pub(crate) fn length(&self) -> usize {
         self.num_private_inputs
             // three wire witnesses per layer

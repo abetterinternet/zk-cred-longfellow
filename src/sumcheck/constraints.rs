@@ -4,7 +4,7 @@
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
 
 use crate::{
-    circuit::{Circuit, CircuitLayer},
+    circuit::Circuit,
     fields::CodecFieldElement,
     sumcheck::{
         Proof,
@@ -81,10 +81,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
             quadratic_constraints: Vec::with_capacity(circuit.num_layers()),
         };
 
-        let witness_layout = WitnessLayout::new(
-            circuit.num_private_inputs(),
-            circuit.layers.iter().map(CircuitLayer::logw).collect(),
-        );
+        let witness_layout = WitnessLayout::from_circuit(circuit);
 
         transcript.initialize(circuit, public_inputs)?;
 
@@ -336,6 +333,7 @@ mod tests {
     use crate::{
         circuit::{Evaluation, tests::CircuitTestVector},
         fields::fieldp128::FieldP128,
+        sumcheck::Prover,
     };
 
     #[test]
@@ -343,24 +341,18 @@ mod tests {
         let (_, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
 
-        let witness_layout = WitnessLayout::new(
-            circuit.num_private_inputs(),
-            circuit.layers.iter().map(CircuitLayer::logw).collect(),
-        );
+        let witness_layout = WitnessLayout::from_circuit(&circuit);
 
         // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
         let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
 
-        // Matches session used in longfellow-zk/lib/zk/zk_test.cc
-        let mut proof_transcript = Transcript::new(b"test").unwrap();
-
-        let proof = Proof::new(
+        let proof = Prover::new(
             &circuit,
-            &evaluation,
-            &mut proof_transcript,
             // Here we do _not_ fix the pad to zeroes in order to exercise symbolic manipulation.
             FieldP128::sample,
+            "test",
         )
+        .prove(&evaluation)
         .unwrap();
 
         let mut constraint_transcript = Transcript::new(b"test").unwrap();
@@ -368,7 +360,7 @@ mod tests {
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
             &mut constraint_transcript,
-            &proof,
+            &proof.proof,
         )
         .unwrap();
 
@@ -397,6 +389,6 @@ mod tests {
         );
 
         // Transcripts should have received the same sequence of writes.
-        assert!(proof_transcript.compare_state(&constraint_transcript));
+        assert_eq!(proof.transcript, constraint_transcript);
     }
 }

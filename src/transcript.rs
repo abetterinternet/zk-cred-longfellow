@@ -245,16 +245,18 @@ impl Transcript {
             .take(length)
             .collect())
     }
+}
 
-    /// Check whether this transcript's state is identical to the other.
-    #[cfg(test)]
-    pub(crate) fn compare_state(&self, other: &Self) -> bool {
+impl PartialEq for Transcript {
+    fn eq(&self, other: &Self) -> bool {
         let own_fsprf_seed = self.fsprf_seed.clone().finalize();
         let other_fsprf_seed = other.fsprf_seed.clone().finalize();
 
         own_fsprf_seed.as_slice() == other_fsprf_seed.as_slice()
     }
 }
+
+impl Eq for Transcript {}
 
 /// An iterator producing an infinite stream of bytes based on the provided key.
 ///

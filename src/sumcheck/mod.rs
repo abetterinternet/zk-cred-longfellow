@@ -347,7 +347,7 @@ impl<FE: CodecFieldElement> ProofLayer<FE> {
 /// needed" ([6.5][2]).
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.4
-/// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.5
+/// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.5
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Polynomial<FE> {
     pub p0: FE,

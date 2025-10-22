@@ -57,8 +57,8 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
     /// inputs.
     ///
     /// Corresponds to `constraints_circuit` in [1]. That definition takes arguments `sym_pad` and
-    /// `sym_private_inputs`, but we represent those as [`SymbolicExpression`] and do not need to
-    /// pre-construct them.
+    /// `sym_private_inputs`, but since the whole point is that we don't know what those values are,
+    /// it doesn't make sense to represent them as arguments.
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
     pub fn from_proof(

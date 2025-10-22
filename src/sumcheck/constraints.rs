@@ -13,6 +13,7 @@ use crate::{
     },
     transcript::Transcript,
 };
+use serde::Deserialize;
 
 /// A term of a  linear constraint consisting of a triple (c, j, k), per [4.4.2][1]. This is one
 /// element of the the constraint matrix A for verifying that A * W = b. Several of these terms sum
@@ -35,6 +36,7 @@ pub struct LinearConstraintLhsTerm<FieldElement> {
 /// witnesses W, this constrains `W[x] * W[y] = W[z]`.
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.4.2
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct QuadraticConstraint {
     pub x: usize,
     pub y: usize,
@@ -338,8 +340,10 @@ mod tests {
 
     #[test]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
-        let (_, circuit) =
+        let (test_vector, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
+
+        let test_vector_constraints = test_vector.constraints.unwrap();
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
 
@@ -354,6 +358,8 @@ mod tests {
         )
         .prove(&evaluation)
         .unwrap();
+
+        assert_eq!(witness_layout.length(), proof.witness.len());
 
         let mut constraint_transcript = Transcript::new(b"test").unwrap();
         let constraints = ProofConstraints::from_proof(
@@ -379,14 +385,27 @@ mod tests {
         }
 
         assert_eq!(
-            constraints.linear_constraint_rhs.len(),
-            circuit.num_layers() + 1
+            constraints.linear_constraint_lhs.len(),
+            test_vector_constraints.linear_lhs.len()
         );
 
-        assert_eq!(
-            constraints.quadratic_constraints.len(),
-            circuit.num_layers()
-        );
+        for (lhs_term, test_vector_lhs_term) in constraints
+            .linear_constraint_lhs
+            .iter()
+            .zip(test_vector_constraints.linear_lhs.iter())
+        {
+            assert_eq!(lhs_term.constraint_number, test_vector_lhs_term.constraint);
+            assert_eq!(lhs_term.witness_index, test_vector_lhs_term.witness);
+            assert_eq!(
+                lhs_term.constant_factor,
+                FieldP128::try_from(
+                    hex::decode(&test_vector_lhs_term.constant)
+                        .unwrap()
+                        .as_slice()
+                )
+                .unwrap()
+            );
+        }
 
         let mut lhs_summed = vec![FieldP128::ZERO; constraints.linear_constraint_rhs.len()];
         for LinearConstraintLhsTerm {
@@ -399,6 +418,38 @@ mod tests {
         }
 
         assert_eq!(lhs_summed, constraints.linear_constraint_rhs);
+
+        assert_eq!(
+            constraints.linear_constraint_rhs.len(),
+            circuit.num_layers() + 1
+        );
+
+        assert_eq!(
+            constraints.linear_constraint_rhs.len(),
+            test_vector_constraints.linear_rhs.len()
+        );
+
+        for (rhs_term, test_vector_rhs_term) in constraints
+            .linear_constraint_rhs
+            .iter()
+            .zip(test_vector_constraints.linear_rhs.iter())
+        {
+            assert_eq!(
+                rhs_term,
+                &FieldP128::try_from(hex::decode(test_vector_rhs_term).unwrap().as_slice())
+                    .unwrap()
+            );
+        }
+
+        assert_eq!(
+            constraints.quadratic_constraints.len(),
+            circuit.num_layers()
+        );
+
+        assert_eq!(
+            constraints.quadratic_constraints,
+            test_vector_constraints.quadratic
+        );
 
         for QuadraticConstraint { x, y, z } in constraints.quadratic_constraints {
             assert_eq!(proof.witness[x] * proof.witness[y], proof.witness[z]);

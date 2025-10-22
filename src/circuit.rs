@@ -526,6 +526,7 @@ pub(crate) mod tests {
             CodecFieldElement, FieldElement, FieldId, SerializedFieldElement, fieldp128::FieldP128,
             fieldp256::FieldP256,
         },
+        sumcheck::constraints::QuadraticConstraint,
     };
     use serde::Deserialize;
     use std::{
@@ -562,6 +563,25 @@ pub(crate) mod tests {
         assert_eq!(next_quad, next_decoded);
     }
 
+    #[derive(Debug, Clone, Deserialize)]
+    pub(crate) struct Constraints {
+        /// Left hand side terms of linear constraints
+        pub(crate) linear_lhs: Vec<SerializedLinearConstraintLhsTerm>,
+        /// Right hand side terms of lienar constraints (vector of serialzied field elements in
+        /// hex).
+        pub(crate) linear_rhs: Vec<String>,
+        // Quadratic constraints.
+        pub(crate) quadratic: Vec<QuadraticConstraint>,
+    }
+
+    #[derive(Debug, Clone, Deserialize)]
+    pub(crate) struct SerializedLinearConstraintLhsTerm {
+        pub(crate) constraint: usize,
+        pub(crate) witness: usize,
+        // serialized field element in hex
+        pub(crate) constant: String,
+    }
+
     /// JSON descriptor of a circuit test vector.
     #[derive(Debug, Clone, Deserialize)]
     pub(crate) struct CircuitTestVector {
@@ -581,6 +601,8 @@ pub(crate) mod tests {
         /// The serialized padded sumcheck proof of the circuit's execution.
         #[serde(default)]
         pub(crate) serialized_proof: Vec<u8>,
+        /// The constraints on the proof.
+        pub(crate) constraints: Option<Constraints>,
     }
 
     impl CircuitTestVector {

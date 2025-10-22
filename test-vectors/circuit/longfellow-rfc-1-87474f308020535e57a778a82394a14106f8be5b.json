@@ -3,5 +3,51 @@
     "field": 6,
     "depth": 3,
     "quads": 11,
-    "_terms": 11
+    "_terms": 11,
+    "constraints": {
+        "linear_lhs": [
+            { "constraint": 0, "witness": 2, "constant": "6cafd0d079045fb505ce39e6c0c406fe" },
+            { "constraint": 0, "witness": 3, "constant": "fced76d08a5098cde48b4277c282c3ed" },
+            { "constraint": 0, "witness": 4, "constant": "7b1e904620235fb2d724d722dab48106" },
+            { "constraint": 0, "witness": 5, "constant": "1b66be3e458e00f11c48b2c124b3c02d" },
+            { "constraint": 0, "witness": 6, "constant": "8ab45cdecd1dad82fe668af5d96e0fe6" },
+            { "constraint": 0, "witness": 7, "constant": "544b3a86e78824250b7fcfe2654c7b6f" },
+            { "constraint": 0, "witness": 8, "constant": "4d519543db17a6b2fcd294a22d6cd9bf" },
+            { "constraint": 0, "witness": 9, "constant": "2783b2cbbff115f4baab27433562e1d8" },
+            { "constraint": 0, "witness": 10, "constant": "e2e3af11966a01453bd6dacf61a3600a" },
+            { "constraint": 0, "witness": 11, "constant": "26265bf045d4561965ae90e2d03bcf13" },
+            { "constraint": 0, "witness": 12, "constant": "6670dc5748eb8ab73b0866d04585a858" },
+            { "constraint": 0, "witness": 13, "constant": "ca891ec385b69dcd33a1bf07e40c3d3e" },
+            { "constraint": 0, "witness": 14, "constant": "ef0142233fcd67997c9707c337813f9e" },
+            { "constraint": 0, "witness": 15, "constant": "3c87ce2cadc286a31b3f957fb80fec26" },
+            { "constraint": 0, "witness": 16, "constant": "0d6a6f1d53765823cfd67960e1527da8" },
+            { "constraint": 1, "witness": 14, "constant": "5edaafb67696cbbffe1389d6313fc71e" },
+            { "constraint": 1, "witness": 15, "constant": "536614e2446c14ea79958e4e05eb5b17" },
+            { "constraint": 1, "witness": 16, "constant": "00000000000000000000000000000000" },
+            { "constraint": 1, "witness": 17, "constant": "193c8af90d9dbedb7bf4ed7f616b60b7" },
+            { "constraint": 1, "witness": 18, "constant": "392cea0400d93730a3748648d2454e34" },
+            { "constraint": 1, "witness": 19, "constant": "5c84b0124bb98ead2d99b9cca9fc4246" },
+            { "constraint": 1, "witness": 20, "constant": "7dff234d204c2c13f3a8676b43ab7367" },
+            { "constraint": 1, "witness": 21, "constant": "17dd82cae5165be5a9f3a5cd55e03153" },
+            { "constraint": 1, "witness": 22, "constant": "ae9553d05c8fec0fb9b2a27bf9b58760" },
+            { "constraint": 1, "witness": 23, "constant": "76ef8b398cc0bfbe1ab7b6355bd3b9e5" },
+            { "constraint": 1, "witness": 24, "constant": "3c33d4b265c557f7b76afeaa95f30db2" },
+            { "constraint": 1, "witness": 25, "constant": "b17dbad611212243673038f6f25ffe83" },
+            { "constraint": 1, "witness": 26, "constant": "a5b315506bc1d4da8b3459358431460c" },
+            { "constraint": 1, "witness": 27, "constant": "4da2d455704570da864c64bd679402a8" },
+            { "constraint": 2, "witness": 0, "constant": "c87dc3433c88d3c697c2b16cf6ff0bff" },
+            { "constraint": 2, "witness": 1, "constant": "e5a2c12429e2b18fd5cc7cfde44242b3" },
+            { "constraint": 2, "witness": 25, "constant": "00000000000000000000000000f0ffff" },
+            { "constraint": 2, "witness": 26, "constant": "cf379ed8ad6411dc89598e644ce91124" }
+        ],
+        "linear_rhs": [
+            "8bafd484ee270ab8cdbb7b1c69b21cb3",
+            "7b707aa18e2f90e9dd350aecbde5a7f6",
+            "d9b597e07fbf6ff80b4d82d9c6f3ed76"
+        ],
+        "quadratic": [
+            { "x": 14, "y": 15, "z": 16 },
+            { "x": 25, "y": 26, "z": 27 }
+        ]
+    }
 }

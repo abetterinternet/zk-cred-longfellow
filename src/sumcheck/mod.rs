@@ -58,8 +58,8 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
     ///
     /// We optionally emulate this behavior for compatibility with test vectors.
     ///
-    /// See discussion in https://github.com/google/longfellow-zk/issues/37,
-    /// https://github.com/google/longfellow-zk/issues/70
+    /// See discussion in <https://github.com/google/longfellow-zk/issues/37>,
+    /// <https://github.com/google/longfellow-zk/issues/70>
     pub fn with_write_all_inputs_to_transcript(mut self, enable: bool) -> Self {
         self.write_all_inputs_to_transcript = enable;
         self

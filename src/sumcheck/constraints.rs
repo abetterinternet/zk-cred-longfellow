@@ -360,12 +360,12 @@ mod tests {
         let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
 
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut proof_transcript = Transcript::new(b"test").unwrap();
 
         let proof = Proof::new(
             &circuit,
             &evaluation,
-            &mut transcript,
+            &mut proof_transcript,
             // Here we do _not_ fix the pad to zeroes in order to exercise symbolic manipulation.
             FieldP128::sample,
         )
@@ -403,5 +403,8 @@ mod tests {
             constraints.quadratic_constraints.len(),
             circuit.num_layers()
         );
+
+        // Transcripts should have received the same sequence of writes.
+        assert!(proof_transcript.compare_state(&constraint_transcript));
     }
 }

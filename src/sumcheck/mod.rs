@@ -12,7 +12,7 @@ use std::{iter::repeat_with, mem::swap};
 
 mod bind;
 mod constraints;
-mod symbolic;
+mod witness;
 
 /// Proof constructed by sumcheck.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -287,7 +287,7 @@ impl<FE: CodecFieldElement> ProofLayer<FE> {
         // The specification's "wires" corresponds to our "polynomials".
         // For each bit needed to describe a wire (logw), we have two hands and two polynomial
         // evaluations (at P0 and P2).
-        let wires = FE::decode_fixed_array(bytes, usize::from(circuit_layer.logw) * 4)?;
+        let wires = FE::decode_fixed_array(bytes, circuit_layer.logw() * 4)?;
 
         // Each 4 field elements in the array makes a pair of Polynomials.
         // It would be good to avoid the copies of field elements here, but none of the methods that

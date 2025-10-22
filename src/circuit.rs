@@ -108,7 +108,7 @@ impl Codec for Circuit {
             constant.encode(bytes)?;
         }
 
-        if usize::from(self.num_layers) != self.layers.len() {
+        if self.num_layers() != self.layers.len() {
             return Err(anyhow!("num_layers does not match length of layers array"));
         }
         CircuitLayer::encode_fixed_array(&self.layers, bytes)?;
@@ -131,7 +131,7 @@ impl Circuit {
     }
 
     /// Retrieve the requested constant from the circuit's constant table, if it exists.
-    pub fn constant<F: CodecFieldElement>(&self, index: Size) -> Result<F, anyhow::Error> {
+    pub fn constant<F: CodecFieldElement>(&self, index: usize) -> Result<F, anyhow::Error> {
         F::try_from(
             &self
                 .constant_table
@@ -145,6 +145,26 @@ impl Circuit {
     /// The number of quads (aka terms?) in this circuit.
     pub fn num_quads(&self) -> usize {
         self.layers.iter().map(|layer| layer.quads.len()).sum()
+    }
+
+    /// The number of layers in this circuit.
+    pub fn num_layers(&self) -> usize {
+        self.num_layers.into()
+    }
+
+    /// The sum of each layer's logw.
+    pub fn logw_sum(&self) -> usize {
+        self.layers.iter().map(CircuitLayer::logw).sum()
+    }
+
+    /// The number of public inputs to the circuit.
+    pub fn num_public_inputs(&self) -> usize {
+        self.num_public_inputs.into()
+    }
+
+    /// The number of private inputs to the circuit.
+    pub fn num_private_inputs(&self) -> usize {
+        usize::from(self.num_inputs) - self.num_public_inputs()
     }
 
     /// Evaluate the circuit with the provided inputs.
@@ -169,7 +189,7 @@ impl Circuit {
 
         // We are iterating over layers in reverse, so the output layer is at the end of the
         // iterator
-        let output_layer_index = usize::from(self.num_layers) - 1;
+        let output_layer_index = self.num_layers() - 1;
         for (layer_index, layer) in self
             .layers
             .iter()
@@ -201,33 +221,33 @@ impl Circuit {
             for (quad_index, quad) in layer.quads.iter().enumerate() {
                 // Evaluate this quad: look up its value in the constants table, then multiply that
                 // by the value of the input wires.
-                let quad_value: FE = self.constant(quad.const_table_index).context(format!(
+                let quad_value: FE = self.constant(quad.const_table_index()).context(format!(
                     "constant missing in quad {quad_index} on layer {layer_index}"
                 ))?;
 
-                let left_wire = wires[layer_index]
-                    .get(usize::from(quad.left_wire_index))
-                    .ok_or_else(|| {
+                let left_wire = wires[layer_index].get(quad.left_wire_index()).ok_or_else(
+                    || {
                         anyhow!(
                             "quad {quad_index} on layer {layer_index} contains left wire index {} \
                             not present in previous layer of circuit {:?}",
                             quad.left_wire_index,
                             wires[layer_index],
                         )
-                    })?;
-                let right_wire = wires[layer_index]
-                    .get(usize::from(quad.right_wire_index))
-                    .ok_or_else(|| {
+                    },
+                )?;
+                let right_wire = wires[layer_index].get(quad.right_wire_index()).ok_or_else(
+                    || {
                         anyhow!(
                             "quad {quad_index} on layer {layer_index} contains right wire index {} \
                             not present in previous layer of circuit {:?}",
                             quad.right_wire_index,
                             wires[layer_index],
                         )
-                    })?;
+                    },
+                )?;
 
                 let quad_output = if quad_value.is_zero().into() {
-                    z_gate_indexes.insert(usize::from(quad.gate_index));
+                    z_gate_indexes.insert(quad.gate_index());
 
                     *left_wire * right_wire
                 } else {
@@ -243,7 +263,7 @@ impl Circuit {
                         quad.gate_index,
                     )
                 }
-                gate_outputs[usize::from(quad.gate_index)] += quad_output;
+                gate_outputs[quad.gate_index()] += quad_output;
             }
 
             // Specification interpretation verification: check that gates which received input from
@@ -295,14 +315,14 @@ impl Circuit {
         ];
 
         for quad in &self.layers[layer_index].quads {
-            let quad_value: FE = self.constant(quad.const_table_index)?;
+            let quad_value: FE = self.constant(quad.const_table_index())?;
 
-            combined_quad[usize::from(quad.gate_index)][usize::from(quad.left_wire_index)]
-                [usize::from(quad.right_wire_index)] = if quad_value.is_zero().into() {
-                beta
-            } else {
-                quad_value
-            };
+            combined_quad[quad.gate_index()][quad.left_wire_index()][quad.right_wire_index()] =
+                if quad_value.is_zero().into() {
+                    beta
+                } else {
+                    quad_value
+                };
         }
 
         Ok(combined_quad)
@@ -399,6 +419,13 @@ impl Codec for CircuitLayer {
     }
 }
 
+impl CircuitLayer {
+    /// The number of bits needed to describe a wire on this layer.
+    pub fn logw(&self) -> usize {
+        self.logw.into()
+    }
+}
+
 /// A quad describes an individual gate in the circuit, serialized according to struct Quad in [1]
 /// and the ad-hoc definition in [2] and [3].
 ///
@@ -410,18 +437,10 @@ impl Codec for CircuitLayer {
 /// [3]: https://github.com/google/longfellow-zk/blob/87474f308020535e57a778a82394a14106f8be5b/lib/sumcheck/quad.h
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 pub struct Quad {
-    /// The position of ths gate in its layer, corresponding to `gate_number` in the specification.
-    pub(crate) gate_index: Size,
-    /// Index of the left-hand wire feeding into this gate.
-    pub(crate) left_wire_index: Size,
-    /// Index of the right-hand wire feeding into this gate.
-    pub(crate) right_wire_index: Size,
-    /// Index into the circuit's constant table. The value at that index is the quad's value. If the
-    /// value is 0, the quad is part of Z. If the value is nonzero, the quad is part of Q. See [1]
-    /// for discussion of the combined quad.
-    ///
-    /// [1]: https://www.ietf.org/archive/id/draft-google-cfrg-libzk-00.html#section-5.3.3
-    pub(crate) const_table_index: Size,
+    gate_index: Size,
+    left_wire_index: Size,
+    right_wire_index: Size,
+    const_table_index: Size,
 }
 
 impl Quad {
@@ -456,6 +475,30 @@ impl Quad {
             right_wire_index,
             const_table_index,
         })
+    }
+
+    /// The position of ths gate in its layer, corresponding to `gate_number` in the specification.
+    fn gate_index(&self) -> usize {
+        self.gate_index.into()
+    }
+
+    /// Index of the left-hand wire feeding into this gate.
+    fn left_wire_index(&self) -> usize {
+        self.left_wire_index.into()
+    }
+
+    /// Index of the right-hand wire feeding into this gate.
+    fn right_wire_index(&self) -> usize {
+        self.right_wire_index.into()
+    }
+
+    /// Index into the circuit's constant table. The value at that index is the quad's value. If the
+    /// value is 0, the quad is part of Z. If the value is nonzero, the quad is part of Q. See [1]
+    /// for discussion of the combined quad.
+    ///
+    /// [1]: https://www.ietf.org/archive/id/draft-google-cfrg-libzk-00.html#section-5.3.3
+    fn const_table_index(&self) -> usize {
+        self.const_table_index.into()
     }
 }
 
@@ -601,7 +644,7 @@ pub(crate) mod tests {
                 }
 
                 // Force parsing of the constants
-                let quad_value = circuit.constant::<FE>(quad.const_table_index).unwrap();
+                let quad_value = circuit.constant::<FE>(quad.const_table_index()).unwrap();
                 if quad_value.is_zero().into() {
                     z_quad_gates.insert(quad.gate_index);
                 } else {

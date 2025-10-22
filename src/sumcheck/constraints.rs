@@ -3,65 +3,30 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
 
-use std::ops::{Add, Mul, MulAssign, Sub};
-
 use crate::{
-    circuit::{self, Circuit},
-    fields::FieldElement,
+    circuit::{Circuit, CircuitLayer},
+    fields::CodecFieldElement,
     sumcheck::{
-        bind::{ElementwiseSum, SumcheckArray},
-        symbolic::SymbolicExpression,
+        Proof,
+        bind::{ElementwiseSum, SumcheckArray, bindeq},
+        witness::WitnessLayout,
     },
     transcript::Transcript,
 };
 
-use super::Proof;
-
-/*
-
-Linear constraints assert that A * W = b
-
-W is witnesses which we don't have
-b is a scalar with a known value
-A
-
-we represent this as triples (c, j, k)
-
-c is the index into b
-j is the index into W
-k is constant factor
-
-but also the vector b!
-
-W[2] + 2W[3] = 3 yields two triples
-- (0,2,1) -> 1 * 2nd element of W contributes to 0th elemebt of b
-- (0,3,2) -> 2 * 3rd element of W contributes to 0th element of b
-
-given constraint
-symbolic
-      - (Q * layer_proof.vr) * sym_layer_pad.vl
-      - (Q * layer_proof.vl) * sym_layer_pad.vr
-      - Q * sym_layer_pad.vl_vr
-     =
-      Q * layer_proof.vl * layer_proof.vl - known
-
-push rhs into vector b
-
-
-*/
-
-/// A linear constraint consisting of a triple (c, j, k), per [4.4.2][1]. This is one element of the
-/// the constraint matrix for A verifying that A * W = b.
+/// A term of a  linear constraint consisting of a triple (c, j, k), per [4.4.2][1]. This is one
+/// element of the the constraint matrix A for verifying that A * W = b. Several of these terms sum
+/// together into one of the elements of `ProofConstraints::linear_constraint_rhs`.
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.4.2
-pub struct LinearConstraint<FieldElement> {
-    /// c, the constraint number or row of A.
+pub struct LinearConstraintTerm<FieldElement> {
+    /// The constraint number or row of A. This is an index into the vector `b`, which we represent
+    /// as `ProofConstraints::linear_constraint_rhs`. This is `c` in the specification.
     constraint_number: usize,
-    /// j, the index of the witness.
+    /// The index into the witness vector W. This is `j` in the specification.
     witness_index: usize,
-    /// The constant factor.
+    /// The constant factor `k`.
     constant_factor: FieldElement,
-    // TODO: more
 }
 
 /// A quadratic constraint consisting of a triple (x, y, z), per [4.4.2][1]. For an array of
@@ -69,20 +34,23 @@ pub struct LinearConstraint<FieldElement> {
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.4.2
 pub struct QuadraticConstraint {
-    x: usize,
-    y: usize,
-    z: usize,
+    pub x: usize,
+    pub y: usize,
+    pub z: usize,
 }
 
 pub struct ProofConstraints<FieldElement> {
-    /// Linear and quadratic constraints for each layer.
-    layer_constraints: Vec<(LinearConstraint<FieldElement>, QuadraticConstraint)>,
+    /// Terms contributing to the left hand sides of linear constraints.
+    linear_constraint_lhs: Vec<LinearConstraintTerm<FieldElement>>,
 
-    /// Linear constraints binding the final claims to G[0], G[1].
-    public_inputs_constraint: LinearConstraint<FieldElement>,
+    /// Vector of right hand sides of linear constraints.
+    linear_constraint_rhs: Vec<FieldElement>,
+
+    /// Quadratic constraints: one per circuit layer.
+    quadratic_constraints: Vec<QuadraticConstraint>,
 }
 
-impl<FE: FieldElement> ProofConstraints<FE> {
+impl<FE: CodecFieldElement> ProofConstraints<FE> {
     /// Construct constraints from the provided proof of execution for the circuit and public
     /// inputs.
     ///
@@ -95,8 +63,27 @@ impl<FE: FieldElement> ProofConstraints<FE> {
         circuit: &Circuit,
         public_inputs: &[FE],
         transcript: &mut Transcript,
-        proof: Proof<FE>,
+        proof: &Proof<FE>,
     ) -> Result<Self, anyhow::Error> {
+        let mut constraints = Self {
+            linear_constraint_lhs: Vec::with_capacity(
+                // On each layer, 3 terms for vl, vr, vl * vr
+                3 * circuit.num_layers()
+                    + circuit.logw_sum()
+                        * 2 // witness elements per polynomial
+                        * 2 // hands per round/logw
+                    + circuit.num_private_inputs()
+                    + 2, // sym_layer_pad.vl and sym_layer_pad.vr
+            ),
+            linear_constraint_rhs: Vec::with_capacity(1 + circuit.num_layers()),
+            quadratic_constraints: Vec::with_capacity(circuit.num_layers()),
+        };
+
+        let witness_layout = WitnessLayout::new(
+            circuit.num_private_inputs(),
+            circuit.layers.iter().map(CircuitLayer::logw).collect(),
+        );
+
         transcript.initialize(&circuit, public_inputs)?;
 
         // Choose the bindings for the output layer.
@@ -106,7 +93,7 @@ impl<FE: FieldElement> ProofConstraints<FE> {
         let output_wire_bindings = transcript.generate_challenge::<FE>(circuit.logw())?;
         let mut bindings = [output_wire_bindings.clone(), output_wire_bindings];
 
-        transcript.init_fast_forward::<FE>(circuit)?;
+        transcript.generate_output_wire_bindings::<FE>(circuit)?;
 
         // Initial claims for left and right hand variables, corresponding to the output layer of
         // the circuit, and thus are zeroes.
@@ -137,8 +124,26 @@ impl<FE: FieldElement> ProofConstraints<FE> {
                 vec![FE::ZERO; circuit_layer.logw.into()],
             ];
 
-            // Initial symbolic claim
-            let mut sym_claim = SymbolicExpression::<2, _>::new(claims[0] + alpha * claims[1]);
+            // For each layer, we output a linear constraint:
+            //
+            //  LET known_part + symbolic_part = sym_claim
+            //  symbolic_part
+            //  - (Q * layer_proof.vr) * sym_layer_pad.vl
+            //  - (Q * layer_proof.vl) * sym_layer_pad.vr
+            //  - Q * sym_layer_pad.vl_vr
+            // =
+            //  Q * layer_proof.vl * layer_proof.vl - known_part
+            //
+            // The LHS of this constraint will consist of two LinearConstraintTerms (p0 and p2) for
+            // each polynomial (for the symbolic manipulations needed to compute symbolic_part),\
+            // plus three more terms for this layer's vl, vr, vl*vr.
+            //
+            // The RHS can be computed straightforwardly and so we get one element per layer.
+            //
+            // Q is the quad once reduced down to a single value, which is bound_quad[0][0] for us.
+
+            // Known portion of initial claim.
+            let mut claim_known = claims[0] + alpha * claims[1];
 
             for (round, polynomial_pair) in proof_layer.polynomials.iter().enumerate() {
                 for (hand, polynomial) in polynomial_pair.iter().enumerate() {
@@ -147,14 +152,42 @@ impl<FE: FieldElement> ProofConstraints<FE> {
                     let challenge = transcript.generate_challenge(1)?;
                     new_bindings[hand][round] = challenge[0];
 
-                    // Lagrange interpolation!
-                    let sym_p0 = SymbolicExpression::new(polynomial.p0);
-                    let sym_p1 = sym_claim - sym_p0;
-                    let sym_p2 = SymbolicExpression::new(polynomial.p2);
+                    let (p0_witness_index, p2_witness_index) =
+                        witness_layout.polynomial_witness_indices(layer_index, round, hand);
 
-                    sym_claim = sym_p0 * lag_i(FE::ZERO, challenge[0])
-                        + sym_p1 * lag_i(FE::ONE, challenge[0])
-                        + sym_p2 * lag_i(FE::TWO, challenge[0]);
+                    // The proof contains padded polynomial points p0_hat and p1_hat where
+                    // p0 = p0_hat - p0_pad and p2 = p2_hat - p2_pad. We manipulate the known
+                    // quantities p0_hat and p2_hat directly (contributing to the linear constraint
+                    // RHS) and work with p0_pad and p2_pad symbolically, accumulating linear
+                    // constraint LHS terms.
+                    //
+                    // p1 is interpolated and not serialized.
+                    let p1_known = claim_known - polynomial.p0;
+
+                    // Directly manipulate the known portions to compute the known portion of the
+                    // next claim, which will eventually contribute to the layer's linear constraint
+                    // RHS.
+                    claim_known = polynomial.p0 * lag_i(FE::ZERO, challenge[0])
+                        + p1_known * lag_i(FE::ONE, challenge[0])
+                        + polynomial.p2 * lag_i(FE::SUMCHECK_P2, challenge[0]);
+
+                    // Manipulate the unknown portions symbolically, accumulating linear constraint
+                    // LHS terms.
+                    constraints
+                        .linear_constraint_lhs
+                        .push(LinearConstraintTerm {
+                            constraint_number: layer_index,
+                            witness_index: p0_witness_index,
+                            constant_factor: lag_i(FE::ZERO, challenge[0]),
+                        });
+                    // No constraint for P1, because it gets interpolated.
+                    constraints
+                        .linear_constraint_lhs
+                        .push(LinearConstraintTerm {
+                            constraint_number: layer_index,
+                            witness_index: p2_witness_index,
+                            constant_factor: lag_i(FE::SUMCHECK_P2, challenge[0]),
+                        });
 
                     bound_quad = bound_quad.bind(&challenge).transpose();
                 }
@@ -169,7 +202,46 @@ impl<FE: FieldElement> ProofConstraints<FE> {
                 }
             }
 
-            // "output" linear and quad constraints? in what form?
+            let (vl_witness, vr_witness, vl_vr_witness) =
+                witness_layout.wire_witness_indices(layer_index);
+
+            // Output the three remaining LHS terms of the linear constraint for this layer.
+            // - (Q * layer_proof.vr) * sym_layer_pad.vl
+            constraints
+                .linear_constraint_lhs
+                .push(LinearConstraintTerm {
+                    constraint_number: layer_index,
+                    witness_index: vl_witness,
+                    constant_factor: -bound_quad[0][0] * proof_layer.vr,
+                });
+            // - (Q * layer_proof.vl) * sym_layer_pad.vr
+            constraints
+                .linear_constraint_lhs
+                .push(LinearConstraintTerm {
+                    constraint_number: layer_index,
+                    witness_index: vr_witness,
+                    constant_factor: -bound_quad[0][0] * proof_layer.vl,
+                });
+            // - Q * sym_layer_pad.vl_vr
+            constraints
+                .linear_constraint_lhs
+                .push(LinearConstraintTerm {
+                    constraint_number: layer_index,
+                    witness_index: vl_vr_witness,
+                    constant_factor: -bound_quad[0][0],
+                });
+
+            // Output linear constraint RHS Q * layer_proof.vl * layer_proof.vl - known
+            constraints
+                .linear_constraint_rhs
+                .push(bound_quad[0][0] * proof_layer.vl * proof_layer.vr - claim_known);
+
+            // Output quadratic constraint sym_layer_pad.vl * sym_layer_pad.vr = sym_layer_pad.vl_vr
+            constraints.quadratic_constraints.push(QuadraticConstraint {
+                x: vl_witness,
+                y: vr_witness,
+                z: vl_vr_witness,
+            });
 
             // Commit to the padded evaluations of l and r. The specification implies they are
             // written as individual field elements, but longfellow-zk writes them as an array.
@@ -180,12 +252,67 @@ impl<FE: FieldElement> ProofConstraints<FE> {
             bindings = new_bindings;
         }
 
-        // Linear constraint for the two final claims
-        let gamma = transcript.generate_challenge(1)?;
+        // Output the linear constraint that the final claims match the binding of the inputs:
+        //
+        //      SUM_{i} (eq2[i + npub] * sym_private_inputs[i])
+        //      - sym_layer_pad.vl
+        //      - gamma * sym_layer_pad.vr
+        //    =
+        //      - SUM_{i} (eq2[i] * public_inputs[i])
+        //      + claims[0]
+        //      + gamma * claims[1]
+        //
+        // where sym_layer_pad is the padding on the input layer
+        let gamma = transcript.generate_challenge(1)?[0];
+        let eq2 = bindeq(&bindings[0]).elementwise_sum(&bindeq(&bindings[1]).scale(gamma));
+        let input_layer_index = circuit.num_layers() - 1;
 
-        // TODO: output linear constraint
+        // One linear constraint LHS term for each private input
+        for (private_input_index, private_input_witness) in
+            witness_layout.private_input_witness_indices().enumerate()
+        {
+            constraints
+                .linear_constraint_lhs
+                .push(LinearConstraintTerm {
+                    constraint_number: input_layer_index,
+                    witness_index: private_input_witness,
+                    constant_factor: eq2[private_input_index + circuit.num_public_inputs()],
+                });
+        }
 
-        Ok(todo!())
+        let (vl_witness, vr_witness, _) = witness_layout.wire_witness_indices(input_layer_index);
+
+        // Linear constraint LHS term for sym_layer_pad.vl
+        constraints
+            .linear_constraint_lhs
+            .push(LinearConstraintTerm {
+                constraint_number: input_layer_index,
+                witness_index: vl_witness,
+                constant_factor: -FE::ONE,
+            });
+
+        // Linear constraint LHS term for sym_layer_pad.vr
+        constraints
+            .linear_constraint_lhs
+            .push(LinearConstraintTerm {
+                constraint_number: input_layer_index,
+                witness_index: vr_witness,
+                constant_factor: -gamma,
+            });
+
+        // Linear constraint RHS
+        constraints.linear_constraint_rhs.push(
+            public_inputs
+                .iter()
+                .zip(eq2.iter())
+                .fold(FE::ZERO, |sum, (eq2_i, public_input_i)| {
+                    sum + *eq2_i * public_input_i
+                })
+                + claims[0]
+                + gamma * claims[1],
+        );
+
+        Ok(constraints)
     }
 }
 
@@ -202,9 +329,60 @@ impl<FE: FieldElement> ProofConstraints<FE> {
 /// This won't work in fields like GF(2^128) where P2 isn't literally two.
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
-fn lag_i<FE: FieldElement>(i: FE, x: FE) -> FE {
+fn lag_i<FE: CodecFieldElement>(i: FE, x: FE) -> FE {
     // only lag_0, _1, _2 are defined
-    assert!(i == FE::ZERO || i == FE::ONE || i == FE::TWO);
+    assert!(i == FE::ZERO || i == FE::ONE || i == FE::SUMCHECK_P2);
 
     if x == i { FE::ONE } else { FE::ZERO }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        Size,
+        circuit::{Evaluation, tests::CircuitTestVector},
+        fields::fieldp128::FieldP128,
+    };
+
+    #[test]
+    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
+        let (_, circuit) =
+            CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
+
+        assert_eq!(circuit.num_copies, Size(1));
+
+        // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
+        let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
+
+        // Matches session used in longfellow-zk/lib/zk/zk_test.cc
+        let mut transcript = Transcript::new(b"test").unwrap();
+
+        let proof = Proof::new(
+            &circuit,
+            &evaluation,
+            &mut transcript,
+            // Here we do _not_ fix the pad to zeroes in order to exercise symbolic manipulation.
+            FieldP128::sample,
+        )
+        .unwrap();
+
+        let mut constraint_transcript = Transcript::new(b"test").unwrap();
+        let constraints = ProofConstraints::from_proof(
+            &circuit,
+            evaluation.public_inputs(circuit.num_public_inputs.into()),
+            &mut constraint_transcript,
+            &proof,
+        )
+        .unwrap();
+
+        assert_eq!(
+            constraints.linear_constraint_rhs.len(),
+            circuit.num_layers() + 1
+        );
+        assert_eq!(
+            constraints.quadratic_constraints.len(),
+            circuit.num_layers()
+        );
+    }
 }

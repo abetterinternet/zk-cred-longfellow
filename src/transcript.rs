@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 /// A transcript of the prover's execution of a protocol, used to generate the verifier's public
 /// coin challenges based on the state of the transcript at some moment.
+#[derive(Clone, Debug)]
 pub struct Transcript {
     /// Accumulated hash of messages written to the transcript, used as the seed to
     /// [`FiatShamirPseudoRandomFunction`] to generate verifier challenges.

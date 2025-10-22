@@ -158,23 +158,35 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                         witness_layout.polynomial_witness_indices(layer_index, round, hand);
 
                     // The proof contains padded polynomial points p0_hat and p1_hat where
-                    // p0 = p0_hat - p0_pad and p2 = p2_hat - p2_pad. We manipulate the known
-                    // quantities p0_hat and p2_hat directly (contributing to the linear constraint
-                    // RHS) and work with p0_pad and p2_pad symbolically, accumulating linear
-                    // constraint LHS terms.
+                    // p0 = p0_hat - p0_pad and p2 = p2_hat - p2_pad.
                     //
                     // p1 is interpolated and not serialized.
                     let p1_known = claim_known - polynomial.p0;
 
-                    // Directly manipulate the known portions to compute the known portion of the
-                    // next claim, which will eventually contribute to the layer's linear constraint
-                    // RHS.
+                    // From Section 6.6:
+                    // LET lag_i(x) =
+                    //                the quadratic polynomial such that
+                    //                       lag_i(P_k) = 1  if i = k
+                    //                                    0  otherwise
+                    //                for 0 <= k < 3
+                    //
+                    // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
+                    let lag_i = |i: FE, x: FE| {
+                        // only lag_0, _1, _2 are defined
+                        assert!(i == FE::ZERO || i == FE::ONE || i == FE::SUMCHECK_P2);
+
+                        if x == i { FE::ONE } else { FE::ZERO }
+                    };
+
+                    // Directly manipulate the known portions p0_hat and p2_hat to compute the known
+                    // portion of the  next claim, which will eventually contribute to the layer's
+                    // linear constraint RHS.
                     claim_known = polynomial.p0 * lag_i(FE::ZERO, challenge[0])
                         + p1_known * lag_i(FE::ONE, challenge[0])
                         + polynomial.p2 * lag_i(FE::SUMCHECK_P2, challenge[0]);
 
-                    // Manipulate the unknown portions symbolically, accumulating linear constraint
-                    // LHS terms.
+                    // Manipulate the unknown portions p0_pad and p2_pad symbolically, accumulating
+                    // linear constraint LHS terms.
                     constraints
                         .linear_constraint_lhs
                         .push(LinearConstraintTerm {
@@ -316,26 +328,6 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
 
         Ok(constraints)
     }
-}
-
-/// LET lag_i(x) =
-///                the quadratic polynomial such that
-///                       lag_i(P_k) = 1  if i = k
-///                                    0  otherwise
-///                for 0 <= k < 3
-///
-/// Discussed in Section 6.6 [1].
-///
-/// # Bugs
-///
-/// This won't work in fields like GF(2^128) where P2 isn't literally two.
-///
-/// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
-fn lag_i<FE: CodecFieldElement>(i: FE, x: FE) -> FE {
-    // only lag_0, _1, _2 are defined
-    assert!(i == FE::ZERO || i == FE::ONE || i == FE::SUMCHECK_P2);
-
-    if x == i { FE::ONE } else { FE::ZERO }
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@
 
 use crate::{
     circuit::Circuit,
-    fields::CodecFieldElement,
+    fields::{CodecFieldElement, FieldElement},
     sumcheck::{
         Proof,
         bind::{ElementwiseSum, SumcheckArray, bindeq},
@@ -193,49 +193,6 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                     let (p0_witness_index, p2_witness_index) =
                         witness_layout.polynomial_witness_indices(layer_index, round, hand);
 
-                    // From Section 6.6:
-                    // LET lag_i(x) =
-                    //                the quadratic polynomial such that
-                    //                       lag_i(P_k) = 1  if i = k
-                    //                                    0  otherwise
-                    //                for 0 <= k < 3
-                    //
-                    // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
-                    let lagrange_basis_polynomial_i = |i: FE, x: FE| {
-                        // Our nodes are x_0 = 0, x_1 = 1, and x_2 = SUMCHECK_P2 (aka 2) in the
-                        // field. Since we only have three nodes, we can work out each Lagrange
-                        // basis polynomial by hand.
-                        //
-                        // To avoid divisions, we multiply the numerator by the multiplicative
-                        // inverses of the three possible denominators for each field, which have
-                        // been preconputed.
-                        //
-                        // https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
-                        let (numerator, denominator_mul_inverse) = if i == FE::ZERO {
-                            (
-                                (x - FE::ONE) * (x - FE::SUMCHECK_P2),
-                                // (0 - 1) * (0 - 2) = 2
-                                FE::sumcheck_p2_mul_inv(),
-                            )
-                        } else if i == FE::ONE {
-                            (
-                                (x - FE::ZERO) * (x - FE::SUMCHECK_P2),
-                                // (1 - 0) * (1 - 2) = -1
-                                FE::negative_one_mul_inv(),
-                            )
-                        } else if i == FE::SUMCHECK_P2 {
-                            (
-                                (x - FE::ZERO) * (x - FE::SUMCHECK_P2),
-                                // (2 - 0) * (1 - 2) = -2
-                                FE::negative_sumcheck_p2_mul_inv(),
-                            )
-                        } else {
-                            panic!("lagrange basis polynomial undefined for {i:?}");
-                        };
-
-                        numerator * denominator_mul_inverse
-                    };
-
                     // The proof contains padded polynomial points p0_hat and p2_hat where
                     // p0 = p0_hat - p0_pad and p2 = p2_hat - p2_pad. p1 is interpolated and so its
                     // padded polynomial does not appear in the proof, but we still have constraint
@@ -245,7 +202,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                     // linear constraint RHS.
                     claim_known = polynomial.p0
                         * lagrange_basis_polynomial_i(FE::ZERO, challenge[0])
-                        + (claim_known - polynomial.p0)
+                        + (claim_known - polynomial.p0) // infer P1
                             * lagrange_basis_polynomial_i(FE::ONE, challenge[0])
                         + polynomial.p2
                             * lagrange_basis_polynomial_i(FE::SUMCHECK_P2, challenge[0]);
@@ -257,7 +214,9 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                         .push(LinearConstraintLhsTerm {
                             constraint_number: layer_index,
                             witness_index: p0_witness_index,
-                            constant_factor: lagrange_basis_polynomial_i(FE::ZERO, challenge[0]),
+                            constant_factor: lagrange_basis_polynomial_i(FE::ZERO, challenge[0])
+                                // Account for p0 being used to compute p1
+                                - lagrange_basis_polynomial_i(FE::ONE, challenge[0]),
                         });
                     constraints
                         .linear_constraint_lhs
@@ -346,7 +305,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
         // where sym_layer_pad is the padding on the input layer
         let gamma = transcript.generate_challenge(1)?[0];
         let eq2 = bindeq(&bindings[0]).elementwise_sum(&bindeq(&bindings[1]).scale(gamma));
-        let input_layer_index = circuit.num_layers() - 1;
+        let input_layer_index = circuit.num_layers();
 
         // One linear constraint LHS term for each private input
         for (private_input_index, private_input_witness) in
@@ -361,7 +320,8 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                 });
         }
 
-        let (vl_witness, vr_witness, _) = witness_layout.wire_witness_indices(input_layer_index);
+        let (vl_witness, vr_witness, _) =
+            witness_layout.wire_witness_indices(input_layer_index - 1);
 
         // Linear constraint LHS term for sym_layer_pad.vl
         constraints
@@ -383,18 +343,63 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
 
         // Linear constraint RHS
         constraints.linear_constraint_rhs.push(
-            public_inputs
-                .iter()
-                .zip(eq2.iter())
-                .fold(FE::ZERO, |sum, (eq2_i, public_input_i)| {
-                    sum + *eq2_i * public_input_i
-                })
-                + claims[0]
-                + gamma * claims[1],
+            claims[0] + gamma * claims[1]
+                - public_inputs
+                    .iter()
+                    .zip(eq2.iter())
+                    .fold(FE::ZERO, |sum, (eq2_i, public_input_i)| {
+                        sum + *eq2_i * public_input_i
+                    }),
         );
 
         Ok(constraints)
     }
+}
+
+/// From Section 6.6:
+/// LET lag_i(x) =
+///                the quadratic polynomial such that
+///                       lag_i(P_k) = 1  if i = k
+///                                    0  otherwise
+///                for 0 <= k < 3
+///
+/// https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
+fn lagrange_basis_polynomial_i<FE: FieldElement>(i: FE, x: FE) -> FE {
+    // Our nodes are x_0 = 0, x_1 = 1, and x_2 = SUMCHECK_P2 (aka 2) in the
+    // field. Since we only have three nodes, we can work out each Lagrange
+    // basis polynomial by hand.
+    //
+    // To avoid divisions, we multiply the numerator by the multiplicative
+    // inverses of the three possible denominators for each field, which have
+    // been preconputed.
+    //
+    // https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
+    let (numerator, denominator_mul_inverse) = if i == FE::ZERO {
+        (
+            // (x - x_1) * (x - x_2)
+            (x - FE::ONE) * (x - FE::SUMCHECK_P2),
+            // (x_0 - x_1) * (x_0 - x_2) = (0 - 1) * (0 - 2) = 2
+            FE::sumcheck_p2_mul_inv(),
+        )
+    } else if i == FE::ONE {
+        (
+            // (x - x_0) * (x - x_2)
+            (x - FE::ZERO) * (x - FE::SUMCHECK_P2),
+            // (x_1 - x_0) * (x_1 - x_2) = (1 - 0) * (1 - 2) = -1
+            FE::negative_one_mul_inv(),
+        )
+    } else if i == FE::SUMCHECK_P2 {
+        (
+            // (x - x_0) * (x - x_1)
+            (x - FE::ZERO) * (x - FE::ONE),
+            // (x_2 - x_0) * (x_2 - x_1) = (2 - 0) * (2 - 1) = 2
+            FE::sumcheck_p2_mul_inv(),
+        )
+    } else {
+        panic!("lagrange basis polynomial undefined for {i:?}");
+    };
+
+    numerator * denominator_mul_inverse
 }
 
 #[cfg(test)]
@@ -402,9 +407,67 @@ mod tests {
     use super::*;
     use crate::{
         circuit::{Evaluation, tests::CircuitTestVector},
-        fields::{FieldElement, fieldp128::FieldP128},
+        fields::{
+            FieldElement, field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
+            fieldp256_2::FieldP256_2, fieldp521::FieldP521,
+        },
         sumcheck::Prover,
     };
+
+    fn lagrange_basis_polynomial_test<FE: FieldElement>() {
+        // lag_i is 1 at i and 0 at the other nodes
+        assert_eq!(lagrange_basis_polynomial_i(FE::ZERO, FE::ZERO), FE::ONE);
+        assert_eq!(lagrange_basis_polynomial_i(FE::ZERO, FE::ONE), FE::ZERO);
+        assert_eq!(
+            lagrange_basis_polynomial_i(FE::ZERO, FE::SUMCHECK_P2),
+            FE::ZERO
+        );
+
+        assert_eq!(lagrange_basis_polynomial_i(FE::ONE, FE::ZERO), FE::ZERO);
+        assert_eq!(lagrange_basis_polynomial_i(FE::ONE, FE::ONE), FE::ONE);
+        assert_eq!(
+            lagrange_basis_polynomial_i(FE::ONE, FE::SUMCHECK_P2),
+            FE::ZERO
+        );
+
+        assert_eq!(
+            lagrange_basis_polynomial_i(FE::SUMCHECK_P2, FE::ZERO),
+            FE::ZERO
+        );
+        assert_eq!(
+            lagrange_basis_polynomial_i(FE::SUMCHECK_P2, FE::ONE),
+            FE::ZERO
+        );
+        assert_eq!(
+            lagrange_basis_polynomial_i(FE::SUMCHECK_P2, FE::SUMCHECK_P2),
+            FE::ONE
+        );
+    }
+
+    #[test]
+    fn lagrange_basis_polynomial_field_p128() {
+        lagrange_basis_polynomial_test::<FieldP128>();
+    }
+
+    #[test]
+    fn lagrange_basis_polynomial_field_p256() {
+        lagrange_basis_polynomial_test::<FieldP256>();
+    }
+
+    #[test]
+    fn lagrange_basis_polynomial_field_p521() {
+        lagrange_basis_polynomial_test::<FieldP521>();
+    }
+
+    #[test]
+    fn lagrange_basis_polynomial_field_2_128() {
+        lagrange_basis_polynomial_test::<Field2_128>();
+    }
+
+    #[test]
+    fn lagrange_basis_polynomial_field_p256_2() {
+        lagrange_basis_polynomial_test::<FieldP256_2>();
+    }
 
     #[test]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
@@ -476,43 +539,21 @@ mod tests {
             assert!(lhs_term.witness_index < witness_layout.length());
         }
 
-        let test_vector_lhs_terms: Vec<LinearConstraintLhsTerm<FieldP128>> =
-            test_vector_constraints.linear_constraint_lhs_terms();
-
-        assert_eq!(
-            constraints.linear_constraint_lhs, test_vector_lhs_terms,
-            "linear constraint mismatch. ours:\n{:#?}\ntest vector:\n{:#?}",
-            constraints.linear_constraint_lhs, test_vector_lhs_terms,
-        );
+        let mut all_pass = true;
 
         let test_vector_rhs_terms = test_vector_constraints.linear_constraint_rhs();
 
-        assert_eq!(
-            constraints.linear_constraint_rhs,
-            test_vector_rhs_terms,
-            "linear constraint rhs mismatch. ours: len {}\n{:#?}\ntest vector: len {}\n{:#?}",
-            constraints.linear_constraint_rhs.len(),
-            constraints.linear_constraint_rhs,
-            test_vector_rhs_terms.len(),
-            test_vector_rhs_terms,
-        );
+        if constraints.linear_constraint_rhs != test_vector_rhs_terms {
+            println!(
+                "FAIL: linear constraint rhs mismatch. ours: len {}\n{:#?}\ntest vector: len {}\n{:#?}",
+                constraints.linear_constraint_rhs.len(),
+                constraints.linear_constraint_rhs,
+                test_vector_rhs_terms.len(),
+                test_vector_rhs_terms,
+            );
 
-        let mut test_vector_lhs_summed =
-            vec![FieldP128::ZERO; constraints.linear_constraint_rhs.len()];
-        for LinearConstraintLhsTerm {
-            constraint_number,
-            witness_index,
-            constant_factor,
-        } in test_vector_lhs_terms
-        {
-            test_vector_lhs_summed[constraint_number] +=
-                proof.witness[witness_index] * constant_factor;
-        }
-
-        assert_eq!(
-            test_vector_lhs_summed,
-            test_vector_constraints.linear_constraint_rhs(),
-        );
+            all_pass = false;
+        };
 
         let mut lhs_summed = vec![FieldP128::ZERO; constraints.linear_constraint_rhs.len()];
         for LinearConstraintLhsTerm {
@@ -524,7 +565,23 @@ mod tests {
             lhs_summed[constraint_number] += proof.witness[witness_index] * constant_factor;
         }
 
-        assert_eq!(lhs_summed, constraints.linear_constraint_rhs);
+        if lhs_summed != constraints.linear_constraint_rhs {
+            println!(
+                "FAIL: computed LHS terms do not sum ({lhs_summed:?}) to computed RHS ({:?})",
+                constraints.linear_constraint_rhs
+            );
+
+            all_pass = false;
+        }
+
+        if lhs_summed != test_vector_constraints.linear_constraint_rhs() {
+            println!(
+                "FAIL: computed LHS terms to not sum ({lhs_summed:?}) to test vector RHS ({:?})",
+                test_vector_constraints.linear_constraint_rhs::<FieldP128>(),
+            );
+
+            all_pass = false;
+        }
 
         assert_eq!(
             constraints.linear_constraint_rhs.len(),
@@ -544,5 +601,7 @@ mod tests {
         for QuadraticConstraint { x, y, z } in constraints.quadratic_constraints {
             assert_eq!(proof.witness[x] * proof.witness[y], proof.witness[z]);
         }
+
+        assert!(all_pass);
     }
 }

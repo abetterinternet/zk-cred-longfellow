@@ -68,14 +68,15 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
         circuit: &Circuit,
         public_inputs: &[FE],
         transcript: &mut Transcript,
+        ligero_commitment: &[u8],
         proof: &Proof<FE>,
     ) -> Result<Self, anyhow::Error> {
         let mut constraints = Self {
             linear_constraint_lhs: Vec::with_capacity(
                 // On each layer, 3 terms for vl, vr, vl * vr
                 3 * circuit.num_layers()
-                // On each layer past the first, 3 terms for the previous layer's vl, vr, vl*vr
-                + 3 * (circuit.num_layers() - 1)
+                // On each layer past the first, 3 terms for the previous layer's vl, vr
+                + 2 * (circuit.num_layers() - 1)
                     + circuit.logw_sum()
                         * 2 // witness elements per polynomial
                         * 2 // hands per round/logw
@@ -88,7 +89,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
 
         let witness_layout = WitnessLayout::from_circuit(circuit);
 
-        transcript.initialize(circuit, public_inputs)?;
+        transcript.initialize(Some(ligero_commitment), circuit, public_inputs)?;
 
         // Choose the bindings for the output layer.
         // The spec says to generate "circuit.lv" field elements, which I think has to mean the
@@ -152,7 +153,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
             if layer_index > 0 {
                 // For layers past the first, claims is computed from the previous layer's vl and
                 // vr, so we need linear constraint terms for that symbolic manipulation.
-                let (vl_witness, vr_witness, vl_vr_witness) =
+                let (vl_witness, vr_witness, _) =
                     witness_layout.wire_witness_indices(layer_index - 1);
                 // claims[0] is previous layer's vl
                 constraints
@@ -160,8 +161,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                     .push(LinearConstraintLhsTerm {
                         constraint_number: layer_index,
                         witness_index: vl_witness,
-                        constant_factor: FE::ONE, // this is the wrong constant. should be the product
-                                                  // of all the lag_i(FE::ZERO, challenge[0])s?
+                        constant_factor: FE::ONE,
                     });
                 // claims[1] is previous layer's vr
                 constraints
@@ -169,17 +169,7 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                     .push(LinearConstraintLhsTerm {
                         constraint_number: layer_index,
                         witness_index: vr_witness,
-                        constant_factor: alpha, // should be multiplied by all the lag_i(FE::ONE) values?
-                    });
-                // longfellow-zk includes a constraint term on vl_vr. It's not used in the
-                // computation of claim, and hence its constant factor is 0. We follow suit so that
-                // we can test against their constraints.
-                constraints
-                    .linear_constraint_lhs
-                    .push(LinearConstraintLhsTerm {
-                        constraint_number: layer_index,
-                        witness_index: vl_vr_witness,
-                        constant_factor: FE::ZERO,
+                        constant_factor: alpha,
                     });
             }
 
@@ -207,6 +197,17 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                         + polynomial.p2
                             * lagrange_basis_polynomial_i(FE::SUMCHECK_P2, challenge[0]);
 
+                    // We multiplied the claim by lag_1(challenge). The claim has a symbolic part
+                    // consisting of every symbolic expression yet encountered on this layer. Scale
+                    // them all up.
+                    // TODO: this isn't quite right but close!
+                    for term in &mut constraints.linear_constraint_lhs {
+                        if term.constraint_number == layer_index {
+                            term.constant_factor *=
+                                lagrange_basis_polynomial_i(FE::ONE, challenge[0]);
+                        }
+                    }
+
                     // Manipulate the unknown portions p0_pad and p2_pad symbolically, accumulating
                     // linear constraint LHS terms.
                     constraints
@@ -215,8 +216,8 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                             constraint_number: layer_index,
                             witness_index: p0_witness_index,
                             constant_factor: lagrange_basis_polynomial_i(FE::ZERO, challenge[0])
-                                // Account for p0 being used to compute p1
-                                - lagrange_basis_polynomial_i(FE::ONE, challenge[0]),
+                                // Account for subtracting p0 from claim
+                                - FE::ONE,
                         });
                     constraints
                         .linear_constraint_lhs
@@ -470,64 +471,46 @@ mod tests {
     }
 
     #[test]
-    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
-        let (test_vector, circuit) =
+    fn self_consistent() {
+        let (_, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
-
-        let test_vector_constraints = test_vector.constraints.unwrap();
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
 
         // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
         let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
 
-        let proof = Prover::new(
-            &circuit,
-            // Here we do _not_ fix the pad to zeroes in order to exercise symbolic manipulation.
-            || FieldP128::ZERO,
-            "test",
-        )
-        .prove(&evaluation)
-        .unwrap();
+        let mut proof_transcript = Transcript::new(b"test").unwrap();
+
+        // Fork the transcript
+        let mut constraint_transcript = proof_transcript.clone();
+
+        let proof = Prover::new(&circuit, FieldP128::sample, "test")
+            .prove(&evaluation, &mut proof_transcript, Some(b"fake commitment"))
+            .unwrap();
 
         // Ensure our witness vector length is consistent with witness layout, and with the
         // witnesses described in test vector constraints.
         assert_eq!(witness_layout.length(), proof.witness.len());
-        assert_eq!(
-            proof.witness.len(),
-            // Find the highest witness index in any constraint, which indicates the length of the
-            // witness vector.
-            test_vector_constraints
-                .linear_lhs
-                .iter()
-                .map(|lhs| lhs.witness)
-                .chain(
-                    test_vector_constraints
-                        .quadratic
-                        .iter()
-                        .map(|q| [q.x, q.y, q.z].into_iter().max().unwrap())
-                )
-                .max()
-                .unwrap()
-                + 1,
-        );
 
-        let mut constraint_transcript = Transcript::new(b"test").unwrap();
         let constraints = ProofConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
             &mut constraint_transcript,
+            b"fake commitment",
             &proof.proof,
         )
         .unwrap();
 
         // Transcripts should have received the same sequence of writes.
-        assert_eq!(proof.transcript, constraint_transcript);
+        assert_eq!(proof_transcript, constraint_transcript);
 
+        // Check that we allocated appropriate size for LHS terms. Ideally we won't reallocate in
+        // the constraint generator loop.
         assert_eq!(
             constraints.linear_constraint_lhs.len(),
             3 * circuit.num_layers()
-                + 3 * (circuit.num_layers() - 1)
+                + 2 * (circuit.num_layers() - 1)
                 + circuit.logw_sum() * 2 * 2
                 + circuit.num_private_inputs()
                 + 2
@@ -540,20 +523,6 @@ mod tests {
         }
 
         let mut all_pass = true;
-
-        let test_vector_rhs_terms = test_vector_constraints.linear_constraint_rhs();
-
-        if constraints.linear_constraint_rhs != test_vector_rhs_terms {
-            println!(
-                "FAIL: linear constraint rhs mismatch. ours: len {}\n{:#?}\ntest vector: len {}\n{:#?}",
-                constraints.linear_constraint_rhs.len(),
-                constraints.linear_constraint_rhs,
-                test_vector_rhs_terms.len(),
-                test_vector_rhs_terms,
-            );
-
-            all_pass = false;
-        };
 
         let mut lhs_summed = vec![FieldP128::ZERO; constraints.linear_constraint_rhs.len()];
         for LinearConstraintLhsTerm {
@@ -574,15 +543,6 @@ mod tests {
             all_pass = false;
         }
 
-        if lhs_summed != test_vector_constraints.linear_constraint_rhs() {
-            println!(
-                "FAIL: computed LHS terms to not sum ({lhs_summed:?}) to test vector RHS ({:?})",
-                test_vector_constraints.linear_constraint_rhs::<FieldP128>(),
-            );
-
-            all_pass = false;
-        }
-
         assert_eq!(
             constraints.linear_constraint_rhs.len(),
             circuit.num_layers() + 1
@@ -593,14 +553,142 @@ mod tests {
             circuit.num_layers()
         );
 
+        for QuadraticConstraint { x, y, z } in constraints.quadratic_constraints {
+            assert_eq!(proof.witness[x] * proof.witness[y], proof.witness[z]);
+        }
+
+        assert!(all_pass);
+    }
+
+    #[test]
+    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
+        let (test_vector, circuit) =
+            CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
+
+        let test_vector_constraints = test_vector.constraints.unwrap();
+        let test_vector_ligero_commitment =
+            hex::decode(&test_vector.ligero_commitment.as_ref().unwrap()).unwrap();
+
+        let witness_layout = WitnessLayout::from_circuit(&circuit);
+
+        // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
+        let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
+
+        let mut proof_transcript = Transcript::new(b"test").unwrap();
+
+        // Fork the transcript
+        let mut constraint_transcript = proof_transcript.clone();
+
+        let proof = Prover::new(
+            &circuit,
+            // Hold pad to 0 so we can test against the test vector.
+            || FieldP128::from_u128(7),
+            "test",
+        )
+        .prove(
+            &evaluation,
+            &mut proof_transcript,
+            Some(&test_vector_ligero_commitment),
+        )
+        .unwrap();
+
+        // Ensure our witness vector length is consistent with witness layout, and with the
+        // witnesses described in test vector constraints.
+        assert_eq!(witness_layout.length(), proof.witness.len());
+
+        let constraints = ProofConstraints::from_proof(
+            &circuit,
+            evaluation.public_inputs(circuit.num_public_inputs()),
+            &mut constraint_transcript,
+            &test_vector_ligero_commitment,
+            &proof.proof,
+        )
+        .unwrap();
+
+        let mut all_pass = true;
+
+        let test_vector_rhs_terms = test_vector_constraints.linear_constraint_rhs();
+
+        if constraints.linear_constraint_rhs != test_vector_rhs_terms {
+            println!(
+                "FAIL: linear constraint rhs mismatch. ours: len {}\n{:#?}\ntest vector: len {}\n{:#?}",
+                constraints.linear_constraint_rhs.len(),
+                constraints.linear_constraint_rhs,
+                test_vector_rhs_terms.len(),
+                test_vector_rhs_terms,
+            );
+
+            all_pass = false;
+        };
+
+        println!(
+            "computed lhs terms: {:#?}",
+            constraints.linear_constraint_lhs
+        );
+
+        let their_lhs_terms: Vec<FieldP128> = [
+            "ce6a2970f3e0c672fd3c0b8b9b09f8f0",
+            "c2fbb2860deaaefa8ff005ed8d5c3f2a",
+            "2aa80d5247a87620cce58bf45754ec48",
+            "a41adc35f244be6d6e1fef2b2047e922",
+            "6db0bbbe404221b57421b4b2529e87b2",
+            "f21489d23bfaa787ac3be8064d35990a",
+            "f8b6fc85adde2504705b9df8c5779a18",
+            "18460de7da5182f1c3cfef924117445d",
+            "77614599c11a9f2e52d236767d4565c8",
+            "3ceb66b1e2bb0b7508bf7ec7c8678875",
+            "c6fa1f7bbff963bad3ca9becabd2db34",
+            "7f8a91a64877b7d6fb54b25c0a434f84",
+            "c0b3db3fca1af0c9c4c6176375c552ba",
+            "8a7c3a167be30d0e07bd473b04166771",
+            "cc6a1aec59b01884b841dc3bc03a92bc",
+            "d0fc6c37e217b18d49b12703785645b5",
+            "6fc9119481530f49deacd2eec5e85853",
+            "00000000000000000000000000000000",
+            "498514d66ccec08dbe00b5b53e5100f6",
+            "101847c71fc933884ff54b5c458d8e51",
+            "451513baa77764f95361cadf72fed1ab",
+            "ff22afaebc3fdd1e4b2d6a4cf869afa1",
+            "2a44cd5eea7c2ac5635cf89f45f05228",
+            "145aa8d314cf8223a73221b8530aa56b",
+            "17b3e75dfbce2a4fc2cc82b2e13e9ad0",
+            "b3777738ec80bdf3a115f5299efea140",
+            "3ee8da496bbb2a352f0ef35e445b3935",
+            "213c91fc428bb4409b3e25af6ea7eab5",
+            "8831b3a10452799f52febfa40cc39c78",
+            "8b291572389656df6b2ca8abf259991b",
+            "b95450ff7b7a656ed51b891f443f6d4f",
+            "00000000000000000000000000f0ffff",
+            "83c743985e984bc29d94eafab192ec20",
+        ]
+        .into_iter()
+        .map(|hex| FieldP128::try_from(hex::decode(hex).unwrap().as_slice()).unwrap())
+        .collect();
+
+        println!("their lhs terms: {:#?}", their_lhs_terms);
+
+        let mut lhs_summed = vec![FieldP128::ZERO; constraints.linear_constraint_rhs.len()];
+        for LinearConstraintLhsTerm {
+            constraint_number,
+            witness_index,
+            constant_factor,
+        } in constraints.linear_constraint_lhs
+        {
+            lhs_summed[constraint_number] += proof.witness[witness_index] * constant_factor;
+        }
+        if lhs_summed != test_vector_constraints.linear_constraint_rhs() {
+            println!(
+                "FAIL: computed LHS terms do not sum ({lhs_summed:?}) to test vector RHS ({:?})",
+                test_vector_constraints.linear_constraint_rhs::<FieldP128>(),
+            );
+
+            all_pass = false;
+        }
+
         assert_eq!(
             constraints.quadratic_constraints,
             test_vector_constraints.quadratic
         );
-
-        for QuadraticConstraint { x, y, z } in constraints.quadratic_constraints {
-            assert_eq!(proof.witness[x] * proof.witness[y], proof.witness[z]);
-        }
 
         assert!(all_pass);
     }

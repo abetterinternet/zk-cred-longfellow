@@ -70,6 +70,8 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
     pub fn prove(
         &mut self,
         evaluation: &Evaluation<FE>,
+        transcript: &mut Transcript,
+        ligero_commitment: Option<&[u8]>,
     ) -> Result<ProverResult<FE>, anyhow::Error> {
         // Specification interpretation verification: all the outputs should be zero
         for output in evaluation.outputs() {
@@ -82,9 +84,8 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
         // Witness vector starts with private inputs
         witness.extend(evaluation.private_inputs(self.circuit.num_public_inputs()));
 
-        let mut transcript = Transcript::new(self.session_id.as_bytes())?;
-
         transcript.initialize(
+            ligero_commitment,
             self.circuit,
             evaluation.public_inputs(self.circuit.num_public_inputs()),
         )?;
@@ -279,7 +280,7 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
         Ok(ProverResult {
             proof,
             witness,
-            transcript,
+            transcript: transcript.clone(),
         })
     }
 }
@@ -438,6 +439,8 @@ mod tests {
         // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
         let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
 
+        let mut transcript = Transcript::new(b"test").unwrap();
+
         let proof = Prover::new(
             &circuit,
             // Transcript/FSPRF output is deterministic for a given session ID and sequence of
@@ -449,7 +452,7 @@ mod tests {
             "test",
         )
         .with_write_all_inputs_to_transcript(true)
-        .prove(&evaluation)
+        .prove(&evaluation, &mut transcript, None)
         .unwrap();
 
         let test_vector_decoded =

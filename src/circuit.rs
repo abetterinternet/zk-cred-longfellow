@@ -526,7 +526,7 @@ pub(crate) mod tests {
             CodecFieldElement, FieldElement, FieldId, SerializedFieldElement, fieldp128::FieldP128,
             fieldp256::FieldP256,
         },
-        sumcheck::constraints::{LinearConstraintLhsTerm, QuadraticConstraint},
+        sumcheck::constraints::QuadraticConstraint,
     };
     use serde::Deserialize;
     use std::{
@@ -565,8 +565,6 @@ pub(crate) mod tests {
 
     #[derive(Debug, Clone, Deserialize)]
     pub(crate) struct Constraints {
-        /// Left hand side terms of linear constraints
-        pub(crate) linear_lhs: Vec<SerializedLinearConstraintLhsTerm>,
         /// Right hand side terms of lienar constraints (vector of serialzied field elements in
         /// hex).
         pub(crate) linear_rhs: Vec<String>,
@@ -575,34 +573,12 @@ pub(crate) mod tests {
     }
 
     impl Constraints {
-        pub(crate) fn linear_constraint_lhs_terms<FE: CodecFieldElement>(
-            &self,
-        ) -> Vec<LinearConstraintLhsTerm<FE>> {
-            self.linear_lhs
-                .iter()
-                .map(|term| LinearConstraintLhsTerm {
-                    constraint_number: term.constraint,
-                    witness_index: term.witness,
-                    constant_factor: FE::try_from(hex::decode(&term.constant).unwrap().as_slice())
-                        .unwrap(),
-                })
-                .collect()
-        }
-
         pub(crate) fn linear_constraint_rhs<FE: CodecFieldElement>(&self) -> Vec<FE> {
             self.linear_rhs
                 .iter()
                 .map(|element| FE::try_from(hex::decode(&element).unwrap().as_slice()).unwrap())
                 .collect()
         }
-    }
-
-    #[derive(Debug, Clone, Deserialize)]
-    pub(crate) struct SerializedLinearConstraintLhsTerm {
-        pub(crate) constraint: usize,
-        pub(crate) witness: usize,
-        // serialized field element in hex
-        pub(crate) constant: String,
     }
 
     /// JSON descriptor of a circuit test vector.
@@ -626,6 +602,8 @@ pub(crate) mod tests {
         pub(crate) serialized_proof: Vec<u8>,
         /// The constraints on the proof.
         pub(crate) constraints: Option<Constraints>,
+        /// The Ligero commitment to the witness.
+        pub(crate) ligero_commitment: Option<String>,
     }
 
     impl CircuitTestVector {

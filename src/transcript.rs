@@ -74,14 +74,19 @@ impl Transcript {
     /// match longfellow-zk.
     pub fn initialize<FE: CodecFieldElement>(
         &mut self,
+        ligero_commitment: Option<&[u8]>,
         circuit: &Circuit,
         public_inputs: &[FE],
     ) -> Result<(), anyhow::Error> {
         // Initialize the transcript per "special rules for the first message", with adjustments to
         // match longfellow-zk.
         // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
-        // 3.1.3 item 1 says to append the "Prover message", "which is usually a commitment".
-        // longfellow-zk doesn't do this at this stage.
+        // 3.1.3 item 1 says to append the "Prover message", "which is usually a commitment". In
+        // particular, a Ligero commitment. zk_test.cc does not do this, but zk_prover.h does when
+        // it constructs constraints, so we make it optional.
+        if let Some(ligero_commitment) = ligero_commitment {
+            self.write_byte_array(ligero_commitment)?;
+        }
 
         // 3.1.3 item 2: write circuit ID
         self.write_byte_array(&circuit.id)?;

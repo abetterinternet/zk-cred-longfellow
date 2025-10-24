@@ -526,7 +526,7 @@ pub(crate) mod tests {
             CodecFieldElement, FieldElement, FieldId, SerializedFieldElement, fieldp128::FieldP128,
             fieldp256::FieldP256,
         },
-        sumcheck::constraints::QuadraticConstraint,
+        sumcheck::constraints::{LinearConstraintLhsTerm, QuadraticConstraint},
     };
     use serde::Deserialize;
     use std::{
@@ -572,6 +572,29 @@ pub(crate) mod tests {
         pub(crate) linear_rhs: Vec<String>,
         // Quadratic constraints.
         pub(crate) quadratic: Vec<QuadraticConstraint>,
+    }
+
+    impl Constraints {
+        pub(crate) fn linear_constraint_lhs_terms<FE: CodecFieldElement>(
+            &self,
+        ) -> Vec<LinearConstraintLhsTerm<FE>> {
+            self.linear_lhs
+                .iter()
+                .map(|term| LinearConstraintLhsTerm {
+                    constraint_number: term.constraint,
+                    witness_index: term.witness,
+                    constant_factor: FE::try_from(hex::decode(&term.constant).unwrap().as_slice())
+                        .unwrap(),
+                })
+                .collect()
+        }
+
+        pub(crate) fn linear_constraint_rhs<FE: CodecFieldElement>(&self) -> Vec<FE> {
+            self.linear_rhs
+                .iter()
+                .map(|element| FE::try_from(hex::decode(&element).unwrap().as_slice()).unwrap())
+                .collect()
+        }
     }
 
     #[derive(Debug, Clone, Deserialize)]

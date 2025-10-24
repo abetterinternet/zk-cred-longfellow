@@ -216,16 +216,13 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
                     };
 
                     // Evaluate the polynomial at P0 and P2, subtracting the pad
-                    let unpadded_p0 = evaluate_polynomial(FE::ZERO);
-                    let unpadded_p2 = evaluate_polynomial(FE::SUMCHECK_P2);
-
-                    // Add unpadded polynomials to the witness.
-                    witness.extend([unpadded_p0, unpadded_p2]);
-
                     let poly_evaluation = Polynomial {
-                        p0: unpadded_p0 - pad_polynomials[hand].p0,
-                        p2: unpadded_p2 - pad_polynomials[hand].p2,
+                        p0: evaluate_polynomial(FE::ZERO) - pad_polynomials[hand].p0,
+                        p2: evaluate_polynomial(FE::SUMCHECK_P2) - pad_polynomials[hand].p2,
                     };
+
+                    // Add polynomial pads to the witness.
+                    witness.extend([pad_polynomials[hand].p0, pad_polynomials[hand].p2]);
 
                     // Commit to the padded polynomial.
                     transcript.write_polynomial(&poly_evaluation)?;
@@ -261,12 +258,8 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
                 assert_eq!(right_wire, &FE::ZERO, "right wires: {right_wires:#?}");
             }
 
-            // Add unpadded vl, vr and vl * vr to the witness
-            witness.extend([
-                left_wires.element(0),
-                right_wires.element(0),
-                left_wires.element(0) * right_wires.element(0),
-            ]);
+            // Add vl, vr and vl * vr pads to the witness
+            witness.extend([layer_pad.vl, layer_pad.vr, layer_pad.vl * layer_pad.vr]);
 
             let layer_proof = ProofLayer {
                 polynomials: layer_proof_polynomials,

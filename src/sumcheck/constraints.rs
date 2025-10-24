@@ -22,14 +22,15 @@ use serde::Deserialize;
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.4.2
 // We don't yet examine these outside of test code, so allow dead code for now.
 #[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinearConstraintLhsTerm<FieldElement> {
     /// The constraint number or row of A. This is an index into the vector `b`, which we represent
     /// as `ProofConstraints::linear_constraint_rhs`. This is `c` in the specification.
-    constraint_number: usize,
+    pub constraint_number: usize,
     /// The index into the witness vector W. This is `j` in the specification.
-    witness_index: usize,
+    pub witness_index: usize,
     /// The constant factor `k`.
-    constant_factor: FieldElement,
+    pub constant_factor: FieldElement,
 }
 
 /// A quadratic constraint consisting of a triple (x, y, z), per [4.4.2][1]. For an array of
@@ -353,13 +354,33 @@ mod tests {
         let proof = Prover::new(
             &circuit,
             // Here we do _not_ fix the pad to zeroes in order to exercise symbolic manipulation.
-            FieldP128::sample,
+            || FieldP128::ZERO,
             "test",
         )
         .prove(&evaluation)
         .unwrap();
 
+        // Ensure our witness vector length is consistent with witness layout, and with the
+        // witnesses described in test vector constraints.
         assert_eq!(witness_layout.length(), proof.witness.len());
+        assert_eq!(
+            proof.witness.len(),
+            // Find the highest witness index in any constraint, which indicates the length of the
+            // witness vector.
+            test_vector_constraints
+                .linear_lhs
+                .iter()
+                .map(|lhs| lhs.witness)
+                .chain(
+                    test_vector_constraints
+                        .quadratic
+                        .iter()
+                        .map(|q| [q.x, q.y, q.z].into_iter().max().unwrap())
+                )
+                .max()
+                .unwrap()
+                + 1,
+        );
 
         let mut constraint_transcript = Transcript::new(b"test").unwrap();
         let constraints = ProofConstraints::from_proof(
@@ -370,9 +391,13 @@ mod tests {
         )
         .unwrap();
 
+        // Transcripts should have received the same sequence of writes.
+        assert_eq!(proof.transcript, constraint_transcript);
+
         assert_eq!(
             constraints.linear_constraint_lhs.len(),
             3 * circuit.num_layers()
+                + 3 * (circuit.num_layers() - 1)
                 + circuit.logw_sum() * 2 * 2
                 + circuit.num_private_inputs()
                 + 2
@@ -384,28 +409,43 @@ mod tests {
             assert!(lhs_term.witness_index < witness_layout.length());
         }
 
+        let test_vector_lhs_terms: Vec<LinearConstraintLhsTerm<FieldP128>> =
+            test_vector_constraints.linear_constraint_lhs_terms();
+
         assert_eq!(
-            constraints.linear_constraint_lhs.len(),
-            test_vector_constraints.linear_lhs.len()
+            constraints.linear_constraint_lhs, test_vector_lhs_terms,
+            "linear constraint mismatch. ours:\n{:#?}\ntest vector:\n{:#?}",
+            constraints.linear_constraint_lhs, test_vector_lhs_terms,
         );
 
-        for (lhs_term, test_vector_lhs_term) in constraints
-            .linear_constraint_lhs
-            .iter()
-            .zip(test_vector_constraints.linear_lhs.iter())
+        let test_vector_rhs_terms = test_vector_constraints.linear_constraint_rhs();
+
+        assert_eq!(
+            constraints.linear_constraint_rhs,
+            test_vector_rhs_terms,
+            "linear constraint rhs mismatch. ours: len {}\n{:#?}\ntest vector: len {}\n{:#?}",
+            constraints.linear_constraint_rhs.len(),
+            constraints.linear_constraint_rhs,
+            test_vector_rhs_terms.len(),
+            test_vector_rhs_terms,
+        );
+
+        let mut test_vector_lhs_summed =
+            vec![FieldP128::ZERO; constraints.linear_constraint_rhs.len()];
+        for LinearConstraintLhsTerm {
+            constraint_number,
+            witness_index,
+            constant_factor,
+        } in test_vector_lhs_terms
         {
-            assert_eq!(lhs_term.constraint_number, test_vector_lhs_term.constraint);
-            assert_eq!(lhs_term.witness_index, test_vector_lhs_term.witness);
-            assert_eq!(
-                lhs_term.constant_factor,
-                FieldP128::try_from(
-                    hex::decode(&test_vector_lhs_term.constant)
-                        .unwrap()
-                        .as_slice()
-                )
-                .unwrap()
-            );
+            test_vector_lhs_summed[constraint_number] +=
+                proof.witness[witness_index] * constant_factor;
         }
+
+        assert_eq!(
+            test_vector_lhs_summed,
+            test_vector_constraints.linear_constraint_rhs(),
+        );
 
         let mut lhs_summed = vec![FieldP128::ZERO; constraints.linear_constraint_rhs.len()];
         for LinearConstraintLhsTerm {
@@ -425,23 +465,6 @@ mod tests {
         );
 
         assert_eq!(
-            constraints.linear_constraint_rhs.len(),
-            test_vector_constraints.linear_rhs.len()
-        );
-
-        for (rhs_term, test_vector_rhs_term) in constraints
-            .linear_constraint_rhs
-            .iter()
-            .zip(test_vector_constraints.linear_rhs.iter())
-        {
-            assert_eq!(
-                rhs_term,
-                &FieldP128::try_from(hex::decode(test_vector_rhs_term).unwrap().as_slice())
-                    .unwrap()
-            );
-        }
-
-        assert_eq!(
             constraints.quadratic_constraints.len(),
             circuit.num_layers()
         );
@@ -454,8 +477,5 @@ mod tests {
         for QuadraticConstraint { x, y, z } in constraints.quadratic_constraints {
             assert_eq!(proof.witness[x] * proof.witness[y], proof.witness[z]);
         }
-
-        // Transcripts should have received the same sequence of writes.
-        assert_eq!(proof.transcript, constraint_transcript);
     }
 }

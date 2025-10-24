@@ -74,6 +74,8 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
             linear_constraint_lhs: Vec::with_capacity(
                 // On each layer, 3 terms for vl, vr, vl * vr
                 3 * circuit.num_layers()
+                // On each layer past the first, 3 terms for the previous layer's vl, vr, vl*vr
+                + 3 * (circuit.num_layers() - 1)
                     + circuit.logw_sum()
                         * 2 // witness elements per polynomial
                         * 2 // hands per round/logw
@@ -147,6 +149,40 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
             // Known portion of initial claim.
             let mut claim_known = claims[0] + alpha * claims[1];
 
+            if layer_index > 0 {
+                // For layers past the first, claims is computed from the previous layer's vl and
+                // vr, so we need linear constraint terms for that symbolic manipulation.
+                let (vl_witness, vr_witness, vl_vr_witness) =
+                    witness_layout.wire_witness_indices(layer_index - 1);
+                // claims[0] is previous layer's vl
+                constraints
+                    .linear_constraint_lhs
+                    .push(LinearConstraintLhsTerm {
+                        constraint_number: layer_index,
+                        witness_index: vl_witness,
+                        constant_factor: FE::ONE, // this is the wrong constant. should be the product
+                                                  // of all the lag_i(FE::ZERO, challenge[0])s?
+                    });
+                // claims[1] is previous layer's vr
+                constraints
+                    .linear_constraint_lhs
+                    .push(LinearConstraintLhsTerm {
+                        constraint_number: layer_index,
+                        witness_index: vr_witness,
+                        constant_factor: alpha, // should be multiplied by all the lag_i(FE::ONE) values?
+                    });
+                // longfellow-zk includes a constraint term on vl_vr. It's not used in the
+                // computation of claim, and hence its constant factor is 0. We follow suit so that
+                // we can test against their constraints.
+                constraints
+                    .linear_constraint_lhs
+                    .push(LinearConstraintLhsTerm {
+                        constraint_number: layer_index,
+                        witness_index: vl_vr_witness,
+                        constant_factor: FE::ZERO,
+                    });
+            }
+
             for (round, polynomial_pair) in proof_layer.polynomials.iter().enumerate() {
                 for (hand, polynomial) in polynomial_pair.iter().enumerate() {
                     transcript.write_polynomial(polynomial)?;
@@ -156,12 +192,6 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
 
                     let (p0_witness_index, p2_witness_index) =
                         witness_layout.polynomial_witness_indices(layer_index, round, hand);
-
-                    // The proof contains padded polynomial points p0_hat and p1_hat where
-                    // p0 = p0_hat - p0_pad and p2 = p2_hat - p2_pad.
-                    //
-                    // p1 is interpolated and not serialized.
-                    let p1_known = claim_known - polynomial.p0;
 
                     // From Section 6.6:
                     // LET lag_i(x) =

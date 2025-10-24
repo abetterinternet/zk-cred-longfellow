@@ -45,6 +45,20 @@ pub trait FieldElement:
     /// This will be 2 for large characteristic fields, and x for fields of characteristic two.
     const SUMCHECK_P2: Self;
 
+    /// The multiplicative inverse of [`Self::SUMCHECK_P2`]. Used for computing Lagrange basis
+    /// polynomials.
+    // TODO: This could probably be a constant.
+    fn sumcheck_p2_mul_inv() -> Self;
+
+    /// The multiplicative inverse of -1. Used for computing Lagrange basis polynomials.
+    // TODO: This could probably be a constant.
+    fn negative_one_mul_inv() -> Self;
+
+    /// The multiplicative inverse of -[`Self::SUMCHECK_P2`]. Used for computing Lagrange basis
+    /// polynomials.
+    // TODO: This could probably be a constant.
+    fn negative_sumcheck_p2_mul_inv() -> Self;
+
     /// Project an integer into the field.
     fn from_u128(value: u128) -> Self;
 
@@ -480,32 +494,43 @@ mod tests {
         assert_eq!(F::from_u128(u64::MAX as u128), F::from(u64::MAX));
     }
 
+    fn field_element_test_mul_inv<F: FieldElement>() {
+        assert_eq!(F::sumcheck_p2_mul_inv() * F::SUMCHECK_P2, F::ONE);
+        assert_eq!(F::negative_one_mul_inv() * -F::ONE, F::ONE);
+        assert_eq!(F::negative_sumcheck_p2_mul_inv() * -F::SUMCHECK_P2, F::ONE);
+    }
+
     #[test]
     fn test_field_p256() {
         field_element_test_large_characteristic::<FieldP256>();
         field_element_test_codec::<FieldP256>(true);
+        field_element_test_mul_inv::<FieldP256>();
     }
 
     #[test]
     fn test_field_p128() {
         field_element_test_large_characteristic::<FieldP128>();
         field_element_test_codec::<FieldP128>(true);
+        field_element_test_mul_inv::<FieldP128>();
     }
 
     #[test]
     fn test_field_p521() {
         field_element_test_large_characteristic::<FieldP521>();
         field_element_test_codec::<FieldP521>(true);
+        field_element_test_mul_inv::<FieldP521>();
     }
 
     #[test]
     fn test_field_p256_squared() {
         field_element_test_large_characteristic::<FieldP256_2>();
+        field_element_test_mul_inv::<FieldP256_2>();
     }
 
     #[test]
     fn test_field_2_128() {
         field_element_test_codec::<Field2_128>(false);
+        field_element_test_mul_inv::<Field2_128>();
     }
 
     #[test]

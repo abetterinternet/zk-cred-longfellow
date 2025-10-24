@@ -719,4 +719,34 @@ mod tests {
             ],
         );
     }
+
+    #[test]
+    fn bindeq_equivalence() {
+        // 6.2: bindv(EQ_{n}, X) = bindeq(l, X) for n = 2^l
+        fn construct_eq(n: usize) -> Vec<Vec<FieldP256>> {
+            let mut eq_n = vec![vec![FieldP256::ZERO; n]; n];
+            for i in 0..n {
+                for j in 0..n {
+                    eq_n[i][j] = if i == j {
+                        FieldP256::ONE
+                    } else {
+                        FieldP256::ZERO
+                    };
+                }
+            }
+
+            eq_n
+        }
+
+        for (binding, eq_n) in [
+            (vec![FieldP256::ONE], construct_eq(2)),
+            (vec![FieldP256::from_u128(217)], construct_eq(2)),
+            (
+                vec![FieldP256::from_u128(217), FieldP256::from_u128(11111)],
+                construct_eq(4),
+            ),
+        ] {
+            assert_eq!(bindeq(binding.as_slice()), eq_n.bind(binding.as_slice())[0]);
+        }
+    }
 }

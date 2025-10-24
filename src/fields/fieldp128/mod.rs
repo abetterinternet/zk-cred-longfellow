@@ -80,6 +80,33 @@ impl FieldElement for FieldP128 {
     const ONE: Self = Self::from_u128_const(1);
     const SUMCHECK_P2: Self = Self::from_u128_const(2);
 
+    fn sumcheck_p2_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF(2^128-2^108+1)(2).inverse().to_bytes(byteorder='little')
+        //
+        // Unwrap safety: this constant is a valid field element
+        Self::try_from(b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f").unwrap()
+    }
+
+    fn negative_one_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF(2^128-2^108+1)(-1).inverse().to_bytes(byteorder='little')
+        //
+        // Unwrap safety: this constant is a valid field element
+        Self::try_from(b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\xff\xff").unwrap()
+    }
+
+    fn negative_sumcheck_p2_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF(2^128-2^108+1)(-2).inverse().to_bytes(byteorder='little')
+        //
+        // Unwrap safety: this constant is a valid field element
+        Self::try_from(b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f").unwrap()
+    }
+
     fn from_u128(value: u128) -> Self {
         Self::from_u128_const(value)
     }

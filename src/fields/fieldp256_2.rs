@@ -20,6 +20,18 @@ impl FieldElement for FieldP256_2 {
 
     const SUMCHECK_P2: Self = Self(QuadraticExtension::<FieldP256>::SUMCHECK_P2);
 
+    fn sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
+
+    fn negative_one_mul_inv() -> Self {
+        todo!()
+    }
+
+    fn negative_sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
+
     fn from_u128(value: u128) -> Self {
         Self(QuadraticExtension::<FieldP256>::from_u128(value))
     }

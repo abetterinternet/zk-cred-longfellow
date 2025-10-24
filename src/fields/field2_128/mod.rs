@@ -31,6 +31,18 @@ impl FieldElement for Field2_128 {
     const ONE: Self = Self(0b1);
     const SUMCHECK_P2: Self = Self(0b10);
 
+    fn sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
+
+    fn negative_one_mul_inv() -> Self {
+        todo!()
+    }
+
+    fn negative_sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
+
     fn from_u128(value: u128) -> Self {
         Self(value)
     }

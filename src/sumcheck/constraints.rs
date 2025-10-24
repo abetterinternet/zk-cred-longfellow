@@ -201,19 +201,54 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                     //                for 0 <= k < 3
                     //
                     // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
-                    let lag_i = |i: FE, x: FE| {
-                        // only lag_0, _1, _2 are defined
-                        assert!(i == FE::ZERO || i == FE::ONE || i == FE::SUMCHECK_P2);
+                    let lagrange_basis_polynomial_i = |i: FE, x: FE| {
+                        // Our nodes are x_0 = 0, x_1 = 1, and x_2 = SUMCHECK_P2 (aka 2) in the
+                        // field. Since we only have three nodes, we can work out each Lagrange
+                        // basis polynomial by hand.
+                        //
+                        // To avoid divisions, we multiply the numerator by the multiplicative
+                        // inverses of the three possible denominators for each field, which have
+                        // been preconputed.
+                        //
+                        // https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
+                        let (numerator, denominator_mul_inverse) = if i == FE::ZERO {
+                            (
+                                (x - FE::ONE) * (x - FE::SUMCHECK_P2),
+                                // (0 - 1) * (0 - 2) = 2
+                                FE::sumcheck_p2_mul_inv(),
+                            )
+                        } else if i == FE::ONE {
+                            (
+                                (x - FE::ZERO) * (x - FE::SUMCHECK_P2),
+                                // (1 - 0) * (1 - 2) = -1
+                                FE::negative_one_mul_inv(),
+                            )
+                        } else if i == FE::SUMCHECK_P2 {
+                            (
+                                (x - FE::ZERO) * (x - FE::SUMCHECK_P2),
+                                // (2 - 0) * (1 - 2) = -2
+                                FE::negative_sumcheck_p2_mul_inv(),
+                            )
+                        } else {
+                            panic!("lagrange basis polynomial undefined for {i:?}");
+                        };
 
-                        if x == i { FE::ONE } else { FE::ZERO }
+                        numerator * denominator_mul_inverse
                     };
 
+                    // The proof contains padded polynomial points p0_hat and p2_hat where
+                    // p0 = p0_hat - p0_pad and p2 = p2_hat - p2_pad. p1 is interpolated and so its
+                    // padded polynomial does not appear in the proof, but we still have constraint
+                    // terms for its symbolic manipulation.
                     // Directly manipulate the known portions p0_hat and p2_hat to compute the known
                     // portion of the  next claim, which will eventually contribute to the layer's
                     // linear constraint RHS.
-                    claim_known = polynomial.p0 * lag_i(FE::ZERO, challenge[0])
-                        + p1_known * lag_i(FE::ONE, challenge[0])
-                        + polynomial.p2 * lag_i(FE::SUMCHECK_P2, challenge[0]);
+                    claim_known = polynomial.p0
+                        * lagrange_basis_polynomial_i(FE::ZERO, challenge[0])
+                        + (claim_known - polynomial.p0)
+                            * lagrange_basis_polynomial_i(FE::ONE, challenge[0])
+                        + polynomial.p2
+                            * lagrange_basis_polynomial_i(FE::SUMCHECK_P2, challenge[0]);
 
                     // Manipulate the unknown portions p0_pad and p2_pad symbolically, accumulating
                     // linear constraint LHS terms.
@@ -222,15 +257,17 @@ impl<FE: CodecFieldElement> ProofConstraints<FE> {
                         .push(LinearConstraintLhsTerm {
                             constraint_number: layer_index,
                             witness_index: p0_witness_index,
-                            constant_factor: lag_i(FE::ZERO, challenge[0]),
+                            constant_factor: lagrange_basis_polynomial_i(FE::ZERO, challenge[0]),
                         });
-                    // No constraint for P1, because it gets interpolated.
                     constraints
                         .linear_constraint_lhs
                         .push(LinearConstraintLhsTerm {
                             constraint_number: layer_index,
                             witness_index: p2_witness_index,
-                            constant_factor: lag_i(FE::SUMCHECK_P2, challenge[0]),
+                            constant_factor: lagrange_basis_polynomial_i(
+                                FE::SUMCHECK_P2,
+                                challenge[0],
+                            ),
                         });
 
                     bound_quad = bound_quad.bind(&challenge).transpose();

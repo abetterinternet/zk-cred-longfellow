@@ -167,17 +167,17 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
         numerator * denominator_mul_inverse
     }
 
-    /// The multiplicative inverse of [`Self::SUMCHECK_P2`]. Denominator of the 0th Lagrange basis
+    /// The multiplicative inverse of `SUMCHECK_P2`. Denominator of the 0th Lagrange basis
     /// polynomial.
     // TODO: This could probably be a constant.
     fn sumcheck_p2_mul_inv() -> Self;
 
-    /// The multiplicative inverse of 1 - [`Self::SUMCHECK_P2`]. Denominator of the 1st Lagrange
-    /// basis polynomial.
+    /// The multiplicative inverse of `1 - SUMCHECK_P2`. Denominator of the 1st Lagrange basis
+    /// polynomial.
     fn one_minus_sumcheck_p2_mul_inv() -> Self;
 
-    /// The multiplicative inverse of `[Self::SUMCHECK_P2]^2 - Self::SUMCHECK_P2`. Denominator of
-    /// the 2nd Lagrange basis polynomial.
+    /// The multiplicative inverse of `SUMCHECK_P2^2 - SUMCHECK_P2`. Denominator of the 2nd Lagrange
+    /// basis polynomial.
     // TODO: This could probably be a constant.
     fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self;
 }

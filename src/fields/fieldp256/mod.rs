@@ -11,7 +11,7 @@ use subtle::ConstantTimeEq;
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, FieldElement,
+        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement,
         fieldp256::ops::{
             fiat_p256_add, fiat_p256_from_bytes, fiat_p256_from_montgomery,
             fiat_p256_montgomery_domain_field_element, fiat_p256_mul,
@@ -75,18 +75,6 @@ impl FieldElement for FieldP256 {
     const ONE: Self = Self::from_u128_const(1);
     const SUMCHECK_P2: Self = Self::from_u128_const(2);
 
-    fn sumcheck_p2_mul_inv() -> Self {
-        todo!()
-    }
-
-    fn negative_one_mul_inv() -> Self {
-        todo!()
-    }
-
-    fn negative_sumcheck_p2_mul_inv() -> Self {
-        todo!()
-    }
-
     fn from_u128(value: u128) -> Self {
         Self::from_u128_const(value)
     }
@@ -100,6 +88,20 @@ impl FieldElement for FieldP256 {
 
 impl CodecFieldElement for FieldP256 {
     const NUM_BITS: u32 = 256;
+}
+
+impl LagrangePolynomialFieldElement for FieldP256 {
+    fn sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
+
+    fn one_minus_sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
+
+    fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
 }
 
 impl Debug for FieldP256 {

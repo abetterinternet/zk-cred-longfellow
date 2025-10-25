@@ -317,8 +317,6 @@ impl<FE: CodecFieldElement> Proof<FE> {
     }
 }
 
-impl<FE: CodecFieldElement> Proof<FE> {}
-
 /// Sumcheck proof for a circuit layer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ProofLayer<FieldElement> {

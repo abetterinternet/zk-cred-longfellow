@@ -248,7 +248,7 @@ impl<FE: FieldElement> ElementwiseSum for FE {
 }
 
 /// Naive implementation of bindeq() from 6.2. This binds `input` of length `l` to the implicit
-/// `EQ_l` array.
+/// `EQ_2^l` array.
 ///
 /// We should rework this to avoid recursion.
 pub fn bindeq<FE: FieldElement>(input: &[FE]) -> Vec<FE> {

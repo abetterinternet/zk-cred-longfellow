@@ -34,18 +34,6 @@ impl<B: FieldElement> FieldElement for QuadraticExtension<B> {
         imag: B::ZERO,
     };
 
-    fn sumcheck_p2_mul_inv() -> Self {
-        todo!()
-    }
-
-    fn negative_one_mul_inv() -> Self {
-        todo!()
-    }
-
-    fn negative_sumcheck_p2_mul_inv() -> Self {
-        todo!()
-    }
-
     fn from_u128(value: u128) -> Self {
         Self {
             real: B::from_u128(value),

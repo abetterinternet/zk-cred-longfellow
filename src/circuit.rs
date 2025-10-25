@@ -594,6 +594,10 @@ pub(crate) mod tests {
         pub(crate) quads: u32,
         /// Not yet clear what this is.
         pub(crate) _terms: u32,
+        /// Inputs which evaluate to 0 in this circuit.
+        pub(crate) valid_inputs: Option<Vec<u128>>,
+        /// Inputs which evaluate to non-zero in this circuit.
+        pub(crate) invalid_inputs: Option<Vec<u128>>,
         /// The serialized circuit, decompressed from a file alongside the JSON descriptor.
         #[serde(default)]
         pub(crate) serialized_circuit: Vec<u8>,
@@ -604,6 +608,8 @@ pub(crate) mod tests {
         pub(crate) constraints: Option<Constraints>,
         /// The Ligero commitment to the witness.
         pub(crate) ligero_commitment: Option<String>,
+        /// The fixed pad value to use during constraint generation.
+        pub(crate) pad: Option<u64>,
     }
 
     impl CircuitTestVector {
@@ -720,11 +726,12 @@ pub(crate) mod tests {
 
     #[test]
     fn evaluate_circuit_longfellow_rfc_1_true() {
-        let (_, circuit) =
+        let (test_vector, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
 
-        // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
-        let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
+        let evaluation: Evaluation<FieldP128> = circuit
+            .evaluate(&test_vector.valid_inputs.unwrap())
+            .unwrap();
 
         // Output size should match circuit serialization and values should all be zero
         assert_eq!(circuit.num_outputs, evaluation.wires[0].len());
@@ -742,13 +749,13 @@ pub(crate) mod tests {
 
     #[test]
     fn evaluate_circuit_longfellow_rfc_1_false() {
-        let (_, circuit) =
+        let (test_vector, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
 
         // Evaluate with other values. At least one output element should be nonzero.
         assert!(
             circuit
-                .evaluate(&[45, 5, 7])
+                .evaluate(&test_vector.invalid_inputs.unwrap())
                 .unwrap()
                 .outputs()
                 .iter()
@@ -773,7 +780,9 @@ pub(crate) mod tests {
 
         assert_eq!(circuit.num_quads(), test_vector.quads as usize);
 
-        let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
+        let evaluation: Evaluation<FieldP128> = circuit
+            .evaluate(&test_vector.valid_inputs.unwrap())
+            .unwrap();
 
         for output in evaluation.outputs() {
             assert_eq!(*output, FieldP128::ZERO);

@@ -23,7 +23,6 @@ pub struct Prover<'a, PadGenerator> {
     circuit: &'a Circuit,
     pad_generator: PadGenerator,
     write_all_inputs_to_transcript: bool,
-    session_id: &'a str,
 }
 
 /// Sumcheck proof plus some extra data useful for validation.
@@ -42,12 +41,11 @@ pub struct ProverResult<FE> {
 }
 
 impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGenerator> {
-    pub fn new(circuit: &'a Circuit, pad_generator: PadGenerator, session_id: &'a str) -> Self {
+    pub fn new(circuit: &'a Circuit, pad_generator: PadGenerator) -> Self {
         Self {
             circuit,
             pad_generator,
             write_all_inputs_to_transcript: false,
-            session_id,
         }
     }
 
@@ -437,8 +435,11 @@ mod tests {
         assert_eq!(circuit.num_copies, Size(1));
 
         // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
-        let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
+        let evaluation: Evaluation<FieldP128> = circuit
+            .evaluate(&test_vector.valid_inputs.unwrap())
+            .unwrap();
 
+        // Matches session used in longfellow-zk/lib/zk/zk_test.cc
         let mut transcript = Transcript::new(b"test").unwrap();
 
         let proof = Prover::new(
@@ -448,8 +449,6 @@ mod tests {
             // To get deterministic output we can test against vectors, fix the pad source to
             // always yield zero.
             || FieldP128::ZERO,
-            // Matches session used in longfellow-zk/lib/zk/zk_test.cc
-            "test",
         )
         .with_write_all_inputs_to_transcript(true)
         .prove(&evaluation, &mut transcript, None)

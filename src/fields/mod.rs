@@ -130,13 +130,12 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
     fn lagrange_basis_polynomial_i(i: Self, x: Self) -> Self {
-        // Our nodes are x_0 = 0, x_1 = 1, and x_2 = SUMCHECK_P2 (aka 2) in the
-        // field. Since we only have three nodes, we can work out each Lagrange
-        // basis polynomial by hand.
+        // Our nodes are x_0 = 0, x_1 = 1, and x_2 = SUMCHECK_P2 in the field. Since we only have
+        // three nodes, we can work out each Lagrange basis polynomial by hand.
         //
         // To avoid divisions, we multiply the numerator by the multiplicative
         // inverses of the three possible denominators for each field, which have
-        // been preconputed.
+        // been precomputed.
         //
         // https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
         let (numerator, denominator_mul_inverse) = if i == Self::ZERO {

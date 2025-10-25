@@ -117,6 +117,71 @@ pub trait CodecFieldElement:
     }
 }
 
+/// Elements of a field in which we can interpolate polynomials up to degree three. We precompute
+/// the denominators of the basis polynomials to avoid needing division.
+pub trait LagrangePolynomialFieldElement: FieldElement {
+    /// Evaluate the ith Lagrange basis polynomial at x. From [Section 6.6][1]:
+    ///
+    /// LET lag_i(x) =
+    ///                the quadratic polynomial such that
+    ///                       lag_i(P_k) = 1  if i = k
+    ///                                    0  otherwise
+    ///                for 0 <= k < 3
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
+    fn lagrange_basis_polynomial_i(i: Self, x: Self) -> Self {
+        // Our nodes are x_0 = 0, x_1 = 1, and x_2 = SUMCHECK_P2 in the field. Since we only have
+        // three nodes, we can work out each Lagrange basis polynomial by hand.
+        //
+        // To avoid divisions, we multiply the numerator by the multiplicative
+        // inverses of the three possible denominators for each field, which have
+        // been precomputed.
+        //
+        // https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
+        let (numerator, denominator_mul_inverse) = if i == Self::ZERO {
+            (
+                // (x - x_1) * (x - x_2)
+                (x - Self::ONE) * (x - Self::SUMCHECK_P2),
+                // (x_0 - x_1) * (x_0 - x_2) = (0 - 1) * (0 - SUMCHECK_P2) = SUMCHECK_P2
+                Self::sumcheck_p2_mul_inv(),
+            )
+        } else if i == Self::ONE {
+            (
+                // (x - x_0) * (x - x_2)
+                (x - Self::ZERO) * (x - Self::SUMCHECK_P2),
+                // (x_1 - x_0) * (x_1 - x_2) = (1 - 0) * (1 - SUMCHECK_P2) = 1 - SUMCHECK_P2
+                Self::one_minus_sumcheck_p2_mul_inv(),
+            )
+        } else if i == Self::SUMCHECK_P2 {
+            (
+                // (x - x_0) * (x - x_1)
+                (x - Self::ZERO) * (x - Self::ONE),
+                // (x_2 - x_0) * (x_2 - x_1) = (SUMCHECK_P2 - 0) * (SUMCHECK_P2 - 1)
+                //   = SUMCHECK_P2^2 - SUMCHECK_P2
+                Self::sumcheck_p2_squared_minus_sumcheck_p2_mul_inv(),
+            )
+        } else {
+            panic!("lagrange basis polynomial undefined for {i:?}");
+        };
+
+        numerator * denominator_mul_inverse
+    }
+
+    /// The multiplicative inverse of `SUMCHECK_P2`. Denominator of the 0th Lagrange basis
+    /// polynomial.
+    // TODO: This could probably be a constant.
+    fn sumcheck_p2_mul_inv() -> Self;
+
+    /// The multiplicative inverse of `1 - SUMCHECK_P2`. Denominator of the 1st Lagrange basis
+    /// polynomial.
+    fn one_minus_sumcheck_p2_mul_inv() -> Self;
+
+    /// The multiplicative inverse of `SUMCHECK_P2^2 - SUMCHECK_P2`. Denominator of the 2nd Lagrange
+    /// basis polynomial.
+    // TODO: This could probably be a constant.
+    fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self;
+}
+
 /// Field identifier. According to the draft specification, the encoding is of variable length ([1])
 /// but in the Longfellow implementation ([2]), they're always 3 bytes long.
 ///
@@ -248,12 +313,11 @@ mod tests {
         fields::{
             CodecFieldElement, FieldElement, FieldId, SerializedFieldElement,
             field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
-            fieldp256_2::FieldP256_2,
         },
     };
     use std::io::Cursor;
 
-    use super::fieldp521::FieldP521;
+    use super::{LagrangePolynomialFieldElement, fieldp521::FieldP521};
 
     #[test]
     fn codec_roundtrip_field_p128() {
@@ -480,32 +544,44 @@ mod tests {
         assert_eq!(F::from_u128(u64::MAX as u128), F::from(u64::MAX));
     }
 
+    fn field_element_test_mul_inv<F: LagrangePolynomialFieldElement>() {
+        assert_eq!(F::sumcheck_p2_mul_inv() * F::SUMCHECK_P2, F::ONE);
+        assert_eq!(
+            F::one_minus_sumcheck_p2_mul_inv() * (F::ONE - F::SUMCHECK_P2),
+            F::ONE
+        );
+        assert_eq!(
+            F::sumcheck_p2_squared_minus_sumcheck_p2_mul_inv()
+                * ((F::SUMCHECK_P2 * F::SUMCHECK_P2) - F::SUMCHECK_P2),
+            F::ONE
+        );
+    }
+
     #[test]
     fn test_field_p256() {
         field_element_test_large_characteristic::<FieldP256>();
         field_element_test_codec::<FieldP256>(true);
+        field_element_test_mul_inv::<FieldP256>();
     }
 
     #[test]
     fn test_field_p128() {
         field_element_test_large_characteristic::<FieldP128>();
         field_element_test_codec::<FieldP128>(true);
+        field_element_test_mul_inv::<FieldP128>();
     }
 
     #[test]
     fn test_field_p521() {
         field_element_test_large_characteristic::<FieldP521>();
         field_element_test_codec::<FieldP521>(true);
-    }
-
-    #[test]
-    fn test_field_p256_squared() {
-        field_element_test_large_characteristic::<FieldP256_2>();
+        field_element_test_mul_inv::<FieldP521>();
     }
 
     #[test]
     fn test_field_2_128() {
         field_element_test_codec::<Field2_128>(false);
+        field_element_test_mul_inv::<Field2_128>();
     }
 
     #[test]
@@ -566,5 +642,55 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn sample() {
         FieldP128::sample();
+    }
+
+    fn lagrange_basis_polynomial_test<FE: LagrangePolynomialFieldElement>() {
+        // lag_i is 1 at i and 0 at the other nodes
+        assert_eq!(FE::lagrange_basis_polynomial_i(FE::ZERO, FE::ZERO), FE::ONE);
+        assert_eq!(FE::lagrange_basis_polynomial_i(FE::ZERO, FE::ONE), FE::ZERO);
+        assert_eq!(
+            FE::lagrange_basis_polynomial_i(FE::ZERO, FE::SUMCHECK_P2),
+            FE::ZERO
+        );
+
+        assert_eq!(FE::lagrange_basis_polynomial_i(FE::ONE, FE::ZERO), FE::ZERO);
+        assert_eq!(FE::lagrange_basis_polynomial_i(FE::ONE, FE::ONE), FE::ONE);
+        assert_eq!(
+            FE::lagrange_basis_polynomial_i(FE::ONE, FE::SUMCHECK_P2),
+            FE::ZERO
+        );
+
+        assert_eq!(
+            FE::lagrange_basis_polynomial_i(FE::SUMCHECK_P2, FE::ZERO),
+            FE::ZERO
+        );
+        assert_eq!(
+            FE::lagrange_basis_polynomial_i(FE::SUMCHECK_P2, FE::ONE),
+            FE::ZERO
+        );
+        assert_eq!(
+            FE::lagrange_basis_polynomial_i(FE::SUMCHECK_P2, FE::SUMCHECK_P2),
+            FE::ONE
+        );
+    }
+
+    #[test]
+    fn lagrange_basis_polynomial_field_p128() {
+        lagrange_basis_polynomial_test::<FieldP128>();
+    }
+
+    #[test]
+    fn lagrange_basis_polynomial_field_p256() {
+        lagrange_basis_polynomial_test::<FieldP256>();
+    }
+
+    #[test]
+    fn lagrange_basis_polynomial_field_p521() {
+        lagrange_basis_polynomial_test::<FieldP521>();
+    }
+
+    #[test]
+    fn lagrange_basis_polynomial_field_2_128() {
+        lagrange_basis_polynomial_test::<Field2_128>();
     }
 }

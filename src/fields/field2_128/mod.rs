@@ -17,7 +17,7 @@ use subtle::ConstantTimeEq;
 
 use crate::{
     Codec,
-    fields::{CodecFieldElement, FieldElement},
+    fields::{CodecFieldElement, FieldElement, LagrangePolynomialFieldElement},
 };
 
 /// An element of the field GF(2^128).
@@ -42,6 +42,20 @@ impl FieldElement for Field2_128 {
 
 impl CodecFieldElement for Field2_128 {
     const NUM_BITS: u32 = 128;
+}
+
+impl LagrangePolynomialFieldElement for Field2_128 {
+    fn sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
+
+    fn one_minus_sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
+
+    fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
 }
 
 impl Debug for Field2_128 {

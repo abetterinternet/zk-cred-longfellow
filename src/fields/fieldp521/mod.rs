@@ -11,7 +11,7 @@ use subtle::ConstantTimeEq;
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, FieldElement,
+        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement,
         fieldp521::ops::{
             fiat_p521_carry_add, fiat_p521_carry_mul, fiat_p521_carry_opp, fiat_p521_carry_square,
             fiat_p521_carry_sub, fiat_p521_from_bytes, fiat_p521_loose_field_element,
@@ -81,6 +81,20 @@ impl FieldElement for FieldP521 {
 
 impl CodecFieldElement for FieldP521 {
     const NUM_BITS: u32 = 521;
+}
+
+impl LagrangePolynomialFieldElement for FieldP521 {
+    fn sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
+
+    fn one_minus_sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
+
+    fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self {
+        todo!()
+    }
 }
 
 impl Debug for FieldP521 {

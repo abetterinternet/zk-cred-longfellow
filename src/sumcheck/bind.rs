@@ -22,7 +22,7 @@ pub trait SumcheckArray<FieldElement>: Sized {
     /// elements.
     ///
     /// This corresponds to `bindv()` from [6.1][1]. The function `bind()` can be realized by
-    /// passing an array of a single element.
+    /// passing a slice containing a single element.
     // TODO: provide in-place version?
     fn bind(&self, binding: &[FieldElement]) -> Self;
 
@@ -245,6 +245,33 @@ impl<FE: FieldElement> ElementwiseSum for FE {
     fn elementwise_sum(&self, rhs: &Self) -> Self {
         *self + *rhs
     }
+}
+
+/// Naive implementation of bindeq() from 6.2. This binds `input` of length `l` to the implicit
+/// `EQ_2^l` array.
+///
+/// We should rework this to avoid recursion.
+pub fn bindeq<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
+    let output_len = 2usize.pow(
+        input
+            .len()
+            .try_into()
+            .expect("array length too big to exponentiate!"),
+    );
+    let mut bound = vec![FE::ZERO; output_len];
+
+    if input.is_empty() {
+        bound[0] = FE::ONE;
+    } else {
+        let a = bindeq(&input[1..]);
+        // usize::div rounds towards zero
+        for index in 0..output_len / 2 {
+            bound[2 * index] = (FE::ONE - input[0]) * a[index];
+            bound[2 * index + 1] = input[0] * a[index];
+        }
+    }
+
+    bound
 }
 
 #[cfg(test)]
@@ -691,5 +718,35 @@ mod tests {
                 vec![field_vec(&[6; 5]); 2],
             ],
         );
+    }
+
+    #[test]
+    fn bindeq_equivalence() {
+        // 6.2: bindv(EQ_{n}, X) = bindeq(l, X) for n = 2^l
+        fn construct_eq(n: usize) -> Vec<Vec<FieldP256>> {
+            let mut eq_n = vec![vec![FieldP256::ZERO; n]; n];
+            for i in 0..n {
+                for j in 0..n {
+                    eq_n[i][j] = if i == j {
+                        FieldP256::ONE
+                    } else {
+                        FieldP256::ZERO
+                    };
+                }
+            }
+
+            eq_n
+        }
+
+        for (binding, eq_n) in [
+            (vec![FieldP256::ONE], construct_eq(2)),
+            (vec![FieldP256::from_u128(217)], construct_eq(2)),
+            (
+                vec![FieldP256::from_u128(217), FieldP256::from_u128(11111)],
+                construct_eq(4),
+            ),
+        ] {
+            assert_eq!(bindeq(binding.as_slice()), eq_n.bind(binding.as_slice())[0]);
+        }
     }
 }

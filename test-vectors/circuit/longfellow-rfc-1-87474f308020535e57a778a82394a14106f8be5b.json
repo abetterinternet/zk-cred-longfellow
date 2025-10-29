@@ -6,13 +6,13 @@
     "_terms": 11,
     "valid_inputs": [45, 5, 6],
     "invalid_inputs": [45, 5, 7],
-    "ligero_commitment": "007d7d268cf864fc51a7d46342958ced39636fad80847f1cc095150e96022f74",
-    "pad": 7,
+    "pad": 2,
+    "ligero_commitment": "c1474a75e91f3eaddac355ef6a5afdbf02494848fc7ffa57d5654408b8af73cf",
     "constraints": {
         "linear_rhs": [
-            "28f3cced8eafdce4d724d78a04221b22",
-            "9b3b5b1948fd29133715b3ac3dbc3458",
-            "9840266098f822436c95e9f33370064d"
+            "94add22d4b1ff044987b105c23112a56",
+            "ca4ca37c73792709954cc23429e6c4fa",
+            "4850e1eab715075c0118011e7bb2a8e5"
         ],
         "quadratic": [
             { "x": 14, "y": 15, "z": 16 },

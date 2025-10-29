@@ -23,7 +23,6 @@ mod witness;
 pub struct Prover<'a, PadGenerator> {
     circuit: &'a Circuit,
     pad_generator: PadGenerator,
-    write_all_inputs_to_transcript: bool,
 }
 
 /// Sumcheck proof plus some extra data useful for validation.
@@ -46,22 +45,7 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
         Self {
             circuit,
             pad_generator,
-            write_all_inputs_to_transcript: false,
         }
-    }
-
-    /// After Fiat-Shamir initialization, but before proving the layers, longfellow-zk's
-    /// sumcheck/prover.h (used by zk_test.cc to generate test vectors) writes all the inputs
-    /// to the circuit (public and private) to the transcript. This presumably constitutes
-    /// the "prover message" described in 3.1.3 item 1.
-    ///
-    /// We optionally emulate this behavior for compatibility with test vectors.
-    ///
-    /// See discussion in <https://github.com/google/longfellow-zk/issues/37>,
-    /// <https://github.com/google/longfellow-zk/issues/70>
-    pub fn with_write_all_inputs_to_transcript(mut self, enable: bool) -> Self {
-        self.write_all_inputs_to_transcript = enable;
-        self
     }
 
     /// Construct a padded proof of the transcript of the given evaluation of the circuit and return
@@ -70,7 +54,7 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
         &mut self,
         evaluation: &Evaluation<FE>,
         transcript: &mut Transcript,
-        ligero_commitment: Option<&[u8]>,
+        ligero_commitment: &[u8],
     ) -> Result<ProverResult<FE>, anyhow::Error> {
         // Specification interpretation verification: all the outputs should be zero
         for output in evaluation.outputs() {
@@ -88,10 +72,6 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
             self.circuit,
             evaluation.public_inputs(self.circuit.num_public_inputs()),
         )?;
-
-        if self.write_all_inputs_to_transcript {
-            transcript.write_field_element_array(evaluation.inputs())?;
-        }
 
         // Choose the bindings for the output layer.
         let output_wire_bindings = transcript.generate_output_wire_bindings(self.circuit)?;
@@ -421,11 +401,7 @@ pub struct Polynomial<FE> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Size,
-        circuit::tests::CircuitTestVector,
-        fields::{FieldElement, fieldp128::FieldP128},
-    };
+    use crate::{Size, fields::fieldp128::FieldP128, test_vector::CircuitTestVector};
     use std::io::Cursor;
 
     #[test]
@@ -437,26 +413,25 @@ mod tests {
 
         // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
         let evaluation: Evaluation<FieldP128> = circuit
-            .evaluate(&test_vector.valid_inputs.unwrap())
+            .evaluate(test_vector.valid_inputs.as_deref().unwrap())
             .unwrap();
 
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
         let mut transcript = Transcript::new(b"test").unwrap();
 
-        let proof = Prover::new(
-            &circuit,
-            // Transcript/FSPRF output is deterministic for a given session ID and sequence of
-            // inputs, but the pad is implied to be constructed of uniformly sampled field elements.
-            // To get deterministic output we can test against vectors, fix the pad source to
-            // always yield zero.
-            || FieldP128::ZERO,
-        )
-        .with_write_all_inputs_to_transcript(true)
-        .prove(&evaluation, &mut transcript, None)
-        .unwrap();
+        let proof = Prover::new(&circuit, || test_vector.pad().unwrap())
+            .prove(
+                &evaluation,
+                &mut transcript,
+                test_vector.ligero_commitment().as_deref().unwrap(),
+            )
+            .unwrap();
 
-        let test_vector_decoded =
-            Proof::decode(&circuit, &mut Cursor::new(&test_vector.serialized_proof)).unwrap();
+        let test_vector_decoded = Proof::decode(
+            &circuit,
+            &mut Cursor::new(&test_vector.serialized_sumcheck_proof),
+        )
+        .unwrap();
 
         assert_eq!(
             proof.proof, test_vector_decoded,
@@ -466,17 +441,22 @@ mod tests {
         let mut proof_encoded = Vec::new();
         proof.proof.encode(&mut proof_encoded).unwrap();
 
-        assert_eq!(proof_encoded.len(), test_vector.serialized_proof.len());
-        assert_eq!(proof_encoded, test_vector.serialized_proof);
+        assert_eq!(
+            proof_encoded.len(),
+            test_vector.serialized_sumcheck_proof.len()
+        );
+        assert_eq!(proof_encoded, test_vector.serialized_sumcheck_proof);
     }
 
     #[test]
     fn roundtrip_encoded_proof() {
         let (test_vector, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
-        let test_vector_decoded =
-            Proof::<FieldP128>::decode(&circuit, &mut Cursor::new(&test_vector.serialized_proof))
-                .unwrap();
+        let test_vector_decoded = Proof::<FieldP128>::decode(
+            &circuit,
+            &mut Cursor::new(&test_vector.serialized_sumcheck_proof),
+        )
+        .unwrap();
 
         let mut test_vector_again = Vec::new();
         test_vector_decoded.encode(&mut test_vector_again).unwrap();

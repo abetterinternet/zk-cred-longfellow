@@ -17,7 +17,7 @@ use subtle::ConstantTimeEq;
 
 use crate::{
     Codec,
-    fields::{CodecFieldElement, FieldElement},
+    fields::{CodecFieldElement, FieldElement, LagrangePolynomialFieldElement},
 };
 
 /// An element of the field GF(2^128).
@@ -42,6 +42,38 @@ impl FieldElement for Field2_128 {
 
 impl CodecFieldElement for Field2_128 {
     const NUM_BITS: u32 = 128;
+}
+
+impl LagrangePolynomialFieldElement for Field2_128 {
+    fn sumcheck_p2_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF2 = GF(2)
+        // x = polygen(GF2)
+        // GF2_128.<x> = GF2.extension(x^128 + x^7 + x^2 + x + 1)
+        // GF2_128(x).inverse().to_integer()
+        Self::from_u128(170141183460469231731687303715884105795)
+    }
+
+    fn one_minus_sumcheck_p2_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF2 = GF(2)
+        // x = polygen(GF2)
+        // GF2_128.<x> = GF2.extension(x^128 + x^7 + x^2 + x + 1)
+        // GF2_128(1 - x).inverse().to_integer()
+        Self::from_u128(340282366920938463463374607431768211330)
+    }
+
+    fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF2 = GF(2)
+        // x = polygen(GF2)
+        // GF2_128.<x> = GF2.extension(x^128 + x^7 + x^2 + x + 1)
+        // GF2_128(x^2 - x).inverse().to_integer()
+        Self::from_u128(170141183460469231731687303715884105665)
+    }
 }
 
 impl Debug for Field2_128 {

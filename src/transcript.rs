@@ -3,7 +3,7 @@
 //!
 //! <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3>
 
-use crate::fields::CodecFieldElement;
+use crate::{circuit::Circuit, fields::CodecFieldElement, sumcheck::Polynomial};
 use aes::{
     Aes256,
     cipher::{BlockEncrypt, KeyInit},
@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 /// A transcript of the prover's execution of a protocol, used to generate the verifier's public
 /// coin challenges based on the state of the transcript at some moment.
+#[derive(Clone, Debug)]
 pub struct Transcript {
     /// Accumulated hash of messages written to the transcript, used as the seed to
     /// [`FiatShamirPseudoRandomFunction`] to generate verifier challenges.
@@ -57,7 +58,7 @@ impl Transcript {
     /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.1.1>
     ///
     /// [1]: https://github.com/google/longfellow-zk/blob/87474f308020535e57a778a82394a14106f8be5b/lib/random/transcript.h#L76
-    pub fn initialize(session_id: &[u8]) -> Result<Self, anyhow::Error> {
+    pub fn new(session_id: &[u8]) -> Result<Self, anyhow::Error> {
         let mut transcript = Self {
             fsprf_seed: Sha256::new(),
             current_fsprf: None,
@@ -69,6 +70,79 @@ impl Transcript {
         Ok(transcript)
     }
 
+    /// Initialize the transcript per "special rules for the first message", with adjustments to
+    /// match longfellow-zk.
+    pub fn initialize<FE: CodecFieldElement>(
+        &mut self,
+        ligero_commitment: Option<&[u8]>,
+        circuit: &Circuit,
+        public_inputs: &[FE],
+    ) -> Result<(), anyhow::Error> {
+        // Initialize the transcript per "special rules for the first message", with adjustments to
+        // match longfellow-zk.
+        // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
+        // 3.1.3 item 1 says to append the "Prover message", "which is usually a commitment". In
+        // particular, a Ligero commitment. zk_test.cc does not do this, but zk_prover.h does when
+        // it constructs constraints, so we make it optional.
+        if let Some(ligero_commitment) = ligero_commitment {
+            self.write_byte_array(ligero_commitment)?;
+        }
+
+        // 3.1.3 item 2: write circuit ID
+        self.write_byte_array(&circuit.id)?;
+        // 3.1.3 item 2: write inputs. Per the specification, this should be an array of field
+        // elements, but longfellow-zk writes each input as an individual field element. Also,
+        // longfellow-zk only appends the *public* inputs, but the specification isn't clear about
+        // that.
+        for input in public_inputs {
+            self.write_field_element(input)?;
+        }
+
+        // 3.1.3 item 2: write outputs. We should look at the output layer of `evaluation` here and
+        // write an array of field elements. But longfellow-zk writes a single zero, regardless of
+        // how many outputs the actual circuit has.
+        self.write_field_element(&FE::ZERO)?;
+
+        // 3.1.3 item 3: write an array of zero bytes. The spec implies that its length should be
+        // the number of arithmetic gates in the circuit, but longfellow-zk uses the number of quads
+        // aka the number of terms.
+        self.write_byte_array(vec![0u8; circuit.num_quads()].as_slice())?;
+
+        Ok(())
+    }
+
+    /// Generate bindings for the output wires of a circuit.
+    pub fn generate_output_wire_bindings<FE: CodecFieldElement>(
+        &mut self,
+        circuit: &Circuit,
+    ) -> Result<Vec<FE>, anyhow::Error> {
+        // longfellow-zk allocates two 40 element arrays and then re-uses them for each layer's
+        // bindings. This saves allocations, but you have to keep track of the current length of the
+        // bindings when calling SumcheckArray::bind. We could probably simulate that by taking a
+        // &mut [FE] from a Vec<FE>?
+        // However this optimization also introduces a bug: their TranscriptSumcheck::begin_layer
+        // samples enough elements from the FSPRF to fill the array _up to its allocated size_,
+        // regardless of the number of output wires. This means the FSPRF gets fast-forwarded by
+        // 80 - circuit.logw, and since no writes occur between this point and when we next
+        // sample field elements, that affects the rest of the protocol run. In order to be
+        // compatible with their test vector, we generate and discard an equal number of field
+        // elements.
+        // https://github.com/google/longfellow-zk/issues/71
+        // longfellow-zk first samples 40 elements for bindings used for circuit copies, a feature
+        // which did not make it into the specification or our implementation. Thus these field
+        // elements are never used anywhere.
+        const LONGFELLOW_ZK_MAX_BINDINGS: usize = 40;
+        self.generate_challenge::<FE>(LONGFELLOW_ZK_MAX_BINDINGS)?;
+        // The spec says to generate "circuit.lv" field elements, which I think has to mean the
+        // number of bits needed to describe an output wire, because the idea is that binding to
+        // challenges of this length will reduce the 3D quad down to 2D.
+        let output_wire_bindings = self.generate_challenge(circuit.logw())?;
+        // longfellow-zk then samples 40 more elements to fill G[0]. We already sampled enough to
+        // fill its actual size, so fast-forward the FSPRF to catch up to longfellow-zk.
+        self.generate_challenge::<FE>(LONGFELLOW_ZK_MAX_BINDINGS - circuit.logw())?;
+
+        Ok(output_wire_bindings)
+    }
     /// Write a field element to the transcript.
     ///
     /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.1.2>
@@ -126,6 +200,19 @@ impl Transcript {
         Ok(())
     }
 
+    /// Write a [`Polynomial`] to the transcript.
+    pub fn write_polynomial<FE: CodecFieldElement>(
+        &mut self,
+        polynomial: &Polynomial<FE>,
+    ) -> Result<(), anyhow::Error> {
+        // Since it consists of two field elements, we could write a field element array. The spec
+        // isn't clear on this, but longfellow-zk writes individual field elements.
+        self.write_field_element(&polynomial.p0)?;
+        self.write_field_element(&polynomial.p2)?;
+
+        Ok(())
+    }
+
     /// Write a slice of bytes to the transcript, with no tag or length.
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), anyhow::Error> {
         // Invalidate any FSPRF we have because any challenges generated past this point need to
@@ -164,6 +251,17 @@ impl Transcript {
             .collect())
     }
 }
+
+impl PartialEq for Transcript {
+    fn eq(&self, other: &Self) -> bool {
+        let own_fsprf_seed = self.fsprf_seed.clone().finalize();
+        let other_fsprf_seed = other.fsprf_seed.clone().finalize();
+
+        own_fsprf_seed.as_slice() == other_fsprf_seed.as_slice()
+    }
+}
+
+impl Eq for Transcript {}
 
 /// An iterator producing an infinite stream of bytes based on the provided key.
 ///
@@ -237,7 +335,7 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn deterministic() {
         fn run_transcript() -> Vec<FieldP256> {
-            let mut transcript = Transcript::initialize(b"test").unwrap();
+            let mut transcript = Transcript::new(b"test").unwrap();
 
             transcript
                 .write_field_element(&FieldP256::from_u128(10))
@@ -265,11 +363,11 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn distinct_session_id() {
-        let mut transcript1 = Transcript::initialize(b"test1").unwrap();
+        let mut transcript1 = Transcript::new(b"test1").unwrap();
         transcript1.write_byte_array(b"some bytes").unwrap();
         let challenge1 = transcript1.generate_challenge::<FieldP256>(10).unwrap();
 
-        let mut transcript2 = Transcript::initialize(b"test2").unwrap();
+        let mut transcript2 = Transcript::new(b"test2").unwrap();
         transcript2.write_byte_array(b"some bytes").unwrap();
         let challenge2 = transcript2.generate_challenge::<FieldP256>(10).unwrap();
 
@@ -281,11 +379,11 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn distinct_messages() {
-        let mut transcript1 = Transcript::initialize(b"test").unwrap();
+        let mut transcript1 = Transcript::new(b"test").unwrap();
         transcript1.write_byte_array(b"some bytes").unwrap();
         let challenge1 = transcript1.generate_challenge::<FieldP256>(10).unwrap();
 
-        let mut transcript2 = Transcript::initialize(b"test").unwrap();
+        let mut transcript2 = Transcript::new(b"test").unwrap();
         transcript2.write_byte_array(b"some other bytes").unwrap();
         let challenge2 = transcript2.generate_challenge::<FieldP256>(10).unwrap();
 
@@ -297,7 +395,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn writing_messages_changes_challenge() {
-        let mut transcript = Transcript::initialize(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test").unwrap();
         transcript.write_byte_array(b"some bytes").unwrap();
         let challenge1 = transcript.generate_challenge::<FieldP256>(10).unwrap();
         transcript.write_byte_array(b"some more bytes").unwrap();
@@ -311,13 +409,13 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn writing_messages_resets_challenge() {
-        let mut transcript = Transcript::initialize(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test").unwrap();
         transcript.write_byte_array(b"some bytes").unwrap();
         transcript.generate_challenge::<FieldP256>(10).unwrap();
         transcript.write_byte_array(b"more bytes").unwrap();
         let challenge1 = transcript.generate_challenge::<FieldP256>(10).unwrap();
 
-        let mut transcript2 = Transcript::initialize(b"test").unwrap();
+        let mut transcript2 = Transcript::new(b"test").unwrap();
         transcript2.write_byte_array(b"some bytes").unwrap();
         let _ = transcript2.generate_challenge::<FieldP256>(40).unwrap();
         transcript2.write_byte_array(b"more bytes").unwrap();
@@ -335,7 +433,7 @@ mod tests {
     fn test_vector() {
         // FSPRF test vector adapted from longfellow-zk/lib/random/transcript_test.cc
         // https://github.com/google/longfellow-zk/blob/7a329b35b846fa5b9eca6f0143d0197a73e126a2/lib/random/transcript_test.cc#L97
-        let mut transcript = Transcript::initialize(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test").unwrap();
         let bytes: Vec<_> = (0..100).collect();
         transcript.write_byte_array(&bytes).unwrap();
 
@@ -384,7 +482,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk() {
-        let mut transcript = Transcript::initialize(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test").unwrap();
 
         // Write a byte array
         let bytes: Vec<_> = (0..100).collect();
@@ -433,7 +531,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_byte_array() {
-        let mut transcript = Transcript::initialize(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test").unwrap();
 
         let bytes: Vec<_> = (0..100).collect();
         transcript.write_byte_array(&bytes).unwrap();
@@ -454,7 +552,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_single_field_element() {
-        let mut transcript = Transcript::initialize(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test").unwrap();
 
         transcript
             .write_field_element(&FieldP256::from_u128(7))
@@ -476,7 +574,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_field_element_array() {
-        let mut transcript = Transcript::initialize(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test").unwrap();
 
         transcript
             .write_field_element_array(&[FieldP256::from_u128(8), FieldP256::from_u128(9)])

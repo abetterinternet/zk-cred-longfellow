@@ -11,7 +11,7 @@ use subtle::ConstantTimeEq;
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, FieldElement,
+        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement,
         fieldp128::ops::{
             fiat_p128_add, fiat_p128_from_bytes, fiat_p128_from_montgomery,
             fiat_p128_montgomery_domain_field_element, fiat_p128_mul,
@@ -93,6 +93,35 @@ impl FieldElement for FieldP128 {
 
 impl CodecFieldElement for FieldP128 {
     const NUM_BITS: u32 = 128;
+}
+
+impl LagrangePolynomialFieldElement for FieldP128 {
+    fn sumcheck_p2_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF(2^128-2^108+1)(2).inverse().to_bytes(byteorder='little')
+        //
+        // Unwrap safety: this constant is a valid field element.
+        Self::try_from(b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f").unwrap()
+    }
+
+    fn one_minus_sumcheck_p2_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF(2^128-2^108+1)(1 - 2).inverse().to_bytes(byteorder='little')
+        //
+        // Unwrap safety: this constant is a valid field element.
+        Self::try_from(b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\xff\xff").unwrap()
+    }
+
+    fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF(2^128-2^108+1)(2^2 - 2).inverse().to_bytes(byteorder='little')
+        //
+        // Unwrap safety: this constant is a valid field element.
+        Self::try_from(b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f").unwrap()
+    }
 }
 
 impl Debug for FieldP128 {

@@ -5,134 +5,111 @@
 use crate::{
     circuit::{Circuit, CircuitLayer, Evaluation},
     fields::CodecFieldElement,
-    sumcheck::bind::{ElementwiseSum, SumcheckArray},
+    sumcheck::{
+        bind::{ElementwiseSum, SumcheckArray},
+        witness::WitnessLayout,
+    },
     transcript::Transcript,
 };
 use std::{iter::repeat_with, mem::swap};
 
 mod bind;
+pub mod constraints;
+mod symbolic;
+mod witness;
 
-/// Proof constructed by sumcheck.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Proof<FieldElement> {
-    layers: Vec<ProofLayer<FieldElement>>,
+/// Generate a sumcheck proof of evaluation of a circuit.
+#[derive(Clone, Debug)]
+pub struct Prover<'a, PadGenerator> {
+    circuit: &'a Circuit,
+    pad_generator: PadGenerator,
+    write_all_inputs_to_transcript: bool,
 }
 
-impl<FE: CodecFieldElement> Proof<FE> {
-    /// Decode a proof from the bytes. This can't be an implementation of [`Codec`][crate::Codec]
-    /// because we need the circuit this is a proof of to know how many layers there are.
-    pub fn decode(
-        circuit: &Circuit,
-        bytes: &mut std::io::Cursor<&[u8]>,
-    ) -> Result<Self, anyhow::Error> {
-        let mut proof_layers = Vec::with_capacity(circuit.num_layers.into());
-
-        for circuit_layer in &circuit.layers {
-            proof_layers.push(ProofLayer::decode(circuit_layer, bytes)?);
-        }
-
-        Ok(Self {
-            layers: proof_layers,
-        })
-    }
-
-    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
-        // Encode the layers as a fixed length array. That is, no length prefix.
-        for layer in &self.layers {
-            layer.encode(bytes)?;
-        }
-
-        Ok(())
-    }
+/// Sumcheck proof plus some extra data useful for validation.
+#[derive(Clone, Debug)]
+// We don't yet examine these outside of test code, so allow dead code for now.
+#[allow(dead_code)]
+pub struct ProverResult<FE> {
+    /// The sumcheck proof from which Ligero constraints may be generated.
+    proof: Proof<FE>,
+    /// The witnesses computed while computing the proof. The witness vector is never actually used
+    /// by the prover during the protocol. It is recorded only to help validate the correctness of
+    /// later steps.
+    witness: Vec<FE>,
+    /// The transcript after all the proof messages have been written to it.
+    transcript: Transcript,
 }
 
-impl<FE: CodecFieldElement> Proof<FE> {
+impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGenerator> {
+    pub fn new(circuit: &'a Circuit, pad_generator: PadGenerator) -> Self {
+        Self {
+            circuit,
+            pad_generator,
+            write_all_inputs_to_transcript: false,
+        }
+    }
+
+    /// After Fiat-Shamir initialization, but before proving the layers, longfellow-zk's
+    /// sumcheck/prover.h (used by zk_test.cc to generate test vectors) writes all the inputs
+    /// to the circuit (public and private) to the transcript. This presumably constitutes
+    /// the "prover message" described in 3.1.3 item 1.
+    ///
+    /// We optionally emulate this behavior for compatibility with test vectors.
+    ///
+    /// See discussion in <https://github.com/google/longfellow-zk/issues/37>,
+    /// <https://github.com/google/longfellow-zk/issues/70>
+    pub fn with_write_all_inputs_to_transcript(mut self, enable: bool) -> Self {
+        self.write_all_inputs_to_transcript = enable;
+        self
+    }
+
     /// Construct a padded proof of the transcript of the given evaluation of the circuit and return
     /// the prover messages needed for the verifier to reconstruct the transcript.
-    pub fn new<PadGenerator>(
-        circuit: &Circuit,
+    pub fn prove(
+        &mut self,
         evaluation: &Evaluation<FE>,
         transcript: &mut Transcript,
-        mut pad_generator: PadGenerator,
-    ) -> Result<Proof<FE>, anyhow::Error>
-    where
-        PadGenerator: FnMut() -> FE,
-    {
-        // Initialize the transcript per "special rules for the first message", with adjustments to
-        // match longfellow-zk.
-        // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
-        // 3.1.3 item 1 says to append the "Prover message", "which is usually a commitment".
-        // longfellow-zk doesn't do this at this stage, but see remark below.
-
-        // 3.1.3 item 2: write circuit ID
-        transcript.write_byte_array(&circuit.id)?;
-        // 3.1.3 item 2: write inputs. Per the specification, this should be an array of field
-        // elements, but longfellow-zk writes each input as an individual field element. Also,
-        // longfellow-zk only appends the *public* inputs, but the specification isn't clear about
-        // that.
-        for input in evaluation.public_inputs(circuit.num_public_inputs.into()) {
-            transcript.write_field_element(input)?;
-        }
-
-        // 3.1.3 item 2: write outputs. We should look at the output layer of `evaluation` here and
-        // write an array of field elements. But longfellow-zk writes a single zero, regardless of
-        // how many outputs the actual circuit has.
-        transcript.write_field_element(&FE::ZERO)?;
+        ligero_commitment: Option<&[u8]>,
+    ) -> Result<ProverResult<FE>, anyhow::Error> {
         // Specification interpretation verification: all the outputs should be zero
         for output in evaluation.outputs() {
             assert_eq!(output, &FE::ZERO);
         }
 
-        // 3.1.3 item 3: write an array of zero bytes. The spec implies that its length should be
-        // the number of arithmetic gates in the circuit, but longfellow-zk uses the number of quads
-        // aka the number of terms.
-        transcript.write_byte_array(vec![0u8; circuit.num_quads()].as_slice())?;
+        let witness_layout = WitnessLayout::from_circuit(self.circuit);
+        let mut witness = Vec::with_capacity(witness_layout.length());
 
-        // After Fiat-Shamir initialization, but before proving the layers, longfellow-zk writes all
-        // the inputs to the circuit (public and private) to the transcript. This presumably
-        // constitutes the "prover message" described in 3.1.3 item 1.
-        transcript.write_field_element_array(evaluation.inputs())?;
+        // Witness vector starts with private inputs
+        witness.extend(evaluation.private_inputs(self.circuit.num_public_inputs()));
+
+        transcript.initialize(
+            ligero_commitment,
+            self.circuit,
+            evaluation.public_inputs(self.circuit.num_public_inputs()),
+        )?;
+
+        if self.write_all_inputs_to_transcript {
+            transcript.write_field_element_array(evaluation.inputs())?;
+        }
 
         // Choose the bindings for the output layer.
-        // longfellow-zk allocates two 40 element arrays and then re-uses them for each layer's
-        // bindings. This saves allocations, but you have to keep track of the current length of the
-        // bindings when calling SumcheckArray::bind. We could probably simulate that by taking a
-        // &mut [FE] from a Vec<FE>?
-        // However this optimization also introduces a bug: their TranscriptSumcheck::begin_layer
-        // samples enough elements from the FSPRF to fill the array _up to its allocated size_,
-        // regardless of the number of output wires. This means the FSPRF gets fast-forwarded by
-        // 80 - circuit.logw, and since no writes occur between this point and when we next
-        // sample field elements, that affects the rest of the protocol run. In order to be
-        // compatible with their test vector, we generate and discard an equal number of field
-        // elements.
-        // https://github.com/google/longfellow-zk/issues/71
-        // longfellow-zk first samples 40 elements for bindings used for circuit copies, a feature
-        // which did not make it into the specification or our implementation. Thus these field
-        // elements are never used anywhere.
-        const LONGFELLOW_ZK_MAX_BINDINGS: usize = 40;
-        transcript.generate_challenge::<FE>(LONGFELLOW_ZK_MAX_BINDINGS)?;
-        // The spec says to generate "circuit.lv" field elements, which I think has to mean the
-        // number of bits needed to describe an output wire, because the idea is that binding to
-        // challenges of this length will reduce the 3D quad down to 2D.
-        let output_wire_bindings = transcript.generate_challenge(circuit.logw())?;
+        let output_wire_bindings = transcript.generate_output_wire_bindings(self.circuit)?;
         let mut bindings = [output_wire_bindings.clone(), output_wire_bindings];
-        // longfellow-zk then samples 40 more elements to fill G[0]. We already sampled enough to
-        // fill its actual size, so fast-forward the FSPRF to catch up to longfellow-zk.
-        transcript.generate_challenge::<FE>(LONGFELLOW_ZK_MAX_BINDINGS - circuit.logw())?;
 
         let mut proof = Proof {
-            layers: Vec::with_capacity(circuit.num_layers.into()),
+            layers: Vec::with_capacity(self.circuit.num_layers()),
         };
 
-        for (layer_index, layer) in circuit.layers.iter().enumerate() {
+        for (layer_index, layer) in self.circuit.layers.iter().enumerate() {
             // Choose alpha and beta for this layer
             let alpha = transcript.generate_challenge(1)?[0];
             let beta = transcript.generate_challenge(1)?[0];
 
             // The combined quad, aka QZ[g, l, r], a three dimensional array.
-            let combined_quad = circuit.combined_quad(layer_index, beta)?;
+            let combined_quad = self.circuit.combined_quad(layer_index, beta)?;
 
-            // Bind the combined quad to g.
+            // Bind the combined quad to G.
             let mut bound_quad = combined_quad
                 .bind(&bindings[0])
                 .elementwise_sum(&combined_quad.bind(&bindings[1]).scale(alpha));
@@ -149,10 +126,7 @@ impl<FE: CodecFieldElement> Proof<FE> {
             let mut bound_quad = bound_quad.remove(0);
 
             // Allocate room for the new bindings this layer will generate
-            let mut new_bindings = [
-                vec![FE::ZERO; layer.logw.into()],
-                vec![FE::ZERO; layer.logw.into()],
-            ];
+            let mut new_bindings = [vec![FE::ZERO; layer.logw()], vec![FE::ZERO; layer.logw()]];
 
             // Generate the pad for this layer. The pad has the same structure as the proof since the
             // one has to be subtracted from the other.
@@ -160,19 +134,19 @@ impl<FE: CodecFieldElement> Proof<FE> {
                 polynomials: repeat_with(|| {
                     [
                         Polynomial {
-                            p0: pad_generator(),
-                            p2: pad_generator(),
+                            p0: (self.pad_generator)(),
+                            p2: (self.pad_generator)(),
                         },
                         Polynomial {
-                            p0: pad_generator(),
-                            p2: pad_generator(),
+                            p0: (self.pad_generator)(),
+                            p2: (self.pad_generator)(),
                         },
                     ]
                 })
-                .take(layer.logw.into())
+                .take(layer.logw())
                 .collect(),
-                vl: pad_generator(),
-                vr: pad_generator(),
+                vl: (self.pad_generator)(),
+                vr: (self.pad_generator)(),
             };
 
             // Allocate the proof for this layer. The zero values in the polynomial are not
@@ -182,7 +156,7 @@ impl<FE: CodecFieldElement> Proof<FE> {
                     p0: FE::ZERO,
                     p2: FE::ZERO
                 }; 2];
-                layer.logw.into()
+                layer.logw()
             ];
 
             // (VL, VR) = wires
@@ -247,10 +221,11 @@ impl<FE: CodecFieldElement> Proof<FE> {
                         p2: evaluate_polynomial(FE::SUMCHECK_P2) - pad_polynomials[hand].p2,
                     };
 
-                    // Commit to the padded polynomial. The spec isn't clear on this, but
-                    // longfellow-zk writes individual field elements.
-                    transcript.write_field_element(&poly_evaluation.p0)?;
-                    transcript.write_field_element(&poly_evaluation.p2)?;
+                    // Add polynomial pads to the witness.
+                    witness.extend([pad_polynomials[hand].p0, pad_polynomials[hand].p2]);
+
+                    // Commit to the padded polynomial.
+                    transcript.write_polynomial(&poly_evaluation)?;
 
                     proof_polynomials[hand] = poly_evaluation;
 
@@ -269,14 +244,24 @@ impl<FE: CodecFieldElement> Proof<FE> {
             }
 
             // Specification interpretation verification: over the course of the loop above, we bind
-            // left_wires and right_wires to single field elements enough times that both should be
-            // reduced to a single non-zero element.
+            // bound_quad, left_wires and right_wires to single field elements enough times that all
+            // should be reduced to a single non-zero element.
+            for (i, row) in bound_quad.iter().enumerate() {
+                for (j, element) in row.iter().enumerate() {
+                    if i != 0 && j != 0 {
+                        assert_eq!(*element, FE::ZERO, "bound quad: {bound_quad:?}");
+                    }
+                }
+            }
             for left_wire in left_wires.iter().skip(1) {
                 assert_eq!(left_wire, &FE::ZERO, "left wires: {left_wires:#?}");
             }
             for right_wire in right_wires.iter().skip(1) {
                 assert_eq!(right_wire, &FE::ZERO, "right wires: {right_wires:#?}");
             }
+
+            // Add vl, vr and vl * vr pads to the witness
+            witness.extend([layer_pad.vl, layer_pad.vr, layer_pad.vl * layer_pad.vr]);
 
             let layer_proof = ProofLayer {
                 polynomials: layer_proof_polynomials,
@@ -293,7 +278,45 @@ impl<FE: CodecFieldElement> Proof<FE> {
             bindings = new_bindings;
         }
 
-        Ok(proof)
+        Ok(ProverResult {
+            proof,
+            witness,
+            transcript: transcript.clone(),
+        })
+    }
+}
+
+/// Proof constructed by sumcheck.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Proof<FieldElement> {
+    layers: Vec<ProofLayer<FieldElement>>,
+}
+
+impl<FE: CodecFieldElement> Proof<FE> {
+    /// Decode a proof from the bytes. This can't be an implementation of [`Codec`][crate::Codec]
+    /// because we need the circuit this is a proof of to know how many layers there are.
+    pub fn decode(
+        circuit: &Circuit,
+        bytes: &mut std::io::Cursor<&[u8]>,
+    ) -> Result<Self, anyhow::Error> {
+        let mut proof_layers = Vec::with_capacity(circuit.num_layers());
+
+        for circuit_layer in &circuit.layers {
+            proof_layers.push(ProofLayer::decode(circuit_layer, bytes)?);
+        }
+
+        Ok(Self {
+            layers: proof_layers,
+        })
+    }
+
+    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        // Encode the layers as a fixed length array. That is, no length prefix.
+        for layer in &self.layers {
+            layer.encode(bytes)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -325,7 +348,7 @@ impl<FE: CodecFieldElement> ProofLayer<FE> {
         // The specification's "wires" corresponds to our "polynomials".
         // For each bit needed to describe a wire (logw), we have two hands and two polynomial
         // evaluations (at P0 and P2).
-        let wires = FE::decode_fixed_array(bytes, usize::from(circuit_layer.logw) * 4)?;
+        let wires = FE::decode_fixed_array(bytes, circuit_layer.logw() * 4)?;
 
         // Each 4 field elements in the array makes a pair of Polynomials.
         // It would be good to avoid the copies of field elements here, but none of the methods that
@@ -388,11 +411,11 @@ impl<FE: CodecFieldElement> ProofLayer<FE> {
 /// needed" ([6.5][2]).
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.4
-/// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.5
+/// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.5
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Polynomial<FE> {
-    p0: FE,
-    p2: FE,
+pub struct Polynomial<FE> {
+    pub p0: FE,
+    pub p2: FE,
 }
 
 #[cfg(test)]
@@ -413,33 +436,35 @@ mod tests {
         assert_eq!(circuit.num_copies, Size(1));
 
         // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
-        let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
+        let evaluation: Evaluation<FieldP128> = circuit
+            .evaluate(&test_vector.valid_inputs.unwrap())
+            .unwrap();
 
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
-        let mut transcript = Transcript::initialize(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test").unwrap();
 
-        let proof = Proof::new(
+        let proof = Prover::new(
             &circuit,
-            &evaluation,
-            &mut transcript,
             // Transcript/FSPRF output is deterministic for a given session ID and sequence of
             // inputs, but the pad is implied to be constructed of uniformly sampled field elements.
             // To get deterministic output we can test against vectors, fix the pad source to
             // always yield zero.
             || FieldP128::ZERO,
         )
+        .with_write_all_inputs_to_transcript(true)
+        .prove(&evaluation, &mut transcript, None)
         .unwrap();
 
         let test_vector_decoded =
             Proof::decode(&circuit, &mut Cursor::new(&test_vector.serialized_proof)).unwrap();
 
         assert_eq!(
-            proof, test_vector_decoded,
+            proof.proof, test_vector_decoded,
             "ours: {proof:#?}\n\ntheirs: {test_vector_decoded:#?}"
         );
 
         let mut proof_encoded = Vec::new();
-        proof.encode(&mut proof_encoded).unwrap();
+        proof.proof.encode(&mut proof_encoded).unwrap();
 
         assert_eq!(proof_encoded.len(), test_vector.serialized_proof.len());
         assert_eq!(proof_encoded, test_vector.serialized_proof);

@@ -3,5 +3,20 @@
     "field": 6,
     "depth": 3,
     "quads": 11,
-    "_terms": 11
+    "_terms": 11,
+    "valid_inputs": [45, 5, 6],
+    "invalid_inputs": [45, 5, 7],
+    "ligero_commitment": "007d7d268cf864fc51a7d46342958ced39636fad80847f1cc095150e96022f74",
+    "pad": 7,
+    "constraints": {
+        "linear_rhs": [
+            "28f3cced8eafdce4d724d78a04221b22",
+            "9b3b5b1948fd29133715b3ac3dbc3458",
+            "9840266098f822436c95e9f33370064d"
+        ],
+        "quadratic": [
+            { "x": 14, "y": 15, "z": 16 },
+            { "x": 25, "y": 26, "z": 27 }
+        ]
+    }
 }

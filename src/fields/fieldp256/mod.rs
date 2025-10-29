@@ -11,7 +11,7 @@ use subtle::ConstantTimeEq;
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, FieldElement,
+        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement,
         fieldp256::ops::{
             fiat_p256_add, fiat_p256_from_bytes, fiat_p256_from_montgomery,
             fiat_p256_montgomery_domain_field_element, fiat_p256_mul,
@@ -88,6 +88,50 @@ impl FieldElement for FieldP256 {
 
 impl CodecFieldElement for FieldP256 {
     const NUM_BITS: u32 = 256;
+}
+
+impl LagrangePolynomialFieldElement for FieldP256 {
+    fn sumcheck_p2_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF(0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff)(2) \
+        //   .inverse().to_bytes(byteorder='little')
+        //
+        // Unwrap safety: this constant is a valid field element.
+        Self::try_from(
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+            \x00\x00\x80\x00\x00\x00\x80\xff\xff\xff\x7f",
+        )
+        .unwrap()
+    }
+
+    fn one_minus_sumcheck_p2_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF(0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff)(1 - 2) \
+        //   .inverse().to_bytes(byteorder='little')
+        //
+        // Unwrap safety: this constant is a valid field element.
+        Self::try_from(
+            b"\xfe\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+            \x00\x00\x00\x01\x00\x00\x00\xff\xff\xff\xff",
+        )
+        .unwrap()
+    }
+
+    fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self {
+        // Computed in SageMath:
+        //
+        // GF(0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff)(2^2 - 2) \
+        //   .inverse().to_bytes(byteorder='little')
+        //
+        // Unwrap safety: this constant is a valid field element.
+        Self::try_from(
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+            \x00\x00\x80\x00\x00\x00\x80\xff\xff\xff\x7f",
+        )
+        .unwrap()
+    }
 }
 
 impl Debug for FieldP256 {

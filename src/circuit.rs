@@ -108,7 +108,7 @@ impl Codec for Circuit {
             constant.encode(bytes)?;
         }
 
-        if usize::from(self.num_layers) != self.layers.len() {
+        if self.num_layers() != self.layers.len() {
             return Err(anyhow!("num_layers does not match length of layers array"));
         }
         CircuitLayer::encode_fixed_array(&self.layers, bytes)?;
@@ -131,11 +131,11 @@ impl Circuit {
     }
 
     /// Retrieve the requested constant from the circuit's constant table, if it exists.
-    pub fn constant<F: CodecFieldElement>(&self, index: Size) -> Result<F, anyhow::Error> {
+    pub fn constant<F: CodecFieldElement>(&self, index: usize) -> Result<F, anyhow::Error> {
         F::try_from(
             &self
                 .constant_table
-                .get(usize::from(index))
+                .get(index)
                 .ok_or_else(|| anyhow!("index {} not present in constant table", index))?
                 .clone()
                 .0,
@@ -145,6 +145,31 @@ impl Circuit {
     /// The number of quads (aka terms?) in this circuit.
     pub fn num_quads(&self) -> usize {
         self.layers.iter().map(|layer| layer.quads.len()).sum()
+    }
+
+    /// The number of layers in this circuit.
+    pub fn num_layers(&self) -> usize {
+        self.num_layers.into()
+    }
+
+    /// The sum of each layer's logw.
+    pub fn logw_sum(&self) -> usize {
+        self.layers.iter().map(CircuitLayer::logw).sum()
+    }
+
+    /// The number of public inputs to the circuit.
+    pub fn num_public_inputs(&self) -> usize {
+        self.num_public_inputs.into()
+    }
+
+    /// The number of private inputs to the circuit.
+    pub fn num_private_inputs(&self) -> usize {
+        usize::from(self.num_inputs) - self.num_public_inputs()
+    }
+
+    /// The number of outputs from the ciruit.
+    pub fn num_outputs(&self) -> usize {
+        self.num_outputs.into()
     }
 
     /// Evaluate the circuit with the provided inputs.
@@ -169,7 +194,7 @@ impl Circuit {
 
         // We are iterating over layers in reverse, so the output layer is at the end of the
         // iterator
-        let output_layer_index = usize::from(self.num_layers) - 1;
+        let output_layer_index = self.num_layers() - 1;
         for (layer_index, layer) in self
             .layers
             .iter()
@@ -178,7 +203,7 @@ impl Circuit {
             .enumerate()
         {
             let next_layer_num_wires = if layer_index == output_layer_index {
-                self.num_outputs
+                self.num_outputs()
             } else {
                 self.layers[
                     // index from the end because we are iterating self.layers in reverse
@@ -186,14 +211,14 @@ impl Circuit {
                     // next layer of the circuit is -1
                     - 1
                 ]
-                .num_wires
+                .num_wires()
             };
             // A single gate may receive contributions from multiple quads, so preallocate a vector
             // of length matching the next layer's number of input wires, and accumulate quad
             // outputs into that.
             // Depending on the circuit compiler, it's possible that there will be unused elements
             // in this vector.
-            let mut gate_outputs = vec![FE::ZERO; next_layer_num_wires.into()];
+            let mut gate_outputs = vec![FE::ZERO; next_layer_num_wires];
 
             // Note which gates receive contributions from Z quads.
             let mut z_gate_indexes = HashSet::new();
@@ -201,33 +226,33 @@ impl Circuit {
             for (quad_index, quad) in layer.quads.iter().enumerate() {
                 // Evaluate this quad: look up its value in the constants table, then multiply that
                 // by the value of the input wires.
-                let quad_value: FE = self.constant(quad.const_table_index).context(format!(
+                let quad_value: FE = self.constant(quad.const_table_index()).context(format!(
                     "constant missing in quad {quad_index} on layer {layer_index}"
                 ))?;
 
-                let left_wire = wires[layer_index]
-                    .get(usize::from(quad.left_wire_index))
-                    .ok_or_else(|| {
+                let left_wire = wires[layer_index].get(quad.left_wire_index()).ok_or_else(
+                    || {
                         anyhow!(
                             "quad {quad_index} on layer {layer_index} contains left wire index {} \
                             not present in previous layer of circuit {:?}",
                             quad.left_wire_index,
                             wires[layer_index],
                         )
-                    })?;
-                let right_wire = wires[layer_index]
-                    .get(usize::from(quad.right_wire_index))
-                    .ok_or_else(|| {
+                    },
+                )?;
+                let right_wire = wires[layer_index].get(quad.right_wire_index()).ok_or_else(
+                    || {
                         anyhow!(
                             "quad {quad_index} on layer {layer_index} contains right wire index {} \
                             not present in previous layer of circuit {:?}",
                             quad.right_wire_index,
                             wires[layer_index],
                         )
-                    })?;
+                    },
+                )?;
 
                 let quad_output = if quad_value.is_zero().into() {
-                    z_gate_indexes.insert(usize::from(quad.gate_index));
+                    z_gate_indexes.insert(quad.gate_index());
 
                     *left_wire * right_wire
                 } else {
@@ -236,14 +261,14 @@ impl Circuit {
 
                 // Specification interpretation verification: this should never happen. We check
                 // this condition in roundtrip_circuit_test_vector, but not in deserialization.
-                if quad.gate_index >= next_layer_num_wires {
+                if quad.gate_index() >= next_layer_num_wires {
                     panic!(
                         "quad {quad_index} on layer {layer_index} contains gate index {} exceeding \
                         the next layer's number of input wires {next_layer_num_wires}",
                         quad.gate_index,
                     )
                 }
-                gate_outputs[usize::from(quad.gate_index)] += quad_output;
+                gate_outputs[quad.gate_index()] += quad_output;
             }
 
             // Specification interpretation verification: check that gates which received input from
@@ -278,9 +303,9 @@ impl Circuit {
     ) -> Result<Vec<Vec<Vec<FE>>>, anyhow::Error> {
         // The number of gates on this layer is the number of input wires to the next layer
         let num_gates = if layer_index == 0 {
-            self.num_outputs
+            self.num_outputs()
         } else {
-            self.layers[layer_index - 1].num_wires
+            self.layers[layer_index - 1].num_wires()
         };
 
         // Outer vector: index by gate number
@@ -288,21 +313,21 @@ impl Circuit {
             // Inner vector: index by left wire number
             vec![
                 // Innermost vector: index by right wire number
-                vec![FE::ZERO; self.layers[layer_index].num_wires.into()];
-                self.layers[layer_index].num_wires.into()
+                vec![FE::ZERO; self.layers[layer_index].num_wires()];
+                self.layers[layer_index].num_wires()
             ];
-            num_gates.into()
+            num_gates
         ];
 
         for quad in &self.layers[layer_index].quads {
-            let quad_value: FE = self.constant(quad.const_table_index)?;
+            let quad_value: FE = self.constant(quad.const_table_index())?;
 
-            combined_quad[usize::from(quad.gate_index)][usize::from(quad.left_wire_index)]
-                [usize::from(quad.right_wire_index)] = if quad_value.is_zero().into() {
-                beta
-            } else {
-                quad_value
-            };
+            combined_quad[quad.gate_index()][quad.left_wire_index()][quad.right_wire_index()] =
+                if quad_value.is_zero().into() {
+                    beta
+                } else {
+                    quad_value
+                };
         }
 
         Ok(combined_quad)
@@ -327,6 +352,11 @@ impl<FieldElement> Evaluation<FieldElement> {
     /// Get the public inputs for this evaluation.
     pub fn public_inputs(&self, num_public_inputs: usize) -> &[FieldElement] {
         &self.inputs()[..num_public_inputs]
+    }
+
+    /// Get the private inputs for this evaluation.
+    pub fn private_inputs(&self, num_public_inputs: usize) -> &[FieldElement] {
+        &self.inputs()[num_public_inputs..]
     }
 
     pub fn inputs(&self) -> &[FieldElement] {
@@ -399,6 +429,18 @@ impl Codec for CircuitLayer {
     }
 }
 
+impl CircuitLayer {
+    /// The number of bits needed to describe a wire on this layer.
+    pub fn logw(&self) -> usize {
+        self.logw.into()
+    }
+
+    /// Number of wires entering the layer, hence the number of inputs.
+    pub fn num_wires(&self) -> usize {
+        self.num_wires.into()
+    }
+}
+
 /// A quad describes an individual gate in the circuit, serialized according to struct Quad in [1]
 /// and the ad-hoc definition in [2] and [3].
 ///
@@ -410,18 +452,10 @@ impl Codec for CircuitLayer {
 /// [3]: https://github.com/google/longfellow-zk/blob/87474f308020535e57a778a82394a14106f8be5b/lib/sumcheck/quad.h
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 pub struct Quad {
-    /// The position of ths gate in its layer, corresponding to `gate_number` in the specification.
-    pub(crate) gate_index: Size,
-    /// Index of the left-hand wire feeding into this gate.
-    pub(crate) left_wire_index: Size,
-    /// Index of the right-hand wire feeding into this gate.
-    pub(crate) right_wire_index: Size,
-    /// Index into the circuit's constant table. The value at that index is the quad's value. If the
-    /// value is 0, the quad is part of Z. If the value is nonzero, the quad is part of Q. See [1]
-    /// for discussion of the combined quad.
-    ///
-    /// [1]: https://www.ietf.org/archive/id/draft-google-cfrg-libzk-00.html#section-5.3.3
-    pub(crate) const_table_index: Size,
+    gate_index: Size,
+    left_wire_index: Size,
+    right_wire_index: Size,
+    const_table_index: Size,
 }
 
 impl Quad {
@@ -457,6 +491,30 @@ impl Quad {
             const_table_index,
         })
     }
+
+    /// The position of ths gate in its layer, corresponding to `gate_number` in the specification.
+    fn gate_index(&self) -> usize {
+        self.gate_index.into()
+    }
+
+    /// Index of the left-hand wire feeding into this gate.
+    fn left_wire_index(&self) -> usize {
+        self.left_wire_index.into()
+    }
+
+    /// Index of the right-hand wire feeding into this gate.
+    fn right_wire_index(&self) -> usize {
+        self.right_wire_index.into()
+    }
+
+    /// Index into the circuit's constant table. The value at that index is the quad's value. If the
+    /// value is 0, the quad is part of Z. If the value is nonzero, the quad is part of Q. See [1]
+    /// for discussion of the combined quad.
+    ///
+    /// [1]: https://www.ietf.org/archive/id/draft-google-cfrg-libzk-00.html#section-5.3.3
+    fn const_table_index(&self) -> usize {
+        self.const_table_index.into()
+    }
 }
 
 #[cfg(test)]
@@ -468,6 +526,7 @@ pub(crate) mod tests {
             CodecFieldElement, FieldElement, FieldId, SerializedFieldElement, fieldp128::FieldP128,
             fieldp256::FieldP256,
         },
+        sumcheck::constraints::QuadraticConstraint,
     };
     use serde::Deserialize;
     use std::{
@@ -504,6 +563,24 @@ pub(crate) mod tests {
         assert_eq!(next_quad, next_decoded);
     }
 
+    #[derive(Debug, Clone, Deserialize)]
+    pub(crate) struct Constraints {
+        /// Right hand side terms of lienar constraints (vector of serialzied field elements in
+        /// hex).
+        pub(crate) linear_rhs: Vec<String>,
+        // Quadratic constraints.
+        pub(crate) quadratic: Vec<QuadraticConstraint>,
+    }
+
+    impl Constraints {
+        pub(crate) fn linear_constraint_rhs<FE: CodecFieldElement>(&self) -> Vec<FE> {
+            self.linear_rhs
+                .iter()
+                .map(|element| FE::try_from(hex::decode(element).unwrap().as_slice()).unwrap())
+                .collect()
+        }
+    }
+
     /// JSON descriptor of a circuit test vector.
     #[derive(Debug, Clone, Deserialize)]
     pub(crate) struct CircuitTestVector {
@@ -517,12 +594,22 @@ pub(crate) mod tests {
         pub(crate) quads: u32,
         /// Not yet clear what this is.
         pub(crate) _terms: u32,
+        /// Inputs which evaluate to 0 in this circuit.
+        pub(crate) valid_inputs: Option<Vec<u128>>,
+        /// Inputs which evaluate to non-zero in this circuit.
+        pub(crate) invalid_inputs: Option<Vec<u128>>,
         /// The serialized circuit, decompressed from a file alongside the JSON descriptor.
         #[serde(default)]
         pub(crate) serialized_circuit: Vec<u8>,
         /// The serialized padded sumcheck proof of the circuit's execution.
         #[serde(default)]
         pub(crate) serialized_proof: Vec<u8>,
+        /// The constraints on the proof.
+        pub(crate) constraints: Option<Constraints>,
+        /// The Ligero commitment to the witness.
+        pub(crate) ligero_commitment: Option<String>,
+        /// The fixed pad value to use during constraint generation.
+        pub(crate) pad: Option<u64>,
     }
 
     impl CircuitTestVector {
@@ -585,14 +672,14 @@ pub(crate) mod tests {
                 assert!(quad.const_table_index < circuit.constant_table.len());
 
                 let next_layer_num_wires = if layer_index == 0 {
-                    circuit.num_outputs
+                    circuit.num_outputs()
                 } else {
                     // The Longfellow convention is that layer 0 is outputs and layer num_layers is
                     // inputs, so the next layer of the circuit is -1.
                     // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.3.1
-                    circuit.layers[layer_index - 1].num_wires
+                    circuit.layers[layer_index - 1].num_wires()
                 };
-                if quad.gate_index >= next_layer_num_wires {
+                if quad.gate_index() >= next_layer_num_wires {
                     panic!(
                         "quad {quad_index} on layer {layer_index} has gate number {} exceeding the \
                         number of input wires on the next layer",
@@ -601,7 +688,7 @@ pub(crate) mod tests {
                 }
 
                 // Force parsing of the constants
-                let quad_value = circuit.constant::<FE>(quad.const_table_index).unwrap();
+                let quad_value = circuit.constant::<FE>(quad.const_table_index()).unwrap();
                 if quad_value.is_zero().into() {
                     z_quad_gates.insert(quad.gate_index);
                 } else {
@@ -639,11 +726,12 @@ pub(crate) mod tests {
 
     #[test]
     fn evaluate_circuit_longfellow_rfc_1_true() {
-        let (_, circuit) =
+        let (test_vector, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
 
-        // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
-        let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
+        let evaluation: Evaluation<FieldP128> = circuit
+            .evaluate(&test_vector.valid_inputs.unwrap())
+            .unwrap();
 
         // Output size should match circuit serialization and values should all be zero
         assert_eq!(circuit.num_outputs, evaluation.wires[0].len());
@@ -661,13 +749,13 @@ pub(crate) mod tests {
 
     #[test]
     fn evaluate_circuit_longfellow_rfc_1_false() {
-        let (_, circuit) =
+        let (test_vector, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
 
         // Evaluate with other values. At least one output element should be nonzero.
         assert!(
             circuit
-                .evaluate(&[45, 5, 7])
+                .evaluate(&test_vector.invalid_inputs.unwrap())
                 .unwrap()
                 .outputs()
                 .iter()
@@ -692,7 +780,9 @@ pub(crate) mod tests {
 
         assert_eq!(circuit.num_quads(), test_vector.quads as usize);
 
-        let evaluation: Evaluation<FieldP128> = circuit.evaluate(&[45, 5, 6]).unwrap();
+        let evaluation: Evaluation<FieldP128> = circuit
+            .evaluate(&test_vector.valid_inputs.unwrap())
+            .unwrap();
 
         for output in evaluation.outputs() {
             assert_eq!(*output, FieldP128::ZERO);

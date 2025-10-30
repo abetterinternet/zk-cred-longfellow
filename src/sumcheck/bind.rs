@@ -545,6 +545,7 @@ mod tests {
         let bound = original.bind(&[FieldP256::ONE, FieldP256::from_u128(2)]);
 
         // "Row" 0 (which is an array) should be 2 * row 3 - row 1 (elementwise)
+        #[allow(clippy::needless_range_loop)]
         for i in 0..original[0].len() {
             for j in 0..original[0][i].len() {
                 assert_eq!(bound.element([0, i, j]), FieldP256::from(5));
@@ -552,6 +553,7 @@ mod tests {
         }
 
         // "Row" 1 should be 2 * row 7 - row 5 (elementwise)
+        #[allow(clippy::needless_range_loop)]
         for i in 0..original[1].len() {
             for j in 0..original[1][i].len() {
                 assert_eq!(bound.element([1, i, j]), FieldP256::from(9));
@@ -559,6 +561,7 @@ mod tests {
         }
 
         // "Row" 2 should be 2 * row 11 - row 9 (elementwise)
+        #[allow(clippy::needless_range_loop)]
         for i in 0..original[2].len() {
             for j in 0..original[2][i].len() {
                 assert_eq!(bound.element([2, i, j]), FieldP256::from(13));
@@ -566,6 +569,7 @@ mod tests {
         }
 
         // "Row" 3 of the bound array should be 2 * row 15 (0) - row 13 (elementwise)
+        #[allow(clippy::needless_range_loop)]
         for i in 0..original[3].len() {
             for j in 0..original[3][i].len() {
                 assert_eq!(

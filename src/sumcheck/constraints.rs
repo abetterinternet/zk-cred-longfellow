@@ -93,7 +93,7 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> ProofConstraints<FE
 
         let witness_layout = WitnessLayout::from_circuit(circuit);
 
-        transcript.initialize(Some(ligero_commitment), circuit, public_inputs)?;
+        transcript.initialize(ligero_commitment, circuit, public_inputs)?;
 
         // Choose the bindings for the output layer.
         let output_wire_bindings = transcript.generate_output_wire_bindings::<FE>(circuit)?;
@@ -312,9 +312,10 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> ProofConstraints<FE
 mod tests {
     use super::*;
     use crate::{
-        circuit::{Evaluation, tests::CircuitTestVector},
+        circuit::Evaluation,
         fields::{FieldElement, fieldp128::FieldP128},
         sumcheck::Prover,
+        test_vector::CircuitTestVector,
     };
 
     #[test]
@@ -334,7 +335,7 @@ mod tests {
         let mut constraint_transcript = proof_transcript.clone();
 
         let proof = Prover::new(&circuit, FieldP128::sample)
-            .prove(&evaluation, &mut proof_transcript, Some(b"fake commitment"))
+            .prove(&evaluation, &mut proof_transcript, b"fake commitment")
             .unwrap();
 
         // Ensure our witness vector length is consistent with witness layout, and with the
@@ -404,12 +405,10 @@ mod tests {
         let (test_vector, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
 
-        let test_vector_constraints = test_vector.constraints.unwrap();
-        let test_vector_ligero_commitment =
-            hex::decode(test_vector.ligero_commitment.as_ref().unwrap()).unwrap();
+        let test_vector_constraints = test_vector.constraints.as_ref().unwrap();
 
         let evaluation: Evaluation<FieldP128> = circuit
-            .evaluate(&test_vector.valid_inputs.unwrap())
+            .evaluate(test_vector.valid_inputs.as_deref().unwrap())
             .unwrap();
 
         let mut proof_transcript = Transcript::new(b"test").unwrap();
@@ -417,21 +416,19 @@ mod tests {
         // Fork the transcript
         let mut constraint_transcript = proof_transcript.clone();
 
-        let proof = Prover::new(&circuit, || {
-            FieldP128::from_u128(test_vector.pad.unwrap().into())
-        })
-        .prove(
-            &evaluation,
-            &mut proof_transcript,
-            Some(&test_vector_ligero_commitment),
-        )
-        .unwrap();
+        let proof = Prover::new(&circuit, || test_vector.pad().unwrap())
+            .prove(
+                &evaluation,
+                &mut proof_transcript,
+                test_vector.ligero_commitment().as_deref().unwrap(),
+            )
+            .unwrap();
 
         let constraints = ProofConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
             &mut constraint_transcript,
-            &test_vector_ligero_commitment,
+            &test_vector.ligero_commitment().unwrap(),
             &proof.proof,
         )
         .unwrap();

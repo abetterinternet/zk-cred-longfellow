@@ -13,8 +13,8 @@ there's not much to be done with it.
 The test vector format is a JSON document describing the test vector. Alongside it are files
 containing:
 
-- the zstd compressed serialization of the circuit. Circuits are compressed using `zstd(1)` with
-  default options:
+- `<test-vector>.circuit`: the zstd compressed serialization of the circuit. Circuits are compressed
+  using `zstd(1)` with default options:
 
 ```sh
 > zstd --version
@@ -22,23 +22,29 @@ containing:
 > zstd /path/to/uncompressed/circuit test-vectors/circuit/circuit-name.circuit.zst
 ```
 
-- the serialization of the padded sumcheck proof of the evaluation of the circuit. These are not
-  compressed since proofs are padded with random values and thus don't compress efficiently. Not
-  every test vector includes a proof.
+- `<test-vector>.sumcheck-proof`: the serialization of the padded sumcheck proof of the evaluation
+  of the circuit. These are not compressed since proofs are padded with random values and thus don't
+  compress efficiently. Not every test vector includes a sumcheck proof.
+
+- `<test-vector>.ligero-proof`: the serialization of the Ligero proof. Much like sumcheck proofs,
+  they don't compress particularly well. Not every test vector includes a Ligero proof.
 
 [longfellow-circuit-proto]: https://github.com/google/longfellow-zk/blob/main/lib/proto/circuit.h
 
 ### `longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b-1`
 
-This test vector was generated using [`longfellow-zk/lib/zk/zk-test.cc`][rfc-1-test-vector] at
-commit 87474f308020535e57a778a82394a14106f8be5b and the serializations for circuits, layers and
-quads at that version.
+This test vector was generated using [this branch][rfc-1-test-vector-constraints] of longfellow-zk.
 
-The linear and quadratic constraints in the test vector were generated using
-[this branch][rfc-1-test-vector-constraints] of longfellow-zk.
+Run the `Rfc_testvector1` test:
 
-[rfc-1-test-vector]: https://github.com/google/longfellow-zk/blob/87474f308020535e57a778a82394a14106f8be5b/lib/zk/zk_test.cc
-[rfc-1-test-vector-constraints]: https://github.com/tgeoghegan/longfellow-zk/tree/constraint-test-vector
+```sh
+make -j 16 && ctest -j 16 -R ZK.Rfc_testvector1
+```
+
+The output in `LastTest.log` will include the serialized circuit, Ligero commitment, Ligero proof,
+sumcheck proof and Ligero constraints.
+
+[rfc-1-test-vector-constraints]: https://github.com/tgeoghegan/longfellow-zk/tree/zk-test-cleanup
 
 ### `longfellow-mac-circuit-902a955fbb22323123aac5b69bdf3442e6ea6f80-1`
 

@@ -1,4 +1,4 @@
-use crate::{constraints::constraints::LinearConstraintLhsTerm, fields::FieldElement};
+use crate::{constraints::proof_constraints::LinearConstraintLhsTerm, fields::FieldElement};
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 /// A symbolic expression, used to accumulate symbolic terms that contribute to a circuit layer's

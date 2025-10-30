@@ -8,7 +8,7 @@ use std::iter::repeat;
 /// An array of field elements, possibly multi-dimensional, conforming to the sumcheck array
 /// convention of [6.1][1]:
 ///
-/// > The sumcheck array A[i] is implicitly assumed to be defined for all nonnegative integers i,
+/// > The sumcheck array `A[i]` is implicitly assumed to be defined for all nonnegative integers i,
 /// > padding with zeroes as necessary.
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
@@ -23,6 +23,8 @@ pub trait SumcheckArray<FieldElement>: Sized {
     ///
     /// This corresponds to `bindv()` from [6.1][1]. The function `bind()` can be realized by
     /// passing a slice containing a single element.
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
     // TODO: provide in-place version?
     fn bind(&self, binding: &[FieldElement]) -> Self;
 
@@ -211,8 +213,8 @@ impl<FE: FieldElement> SumcheckArray<FE> for Vec<Vec<Vec<FE>>> {
     }
 }
 
-/// Sum collections of things elementwise, applying the Sumcheck array convention where A[i] = 0 if
-/// not defined.
+/// Sum collections of things elementwise, applying the Sumcheck array convention where `A[i] = 0`
+/// if not defined.
 ///
 /// The more obvious thing would be to use `std::ops::Add` but we can't implement `Add` on `Vec` in
 /// this crate.

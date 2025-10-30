@@ -302,7 +302,7 @@ pub struct ProofLayer<FieldElement> {
     pub polynomials: Vec<[Polynomial<FieldElement>; 2]>,
     /// vl is (perhaps?) the evaluation of the "unique multi-linear extension" for the array of
     /// wires at this layer, evaluated at a random point l. Referred to as "wc0" elsewhere.
-    /// See https://eprint.iacr.org/2024/2010.pdf p. 9
+    /// See <https://eprint.iacr.org/2024/2010.pdf> p. 9
     pub vl: FieldElement,
     /// vr is similar to vl but evaluated at random point r. Referred to as "wc1" elsewhere.
     pub vr: FieldElement,
@@ -310,9 +310,9 @@ pub struct ProofLayer<FieldElement> {
 
 /// Proof layer serialization corresponds to PaddedTranscriptLayer in [7.3][1].
 ///
-/// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.3>
+/// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.3
 impl<FE: CodecFieldElement> ProofLayer<FE> {
-    /// Decode a proof layer from the bytes. We can't implement [`Codec`] here because we need some
+    /// Decode a proof layer from the bytes. We can't implement `Codec` here because we need some
     /// context (the corresponding circuit layer) to determine how many elements the layer should
     /// contain.
     pub fn decode(

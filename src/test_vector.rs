@@ -3,7 +3,7 @@
 use crate::{
     Codec,
     circuit::Circuit,
-    constraints::constraints::QuadraticConstraint,
+    constraints::proof_constraints::QuadraticConstraint,
     fields::{CodecFieldElement, FieldElement},
 };
 use serde::Deserialize;

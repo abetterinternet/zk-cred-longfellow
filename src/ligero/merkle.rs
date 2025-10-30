@@ -162,9 +162,9 @@ impl MerkleTree {
         }
 
         // Fill leaves with included nodes
-        for index in 0..included_nodes.len() {
-            let leaf_index = included_nodes[index].1 + leaf_count;
-            partial_tree[leaf_index] = Some(included_nodes[index].0);
+        for (included_node, included_node_index) in included_nodes {
+            let leaf_index = included_node_index + leaf_count;
+            partial_tree[leaf_index] = Some(*included_node);
         }
 
         // Compute necessary inner nodes

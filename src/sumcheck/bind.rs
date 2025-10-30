@@ -8,7 +8,7 @@ use std::iter::repeat;
 /// An array of field elements, possibly multi-dimensional, conforming to the sumcheck array
 /// convention of [6.1][1]:
 ///
-/// > The sumcheck array A[i] is implicitly assumed to be defined for all nonnegative integers i,
+/// > The sumcheck array `A[i]` is implicitly assumed to be defined for all nonnegative integers i,
 /// > padding with zeroes as necessary.
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
@@ -23,6 +23,8 @@ pub trait SumcheckArray<FieldElement>: Sized {
     ///
     /// This corresponds to `bindv()` from [6.1][1]. The function `bind()` can be realized by
     /// passing a slice containing a single element.
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
     // TODO: provide in-place version?
     fn bind(&self, binding: &[FieldElement]) -> Self;
 
@@ -211,8 +213,8 @@ impl<FE: FieldElement> SumcheckArray<FE> for Vec<Vec<Vec<FE>>> {
     }
 }
 
-/// Sum collections of things elementwise, applying the Sumcheck array convention where A[i] = 0 if
-/// not defined.
+/// Sum collections of things elementwise, applying the Sumcheck array convention where `A[i] = 0`
+/// if not defined.
 ///
 /// The more obvious thing would be to use `std::ops::Add` but we can't implement `Add` on `Vec` in
 /// this crate.
@@ -543,6 +545,7 @@ mod tests {
         let bound = original.bind(&[FieldP256::ONE, FieldP256::from_u128(2)]);
 
         // "Row" 0 (which is an array) should be 2 * row 3 - row 1 (elementwise)
+        #[allow(clippy::needless_range_loop)]
         for i in 0..original[0].len() {
             for j in 0..original[0][i].len() {
                 assert_eq!(bound.element([0, i, j]), FieldP256::from(5));
@@ -550,6 +553,7 @@ mod tests {
         }
 
         // "Row" 1 should be 2 * row 7 - row 5 (elementwise)
+        #[allow(clippy::needless_range_loop)]
         for i in 0..original[1].len() {
             for j in 0..original[1][i].len() {
                 assert_eq!(bound.element([1, i, j]), FieldP256::from(9));
@@ -557,6 +561,7 @@ mod tests {
         }
 
         // "Row" 2 should be 2 * row 11 - row 9 (elementwise)
+        #[allow(clippy::needless_range_loop)]
         for i in 0..original[2].len() {
             for j in 0..original[2][i].len() {
                 assert_eq!(bound.element([2, i, j]), FieldP256::from(13));
@@ -564,6 +569,7 @@ mod tests {
         }
 
         // "Row" 3 of the bound array should be 2 * row 15 (0) - row 13 (elementwise)
+        #[allow(clippy::needless_range_loop)]
         for i in 0..original[3].len() {
             for j in 0..original[3][i].len() {
                 assert_eq!(

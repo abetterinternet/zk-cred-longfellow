@@ -5,14 +5,14 @@
 
 use crate::{
     circuit::Circuit,
+    constraints::symbolic::{SymbolicExpression, Term},
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     sumcheck::{
-        Proof,
         bind::{ElementwiseSum, SumcheckArray, bindeq},
-        symbolic::{SymbolicExpression, Term},
-        witness::WitnessLayout,
+        prover::Proof,
     },
     transcript::Transcript,
+    witness::WitnessLayout,
 };
 use serde::Deserialize;
 
@@ -314,7 +314,7 @@ mod tests {
     use crate::{
         circuit::Evaluation,
         fields::{FieldElement, fieldp128::FieldP128},
-        sumcheck::Prover,
+        sumcheck::prover::Prover,
         test_vector::CircuitTestVector,
     };
 

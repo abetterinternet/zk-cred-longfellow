@@ -3,8 +3,8 @@
 use crate::{
     Codec,
     circuit::Circuit,
+    constraints::constraints::QuadraticConstraint,
     fields::{CodecFieldElement, FieldElement},
-    sumcheck::constraints::QuadraticConstraint,
 };
 use serde::Deserialize;
 use std::{

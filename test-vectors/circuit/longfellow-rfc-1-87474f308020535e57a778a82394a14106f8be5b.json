@@ -4,6 +4,13 @@
     "depth": 3,
     "quads": 11,
     "_terms": 11,
+    "ligero_parameters":{
+        "nreq": 6,
+        "rate": 4,
+        "witnesses_per_row": 20,
+        "quadratic_constraints_per_row": 2,
+        "row_size": 51
+    },
     "valid_inputs": [45, 5, 6],
     "invalid_inputs": [45, 5, 7],
     "pad": 2,

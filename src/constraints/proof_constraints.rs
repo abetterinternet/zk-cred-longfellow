@@ -7,6 +7,7 @@ use crate::{
     circuit::Circuit,
     constraints::symbolic::{SymbolicExpression, Term},
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
+    ligero::committer::LigeroCommitment,
     sumcheck::{
         bind::{ElementwiseSum, SumcheckArray, bindeq},
         prover::Proof,
@@ -43,19 +44,36 @@ pub struct QuadraticConstraint {
     pub z: usize,
 }
 
-/// Ligero constraints generated from a Sumcheck proof.
-pub struct ProofConstraints<FieldElement> {
+/// Construct quadratic constraints from the circuit. Since quadratic constraints are purely in
+/// terms of witness values, they can be determined from nothing but the circuit.
+pub fn quadratic_constraints<FE: CodecFieldElement>(circuit: &Circuit) -> Vec<QuadraticConstraint> {
+    let witness_layout = WitnessLayout::from_circuit(circuit);
+
+    (0..circuit.num_layers())
+        .map(|layer_index| {
+            let (vl_witness, vr_witness, vl_vr_witness) =
+                witness_layout.wire_witness_indices(layer_index);
+
+            // Output quadratic constraint sym_layer_pad.vl * sym_layer_pad.vr = sym_layer_pad.vl_vr
+            QuadraticConstraint {
+                x: vl_witness,
+                y: vr_witness,
+                z: vl_vr_witness,
+            }
+        })
+        .collect()
+}
+
+/// Ligero linear constraints generated from a Sumcheck proof.
+pub struct LinearConstraints<FieldElement> {
     /// Terms contributing to the left hand sides of linear constraints.
     linear_constraint_lhs: Vec<LinearConstraintLhsTerm<FieldElement>>,
 
     /// Vector of right hand sides of linear constraints.
     linear_constraint_rhs: Vec<FieldElement>,
-
-    /// Quadratic constraints: one per circuit layer.
-    quadratic_constraints: Vec<QuadraticConstraint>,
 }
 
-impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> ProofConstraints<FE> {
+impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<FE> {
     /// Construct constraints from the provided proof of execution for the circuit and public
     /// inputs.
     ///
@@ -72,7 +90,7 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> ProofConstraints<FE
         circuit: &Circuit,
         public_inputs: &[FE],
         transcript: &mut Transcript,
-        ligero_commitment: &[u8],
+        ligero_commitment: &LigeroCommitment,
         proof: &Proof<FE>,
     ) -> Result<Self, anyhow::Error> {
         let mut constraints = Self {
@@ -88,7 +106,6 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> ProofConstraints<FE
                     + 2, // sym_layer_pad.vl and sym_layer_pad.vr
             ),
             linear_constraint_rhs: Vec::with_capacity(1 + circuit.num_layers()),
-            quadratic_constraints: Vec::with_capacity(circuit.num_layers()),
         };
 
         let witness_layout = WitnessLayout::from_circuit(circuit);
@@ -240,13 +257,6 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> ProofConstraints<FE
                 .linear_constraint_rhs
                 .push(bound_quad[0][0] * proof_layer.vl * proof_layer.vr - layer_claim.known());
 
-            // Output quadratic constraint sym_layer_pad.vl * sym_layer_pad.vr = sym_layer_pad.vl_vr
-            constraints.quadratic_constraints.push(QuadraticConstraint {
-                x: vl_witness,
-                y: vr_witness,
-                z: vl_vr_witness,
-            });
-
             // Commit to the padded evaluations of l and r. The specification implies they are
             // written as individual field elements, but longfellow-zk writes them as an array.
             transcript.write_field_element_array(&[proof_layer.vl, proof_layer.vr])?;
@@ -316,6 +326,7 @@ mod tests {
         fields::{FieldElement, fieldp128::FieldP128},
         sumcheck::prover::Prover,
         test_vector::CircuitTestVector,
+        witness::Witness,
     };
 
     #[test]
@@ -323,30 +334,36 @@ mod tests {
         let (test_vector, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
 
-        let witness_layout = WitnessLayout::from_circuit(&circuit);
-
         let evaluation: Evaluation<FieldP128> = circuit
             .evaluate(&test_vector.valid_inputs.unwrap())
             .unwrap();
+
+        let witness_layout = WitnessLayout::from_circuit(&circuit);
+        let witness = Witness::fill_witness(
+            witness_layout.clone(),
+            evaluation.private_inputs(circuit.num_public_inputs()),
+            FieldP128::sample,
+        );
 
         let mut proof_transcript = Transcript::new(b"test").unwrap();
 
         // Fork the transcript
         let mut constraint_transcript = proof_transcript.clone();
 
-        let proof = Prover::new(&circuit, FieldP128::sample)
-            .prove(&evaluation, &mut proof_transcript, b"fake commitment")
+        let proof = Prover::new(&circuit)
+            .prove(
+                &evaluation,
+                &mut proof_transcript,
+                &LigeroCommitment::test_commitment(),
+                &witness,
+            )
             .unwrap();
 
-        // Ensure our witness vector length is consistent with witness layout, and with the
-        // witnesses described in test vector constraints.
-        assert_eq!(witness_layout.length(), proof.witness.len());
-
-        let constraints = ProofConstraints::from_proof(
+        let linear_constraints = LinearConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
             &mut constraint_transcript,
-            b"fake commitment",
+            &LigeroCommitment::test_commitment(),
             &proof.proof,
         )
         .unwrap();
@@ -357,7 +374,7 @@ mod tests {
         // Check that we allocated appropriate size for LHS terms. Ideally we won't reallocate in
         // the constraint generator loop.
         assert_eq!(
-            constraints.linear_constraint_lhs.len(),
+            linear_constraints.linear_constraint_lhs.len(),
             3 * circuit.num_layers()
                 + 2 * (circuit.num_layers() - 1)
                 + circuit.logw_sum() * 2 * 2
@@ -365,38 +382,37 @@ mod tests {
                 + 2
         );
 
-        for lhs_term in &constraints.linear_constraint_lhs {
+        for lhs_term in &linear_constraints.linear_constraint_lhs {
             // All LHS terms should refer to elements of the RHS and witness vectors.
-            assert!(lhs_term.constraint_number < constraints.linear_constraint_rhs.len());
+            assert!(lhs_term.constraint_number < linear_constraints.linear_constraint_rhs.len());
             assert!(lhs_term.witness_index < witness_layout.length());
             // No LHS element should have a constant factor of 0.
             assert_ne!(lhs_term.constant_factor, FieldP128::ZERO);
         }
 
-        let mut lhs_summed = vec![FieldP128::ZERO; constraints.linear_constraint_rhs.len()];
+        let mut lhs_summed = vec![FieldP128::ZERO; linear_constraints.linear_constraint_rhs.len()];
         for LinearConstraintLhsTerm {
             constraint_number,
             witness_index,
             constant_factor,
-        } in constraints.linear_constraint_lhs
+        } in linear_constraints.linear_constraint_lhs
         {
-            lhs_summed[constraint_number] += proof.witness[witness_index] * constant_factor;
+            lhs_summed[constraint_number] += witness.element(witness_index) * constant_factor;
         }
 
-        assert_eq!(lhs_summed, constraints.linear_constraint_rhs);
+        assert_eq!(lhs_summed, linear_constraints.linear_constraint_rhs);
 
         assert_eq!(
-            constraints.linear_constraint_rhs.len(),
+            linear_constraints.linear_constraint_rhs.len(),
             circuit.num_layers() + 1
         );
 
-        assert_eq!(
-            constraints.quadratic_constraints.len(),
-            circuit.num_layers()
-        );
+        let quadratic_constraints = quadratic_constraints::<FieldP128>(&circuit);
 
-        for QuadraticConstraint { x, y, z } in constraints.quadratic_constraints {
-            assert_eq!(proof.witness[x] * proof.witness[y], proof.witness[z]);
+        assert_eq!(quadratic_constraints.len(), circuit.num_layers());
+
+        for QuadraticConstraint { x, y, z } in quadratic_constraints {
+            assert_eq!(witness.element(x) * witness.element(y), witness.element(z));
         }
     }
 
@@ -411,20 +427,28 @@ mod tests {
             .evaluate(test_vector.valid_inputs.as_deref().unwrap())
             .unwrap();
 
+        let witness_layout = WitnessLayout::from_circuit(&circuit);
+        let witness = Witness::fill_witness(
+            witness_layout.clone(),
+            evaluation.private_inputs(circuit.num_public_inputs()),
+            || test_vector.pad().unwrap(),
+        );
+
         let mut proof_transcript = Transcript::new(b"test").unwrap();
 
         // Fork the transcript
         let mut constraint_transcript = proof_transcript.clone();
 
-        let proof = Prover::new(&circuit, || test_vector.pad().unwrap())
+        let proof = Prover::new(&circuit)
             .prove(
                 &evaluation,
                 &mut proof_transcript,
-                test_vector.ligero_commitment().as_deref().unwrap(),
+                &test_vector.ligero_commitment().unwrap(),
+                &witness,
             )
             .unwrap();
 
-        let constraints = ProofConstraints::from_proof(
+        let linear_constraints = LinearConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
             &mut constraint_transcript,
@@ -435,21 +459,24 @@ mod tests {
 
         let test_vector_rhs_terms = test_vector_constraints.linear_constraint_rhs();
 
-        assert_eq!(constraints.linear_constraint_rhs, test_vector_rhs_terms);
+        assert_eq!(
+            linear_constraints.linear_constraint_rhs,
+            test_vector_rhs_terms
+        );
 
-        let mut lhs_summed = vec![FieldP128::ZERO; constraints.linear_constraint_rhs.len()];
+        let mut lhs_summed = vec![FieldP128::ZERO; linear_constraints.linear_constraint_rhs.len()];
         for LinearConstraintLhsTerm {
             constraint_number,
             witness_index,
             constant_factor,
-        } in constraints.linear_constraint_lhs
+        } in linear_constraints.linear_constraint_lhs
         {
-            lhs_summed[constraint_number] += proof.witness[witness_index] * constant_factor;
+            lhs_summed[constraint_number] += witness.element(witness_index) * constant_factor;
         }
         assert_eq!(lhs_summed, test_vector_constraints.linear_constraint_rhs());
 
         assert_eq!(
-            constraints.quadratic_constraints,
+            quadratic_constraints::<FieldP128>(&circuit),
             test_vector_constraints.quadratic
         );
     }

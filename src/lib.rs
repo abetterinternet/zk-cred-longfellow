@@ -5,6 +5,7 @@ use std::{fmt::Display, io::Cursor};
 pub mod circuit;
 pub mod constraints;
 pub mod fields;
+pub mod ligero;
 pub mod sumcheck;
 #[cfg(test)]
 pub mod test_vector;

@@ -5,8 +5,8 @@
 use anyhow::anyhow;
 use sha2::{Digest, Sha256};
 
-/// The value of a node of a [`MerkleTree`]. A tree could various hashing algorithms, but we only
-/// support SHA-256, and so a `Digest` is always a 32 byte array, saving us a heap allocation.
+/// The value of a node of a [`MerkleTree`]. A tree could use various hashing algorithms, but we
+/// only support SHA-256, and so a `Digest` is always a 32 byte array, saving us a heap allocation.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Node([u8; 32]);
 
@@ -28,7 +28,7 @@ pub struct MerkleTree {
 }
 
 impl MerkleTree {
-    /// Create a new tree big enough for the specified number o fleaves.
+    /// Create a new tree big enough for the specified number of leaves.
     pub fn new(leaf_count: usize) -> Self {
         Self {
             digests: vec![Node::default(); 2 * leaf_count],
@@ -129,10 +129,14 @@ impl MerkleTree {
     pub fn verify(
         root: Node,
         leaf_count: usize,
-        included_nodes: &[(Node, usize)],
+        included_nodes: &[Node],
+        included_node_indices: &[usize],
         proof: &Proof,
     ) -> Result<(), anyhow::Error> {
-        for (_, leaf_index) in included_nodes {
+        if included_nodes.len() != included_node_indices.len() {
+            return Err(anyhow!("lengths of nodes and node indices must match"));
+        }
+        for leaf_index in included_node_indices {
             if *leaf_index >= leaf_count {
                 return Err(anyhow!("included nodes index exceeds tree size"));
             }
@@ -140,9 +144,9 @@ impl MerkleTree {
 
         // Partial tree constructed from provided leaf nodes
         let mut partial_tree = vec![None; 2 * leaf_count];
-        let indices: Vec<_> = included_nodes.iter().map(|d| d.1).collect();
-        let mut proof_index = 0;
-        let marked = Self::mark_tree(leaf_count * 2, leaf_count, &indices);
+
+        let mut proof_iter = proof.0.iter();
+        let marked = Self::mark_tree(leaf_count * 2, leaf_count, included_node_indices);
 
         for index in (1..leaf_count).rev() {
             if marked[index] {
@@ -152,17 +156,17 @@ impl MerkleTree {
                 }
 
                 if !marked[child_index] {
-                    if proof_index >= proof.0.len() {
+                    let Some(proof_node) = proof_iter.next() else {
                         return Err(anyhow!("not enough proof elements to prove inclusion"));
-                    }
-                    partial_tree[child_index] = Some(proof.0[proof_index]);
-                    proof_index += 1;
+                    };
+                    partial_tree[child_index] = Some(*proof_node);
                 }
             }
         }
 
         // Fill leaves with included nodes
-        for (included_node, included_node_index) in included_nodes {
+        for (included_node, included_node_index) in included_nodes.iter().zip(included_node_indices)
+        {
             let leaf_index = included_node_index + leaf_count;
             partial_tree[leaf_index] = Some(*included_node);
         }
@@ -210,35 +214,42 @@ mod tests {
         MerkleTree::verify(
             tree.root(),
             4,
-            &[
-                (Node([1; 32]), 0),
-                (Node([2; 32]), 1),
-                (Node([3; 32]), 2),
-                (Node([4; 32]), 3),
-            ],
+            &[Node([1; 32]), Node([2; 32]), Node([3; 32]), Node([4; 32])],
+            &[0, 1, 2, 3],
             &proof,
         )
         .unwrap();
 
-        for invalid in [
+        for (invalid_nodes, invalid_indices) in [
             // Missing a leaf
-            vec![(Node([1; 32]), 0), (Node([2; 32]), 1), (Node([4; 32]), 3)],
+            (
+                vec![Node([1; 32]), Node([2; 32]), Node([4; 32])],
+                vec![0, 1, 3],
+            ),
             // Wrong node values
-            vec![
-                (Node([5; 32]), 0),
-                (Node([2; 32]), 1),
-                (Node([3; 32]), 2),
-                (Node([4; 32]), 3),
-            ],
+            (
+                vec![Node([5; 32]), Node([2; 32]), Node([3; 32]), Node([4; 32])],
+                vec![0, 1, 2, 3],
+            ),
+            // Out of range node indices
+            (
+                vec![Node([1; 32]), Node([2; 32]), Node([3; 32]), Node([4; 32])],
+                vec![5, 1, 2, 3],
+            ),
             // Wrong node indices
-            vec![
-                (Node([1; 32]), 5),
-                (Node([2; 32]), 1),
-                (Node([3; 32]), 2),
-                (Node([4; 32]), 3),
-            ],
+            (
+                vec![Node([1; 32]), Node([2; 32]), Node([3; 32]), Node([4; 32])],
+                vec![1, 0, 2, 3],
+            ),
         ] {
-            MerkleTree::verify(tree.root(), 4, invalid.as_slice(), &proof).unwrap_err();
+            MerkleTree::verify(
+                tree.root(),
+                4,
+                invalid_nodes.as_slice(),
+                invalid_indices.as_slice(),
+                &proof,
+            )
+            .unwrap_err();
         }
     }
 
@@ -250,22 +261,32 @@ mod tests {
         MerkleTree::verify(
             tree.root(),
             4,
-            &[(Node([1; 32]), 0), (Node([2; 32]), 1)],
+            &[Node([1; 32]), Node([2; 32])],
+            &[0, 1],
             &proof,
         )
         .unwrap();
 
-        for invalid in [
+        for (invalid_nodes, invalid_indices) in [
             // Leaves exist but aren't in proof
-            vec![(Node([2; 32]), 1), (Node([4; 32]), 3)],
+            (vec![Node([2; 32]), Node([4; 32])], vec![1, 3]),
             // Missing a leaf
-            vec![(Node([1; 32]), 0)],
+            (vec![Node([1; 32])], vec![0]),
             // Wrong node values
-            vec![(Node([5; 32]), 0), (Node([3; 32]), 2)],
+            (vec![Node([5; 32]), Node([3; 32])], vec![0, 2]),
+            // Out of range node indices
+            (vec![Node([1; 32]), Node([2; 32])], vec![5, 0]),
             // Wrong node indices
-            vec![(Node([1; 32]), 5), (Node([3; 32]), 2)],
+            (vec![Node([1; 32]), Node([2; 32])], vec![1, 0]),
         ] {
-            MerkleTree::verify(tree.root(), 4, invalid.as_slice(), &proof).unwrap_err();
+            MerkleTree::verify(
+                tree.root(),
+                4,
+                invalid_nodes.as_slice(),
+                invalid_indices.as_slice(),
+                &proof,
+            )
+            .unwrap_err();
         }
     }
 
@@ -277,22 +298,32 @@ mod tests {
         MerkleTree::verify(
             tree.root(),
             4,
-            &[(Node([1; 32]), 0), (Node([4; 32]), 3)],
+            &[Node([1; 32]), Node([4; 32])],
+            &[0, 3],
             &proof,
         )
         .unwrap();
 
-        for invalid in [
+        for (invalid_nodes, invalid_indices) in [
             // Leaves exist but aren't in proof
-            vec![(Node([2; 32]), 1), (Node([3; 32]), 2)],
+            (vec![Node([2; 32]), Node([3; 32])], vec![1, 2]),
             // Missing a leaf
-            vec![(Node([1; 32]), 0)],
+            (vec![Node([1; 32])], vec![0]),
             // Wrong node values
-            vec![(Node([5; 32]), 0), (Node([4; 32]), 3)],
+            (vec![Node([5; 32]), Node([4; 32])], vec![0, 3]),
+            // Out of range node indices
+            (vec![Node([1; 32]), Node([4; 32])], vec![5, 3]),
             // Wrong node indices
-            vec![(Node([1; 32]), 5), (Node([4; 32]), 3)],
+            (vec![Node([1; 32]), Node([4; 32])], vec![1, 3]),
         ] {
-            MerkleTree::verify(tree.root(), 4, invalid.as_slice(), &proof).unwrap_err();
+            MerkleTree::verify(
+                tree.root(),
+                4,
+                invalid_nodes.as_slice(),
+                invalid_indices.as_slice(),
+                &proof,
+            )
+            .unwrap_err();
         }
     }
 }

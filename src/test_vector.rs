@@ -5,6 +5,7 @@ use crate::{
     circuit::Circuit,
     constraints::proof_constraints::QuadraticConstraint,
     fields::{CodecFieldElement, FieldElement},
+    ligero::{LigeroParameters, committer::LigeroCommitment},
 };
 use serde::Deserialize;
 use std::{
@@ -14,7 +15,7 @@ use std::{
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct Constraints {
-    /// Right hand side terms of lienar constraints (vector of serialzied field elements in
+    /// Right hand side terms of linear constraints (vector of serialzied field elements in
     /// hex).
     pub(crate) linear_rhs: Vec<String>,
     // Quadratic constraints.
@@ -64,6 +65,7 @@ pub(crate) struct CircuitTestVector {
     pub(crate) serialized_ligero_proof: Vec<u8>,
     /// The fixed pad value to use during constraint generation.
     pub(crate) pad: Option<u64>,
+    pub(crate) ligero_parameters: Option<LigeroParameters>,
 }
 
 impl CircuitTestVector {
@@ -112,9 +114,9 @@ impl CircuitTestVector {
         self.pad.map(|pad| FE::from_u128(pad.into()))
     }
 
-    pub(crate) fn ligero_commitment(&self) -> Option<Vec<u8>> {
-        self.ligero_commitment
-            .as_ref()
-            .map(|ref string| hex::decode(string).unwrap())
+    pub(crate) fn ligero_commitment(&self) -> Option<LigeroCommitment> {
+        self.ligero_commitment.as_ref().map(|ref string| {
+            LigeroCommitment::try_from(hex::decode(string).unwrap().as_slice()).unwrap()
+        })
     }
 }

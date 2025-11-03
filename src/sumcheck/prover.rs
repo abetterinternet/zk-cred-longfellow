@@ -3,20 +3,20 @@
 use crate::{
     circuit::{Circuit, CircuitLayer, Evaluation},
     fields::CodecFieldElement,
+    ligero::committer::LigeroCommitment,
     sumcheck::{
         Polynomial,
         bind::{ElementwiseSum, SumcheckArray},
     },
     transcript::Transcript,
-    witness::WitnessLayout,
+    witness::Witness,
 };
-use std::{iter::repeat_with, mem::swap};
+use std::mem::swap;
 
 /// Generate a sumcheck proof of evaluation of a circuit.
 #[derive(Clone, Debug)]
-pub struct Prover<'a, PadGenerator> {
+pub struct Prover<'a> {
     circuit: &'a Circuit,
-    pad_generator: PadGenerator,
 }
 
 /// Sumcheck proof plus some extra data useful for validation.
@@ -26,40 +26,28 @@ pub struct Prover<'a, PadGenerator> {
 pub struct ProverResult<FE> {
     /// The sumcheck proof from which Ligero constraints may be generated.
     pub proof: Proof<FE>,
-    /// The witnesses computed while computing the proof. The witness vector is never actually used
-    /// by the prover during the protocol. It is recorded only to help validate the correctness of
-    /// later steps.
-    pub witness: Vec<FE>,
     /// The transcript after all the proof messages have been written to it.
     pub transcript: Transcript,
 }
 
-impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGenerator> {
-    pub fn new(circuit: &'a Circuit, pad_generator: PadGenerator) -> Self {
-        Self {
-            circuit,
-            pad_generator,
-        }
+impl<'a> Prover<'a> {
+    pub fn new(circuit: &'a Circuit) -> Self {
+        Self { circuit }
     }
 
     /// Construct a padded proof of the transcript of the given evaluation of the circuit and return
     /// the prover messages needed for the verifier to reconstruct the transcript.
-    pub fn prove(
+    pub fn prove<FE: CodecFieldElement>(
         &mut self,
         evaluation: &Evaluation<FE>,
         transcript: &mut Transcript,
-        ligero_commitment: &[u8],
+        ligero_commitment: &LigeroCommitment,
+        witness: &Witness<FE>,
     ) -> Result<ProverResult<FE>, anyhow::Error> {
         // Specification interpretation verification: all the outputs should be zero
         for output in evaluation.outputs() {
             assert_eq!(output, &FE::ZERO);
         }
-
-        let witness_layout = WitnessLayout::from_circuit(self.circuit);
-        let mut witness = Vec::with_capacity(witness_layout.length());
-
-        // Witness vector starts with private inputs
-        witness.extend(evaluation.private_inputs(self.circuit.num_public_inputs()));
 
         transcript.initialize(
             ligero_commitment,
@@ -102,27 +90,6 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
             // Allocate room for the new bindings this layer will generate
             let mut new_bindings = [vec![FE::ZERO; layer.logw()], vec![FE::ZERO; layer.logw()]];
 
-            // Generate the pad for this layer. The pad has the same structure as the proof since the
-            // one has to be subtracted from the other.
-            let layer_pad = ProofLayer {
-                polynomials: repeat_with(|| {
-                    [
-                        Polynomial {
-                            p0: (self.pad_generator)(),
-                            p2: (self.pad_generator)(),
-                        },
-                        Polynomial {
-                            p0: (self.pad_generator)(),
-                            p2: (self.pad_generator)(),
-                        },
-                    ]
-                })
-                .take(layer.logw())
-                .collect(),
-                vl: (self.pad_generator)(),
-                vr: (self.pad_generator)(),
-            };
-
             // Allocate the proof for this layer. The zero values in the polynomial are not
             // significant. We just need an initial value.
             let mut layer_proof_polynomials = vec![
@@ -143,12 +110,7 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
             let mut left_wires = evaluation.wires[layer_index + 1].clone();
             let mut right_wires = evaluation.wires[layer_index + 1].clone();
 
-            for (round, (pad_polynomials, proof_polynomials)) in layer_pad
-                .polynomials
-                .into_iter()
-                .zip(&mut layer_proof_polynomials)
-                .enumerate()
-            {
+            for (round, proof_polynomials) in layer_proof_polynomials.iter_mut().enumerate() {
                 for hand in 0..2 {
                     // Implements the polynomial from the specification:
                     // Let p(x) = SUM_{l, r} bind(QUAD, x)[l, r] * bind(VL, x)[l] * VR[r]
@@ -190,13 +152,11 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
                     };
 
                     // Evaluate the polynomial at P0 and P2, subtracting the pad
+                    let polynomial_pad = witness.polynomial_witnesses(layer_index, round, hand);
                     let poly_evaluation = Polynomial {
-                        p0: evaluate_polynomial(FE::ZERO) - pad_polynomials[hand].p0,
-                        p2: evaluate_polynomial(FE::SUMCHECK_P2) - pad_polynomials[hand].p2,
+                        p0: evaluate_polynomial(FE::ZERO) - polynomial_pad.p0,
+                        p2: evaluate_polynomial(FE::SUMCHECK_P2) - polynomial_pad.p2,
                     };
-
-                    // Add polynomial pads to the witness.
-                    witness.extend([pad_polynomials[hand].p0, pad_polynomials[hand].p2]);
 
                     // Commit to the padded polynomial.
                     transcript.write_polynomial(&poly_evaluation)?;
@@ -234,13 +194,12 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
                 assert_eq!(right_wire, &FE::ZERO, "right wires: {right_wires:#?}");
             }
 
-            // Add vl, vr and vl * vr pads to the witness
-            witness.extend([layer_pad.vl, layer_pad.vr, layer_pad.vl * layer_pad.vr]);
+            let (vl_pad, vr_pad, _) = witness.wire_witnesses(layer_index);
 
             let layer_proof = ProofLayer {
                 polynomials: layer_proof_polynomials,
-                vl: left_wires.element(0) - layer_pad.vl,
-                vr: right_wires.element(0) - layer_pad.vr,
+                vl: left_wires.element(0) - vl_pad,
+                vr: right_wires.element(0) - vr_pad,
             };
 
             // Commit to the padded evaluations of l and r. The specification implies they are
@@ -254,7 +213,6 @@ impl<'a, FE: CodecFieldElement, PadGenerator: FnMut() -> FE> Prover<'a, PadGener
 
         Ok(ProverResult {
             proof,
-            witness,
             transcript: transcript.clone(),
         })
     }
@@ -382,7 +340,9 @@ impl<FE: CodecFieldElement> ProofLayer<FE> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Size, fields::fieldp128::FieldP128, test_vector::CircuitTestVector};
+    use crate::{
+        Size, fields::fieldp128::FieldP128, test_vector::CircuitTestVector, witness::WitnessLayout,
+    };
     use std::io::Cursor;
 
     #[test]
@@ -397,14 +357,21 @@ mod tests {
             .evaluate(test_vector.valid_inputs.as_deref().unwrap())
             .unwrap();
 
+        let witness = Witness::fill_witness(
+            WitnessLayout::from_circuit(&circuit),
+            evaluation.private_inputs(circuit.num_public_inputs()),
+            || test_vector.pad().unwrap(),
+        );
+
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
         let mut transcript = Transcript::new(b"test").unwrap();
 
-        let proof = Prover::new(&circuit, || test_vector.pad().unwrap())
+        let proof = Prover::new(&circuit)
             .prove(
                 &evaluation,
                 &mut transcript,
-                test_vector.ligero_commitment().as_deref().unwrap(),
+                &test_vector.ligero_commitment().unwrap(),
+                &witness,
             )
             .unwrap();
 

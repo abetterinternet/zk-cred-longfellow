@@ -1,10 +1,14 @@
 //! Implements the witness vector, referred to as W in the specification.
 
-use crate::circuit::{Circuit, CircuitLayer};
+use crate::{
+    circuit::{Circuit, CircuitLayer},
+    fields::FieldElement,
+    sumcheck::Polynomial,
+};
 use std::ops::Range;
 
-/// The witness vector W. This is a 1D vector containing values known to the prover but not the
-/// verifier:
+/// The layout of the witness vector W. This is a 1D vector containing values known to the prover
+/// but not the verifier:
 ///
 ///   - private inputs to the circuit (count depends on the circuit)
 ///   - one-time-pad for polynomials at each layer (2 * 2 * logw elements per circuit layer)
@@ -14,7 +18,8 @@ use std::ops::Range;
 /// The prover and verifier both manipulate these quantities symbolically, so this structure doesn't
 /// actually contain witness values. Rather, it is used to determine where in the witness vector a
 /// given value occurs so that the right challenge value can be looked up later.
-pub(crate) struct WitnessLayout {
+#[derive(Debug, Clone)]
+pub struct WitnessLayout {
     /// The number of private inputs to the circuit.
     num_private_inputs: usize,
     /// The number of polynomial evaluations on each layer.
@@ -22,14 +27,14 @@ pub(crate) struct WitnessLayout {
 }
 
 impl WitnessLayout {
-    pub(crate) fn from_circuit(circuit: &Circuit) -> Self {
+    pub fn from_circuit(circuit: &Circuit) -> Self {
         Self::new(
             circuit.num_private_inputs(),
             circuit.layers.iter().map(CircuitLayer::logw).collect(),
         )
     }
 
-    pub(crate) fn new(num_private_inputs: usize, logw: Vec<usize>) -> Self {
+    pub fn new(num_private_inputs: usize, logw: Vec<usize>) -> Self {
         Self {
             num_private_inputs,
             logw,
@@ -37,12 +42,12 @@ impl WitnessLayout {
     }
 
     /// Indices of the witnesses for private inputs.
-    pub(crate) fn private_input_witness_indices(&self) -> Range<usize> {
+    pub fn private_input_witness_indices(&self) -> Range<usize> {
         0..self.num_private_inputs
     }
 
     /// Indices of the witnesses for `vl`, `vr` and `vl * vr` at the given layer.
-    pub(crate) fn wire_witness_indices(&self, layer: usize) -> (usize, usize, usize) {
+    pub fn wire_witness_indices(&self, layer: usize) -> (usize, usize, usize) {
         assert!(layer < self.logw.len());
 
         let start = self.num_private_inputs // skip past private inputs
@@ -57,7 +62,7 @@ impl WitnessLayout {
 
     /// Indices of the witnesses for the polynomial at the given layer, round and hand. There is a
     /// witness for each of p0 and p2.
-    pub(crate) fn polynomial_witness_indices(
+    pub fn polynomial_witness_indices(
         &self,
         layer: usize,
         round: usize,
@@ -82,7 +87,7 @@ impl WitnessLayout {
     }
 
     /// Total length of the witness vector.
-    pub(crate) fn length(&self) -> usize {
+    pub fn length(&self) -> usize {
         self.num_private_inputs
             // three wire witnesses per layer
             + self.logw.len() * 3
@@ -91,11 +96,80 @@ impl WitnessLayout {
     }
 }
 
+/// The contents of the witness vector W. This is a 1D vector containing values known to the prover
+/// but not the verifier:
+///
+///   - private inputs to the circuit (count depends on the circuit)
+///   - one-time-pad for polynomials at each layer (2 * 2 * logw elements per circuit layer)
+///   - one-time-pad for vl, vr and vl * vr for each layer of the circuit (three elements per
+///     circuit layer)
+pub struct Witness<FieldElement> {
+    values: Vec<FieldElement>,
+    layout: WitnessLayout,
+}
+
+impl<FE: FieldElement> Witness<FE> {
+    /// Construct a witness vector for the layout, generating pad values.
+    pub fn fill_witness<PadGenerator: FnMut() -> FE>(
+        layout: WitnessLayout,
+        private_inputs: &[FE],
+        mut pad_generator: PadGenerator,
+    ) -> Self {
+        let mut witnesses = Vec::with_capacity(layout.length());
+
+        // Witness vector starts with private inputs
+        witnesses.extend(private_inputs);
+
+        for layer_logw in &layout.logw {
+            // Polynomial pads p0, p2 for each round in layer
+            for _ in 0..*layer_logw {
+                for _ in 0..2 {
+                    witnesses.push(pad_generator());
+                    witnesses.push(pad_generator());
+                }
+            }
+
+            // vl, vr, vl*vr pads for each layer
+            let vl = pad_generator();
+            let vr = pad_generator();
+            witnesses.push(vl);
+            witnesses.push(vr);
+            witnesses.push(vl * vr);
+        }
+
+        Self {
+            values: witnesses,
+            layout,
+        }
+    }
+
+    /// Witnesses (pad values) for the polynomial at the given layer, round and hand.
+    pub fn polynomial_witnesses(&self, layer: usize, round: usize, hand: usize) -> Polynomial<FE> {
+        let (p0, p2) = self.layout.polynomial_witness_indices(layer, round, hand);
+        Polynomial {
+            p0: self.element(p0),
+            p2: self.element(p2),
+        }
+    }
+
+    /// Pads for the wires at the given layer.
+    pub fn wire_witnesses(&self, layer: usize) -> (FE, FE, FE) {
+        let (vl, vr, vl_vr) = self.layout.wire_witness_indices(layer);
+
+        (self.element(vl), self.element(vr), self.element(vl_vr))
+    }
+
+    /// Get an element of the witness.
+    pub fn element(&self, index: usize) -> FE {
+        self.values[index]
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::panic::catch_unwind;
-
     use super::*;
+    use crate::fields::fieldp128::FieldP128;
+    use std::panic::catch_unwind;
 
     #[test]
     fn witness_layout() {
@@ -110,38 +184,82 @@ mod tests {
         //                  | vl | vr | vl * vr
         let layout = WitnessLayout::new(3, vec![0, 3, 2]);
 
+        let witness = Witness {
+            values: (0..layout.length() as u128)
+                .map(FieldP128::from_u128)
+                .collect(),
+            layout: layout.clone(),
+        };
+
         assert_eq!(layout.private_input_witness_indices(), 0..3);
 
+        let wire_ok = |layer, want_vl, want_vr, want_vl_vr| {
+            assert_eq!(
+                layout.wire_witness_indices(layer),
+                (want_vl, want_vr, want_vl_vr)
+            );
+            assert_eq!(
+                witness.wire_witnesses(layer),
+                (
+                    FieldP128::from_u128(want_vl as u128),
+                    FieldP128::from_u128(want_vr as u128),
+                    FieldP128::from_u128(want_vl_vr as u128)
+                )
+            );
+        };
+        let wire_bad = |layer| {
+            catch_unwind(|| layout.wire_witness_indices(layer)).unwrap_err();
+            catch_unwind(|| witness.wire_witnesses(layer)).unwrap_err();
+        };
+        let poly_ok = |layer, round, hand, want_p0, want_p2| {
+            assert_eq!(
+                layout.polynomial_witness_indices(layer, round, hand),
+                (want_p0, want_p2)
+            );
+            assert_eq!(
+                witness.polynomial_witnesses(layer, round, hand),
+                Polynomial {
+                    p0: FieldP128::from_u128(want_p0 as u128),
+                    p2: FieldP128::from_u128(want_p2 as u128),
+                }
+            )
+        };
+        let poly_bad = |layer, round, hand| {
+            catch_unwind(|| layout.polynomial_witness_indices(layer, round, hand)).unwrap_err();
+            catch_unwind(|| witness.polynomial_witnesses(layer, round, hand)).unwrap_err();
+        };
+
         // Layer 0. No polynomials on layer 0.
-        catch_unwind(|| layout.polynomial_witness_indices(0, 0, 0)).unwrap_err();
-        assert_eq!(layout.wire_witness_indices(0), (3, 4, 5));
+        poly_bad(0, 0, 0);
+        wire_ok(0, 3, 4, 5);
 
         // Layer 1.
-        assert_eq!(layout.polynomial_witness_indices(1, 0, 0), (6, 7));
-        assert_eq!(layout.polynomial_witness_indices(1, 0, 1), (8, 9));
-        assert_eq!(layout.polynomial_witness_indices(1, 1, 0), (10, 11));
-        assert_eq!(layout.polynomial_witness_indices(1, 1, 1), (12, 13));
-        assert_eq!(layout.polynomial_witness_indices(1, 2, 0), (14, 15));
-        assert_eq!(layout.polynomial_witness_indices(1, 2, 1), (16, 17));
+        poly_ok(1, 0, 0, 6, 7);
+        poly_ok(1, 0, 1, 8, 9);
+        poly_ok(1, 1, 0, 10, 11);
+        poly_ok(1, 1, 1, 12, 13);
+        poly_ok(1, 2, 0, 14, 15);
+        poly_ok(1, 2, 1, 16, 17);
         // Round 3 does not exist.
-        catch_unwind(|| layout.polynomial_witness_indices(1, 3, 0)).unwrap_err();
+        poly_bad(1, 3, 0);
         // Hand 2 does not exist
-        catch_unwind(|| layout.polynomial_witness_indices(1, 0, 2)).unwrap_err();
-        assert_eq!(layout.wire_witness_indices(1), (18, 19, 20));
+        poly_bad(1, 0, 2);
+        wire_ok(1, 18, 19, 20);
 
         // Layer 2.
-        assert_eq!(layout.polynomial_witness_indices(2, 0, 0), (21, 22));
-        assert_eq!(layout.polynomial_witness_indices(2, 0, 1), (23, 24));
-        assert_eq!(layout.polynomial_witness_indices(2, 1, 0), (25, 26));
-        assert_eq!(layout.polynomial_witness_indices(2, 1, 1), (27, 28));
+        poly_ok(2, 0, 0, 21, 22);
+        poly_ok(2, 0, 1, 23, 24);
+        poly_ok(2, 1, 0, 25, 26);
+        poly_ok(2, 1, 1, 27, 28);
         // Round 2 does not exist.
-        catch_unwind(|| layout.polynomial_witness_indices(2, 2, 0)).unwrap_err();
-        assert_eq!(layout.wire_witness_indices(2), (29, 30, 31));
+        poly_bad(2, 2, 0);
+        wire_ok(2, 29, 30, 31);
 
         // Layer 3 does not exist.
-        catch_unwind(|| layout.polynomial_witness_indices(3, 0, 0)).unwrap_err();
-        catch_unwind(|| layout.wire_witness_indices(3)).unwrap_err();
+        poly_bad(3, 0, 0);
+        wire_bad(3);
 
         assert_eq!(layout.length(), 32);
+        assert_eq!(layout.length(), witness.values.len());
     }
 }

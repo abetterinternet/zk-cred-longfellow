@@ -76,6 +76,9 @@ impl LagrangePolynomialFieldElement for Field2_128 {
     }
 
     fn modulus() -> num_bigint::BigUint {
+        // It doesn't really make sense to represent the modulus of this field (which is a
+        // polynomial) as an integer (even a big one).
+        // https://github.com/abetterinternet/zk-cred-longfellow/issues/47
         todo!()
     }
 }

@@ -1,13 +1,3 @@
-use std::{
-    cmp::Ordering,
-    fmt::{self, Debug},
-    io::{self, Read},
-    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
-};
-
-use anyhow::{Context, anyhow};
-use subtle::ConstantTimeEq;
-
 use crate::{
     Codec,
     fields::{
@@ -19,6 +9,15 @@ use crate::{
         },
     },
 };
+use anyhow::{Context, anyhow};
+use num_bigint::BigUint;
+use std::{
+    cmp::Ordering,
+    fmt::{self, Debug},
+    io::{self, Read},
+    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+};
+use subtle::ConstantTimeEq;
 
 /// FieldP521 is the field with modulus 2^521 - 1, described in [Section 7.2 of
 /// draft-google-cfrg-libzk-00][1]. It is also the base field of the NIST P-521 elliptic curve.
@@ -127,6 +126,10 @@ impl LagrangePolynomialFieldElement for FieldP521 {
             \x00\x00\x01",
         )
         .unwrap()
+    }
+
+    fn modulus() -> BigUint {
+        BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice())
     }
 }
 

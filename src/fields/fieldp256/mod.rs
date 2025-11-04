@@ -1,13 +1,3 @@
-use std::{
-    cmp::Ordering,
-    fmt::{self, Debug},
-    io::{self, Read},
-    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
-};
-
-use anyhow::{Context, anyhow};
-use subtle::ConstantTimeEq;
-
 use crate::{
     Codec,
     fields::{
@@ -20,6 +10,15 @@ use crate::{
         },
     },
 };
+use anyhow::{Context, anyhow};
+use num_bigint::BigUint;
+use std::{
+    cmp::Ordering,
+    fmt::{self, Debug},
+    io::{self, Read},
+    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+};
+use subtle::ConstantTimeEq;
 
 /// FieldP256 is the field for the NIST P-256 elliptic curve.
 ///
@@ -131,6 +130,10 @@ impl LagrangePolynomialFieldElement for FieldP256 {
             \x00\x00\x80\x00\x00\x00\x80\xff\xff\xff\x7f",
         )
         .unwrap()
+    }
+
+    fn modulus() -> BigUint {
+        BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice())
     }
 }
 

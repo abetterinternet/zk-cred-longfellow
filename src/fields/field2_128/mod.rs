@@ -74,6 +74,10 @@ impl LagrangePolynomialFieldElement for Field2_128 {
         // GF2_128(x^2 - x).inverse().to_integer()
         Self::from_u128(170141183460469231731687303715884105665)
     }
+
+    fn modulus() -> num_bigint::BigUint {
+        todo!()
+    }
 }
 
 impl Debug for Field2_128 {

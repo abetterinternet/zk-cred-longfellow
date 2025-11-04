@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow};
+use num_bigint::BigUint;
 use subtle::ConstantTimeEq;
 
 use crate::{
@@ -121,6 +122,10 @@ impl LagrangePolynomialFieldElement for FieldP128 {
         //
         // Unwrap safety: this constant is a valid field element.
         Self::try_from(b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f").unwrap()
+    }
+
+    fn modulus() -> BigUint {
+        BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice())
     }
 }
 

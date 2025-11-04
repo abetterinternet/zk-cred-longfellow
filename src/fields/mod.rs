@@ -7,6 +7,9 @@ use crate::{
 };
 use anyhow::{Context, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use num_bigint::BigUint;
+use num_integer::Integer;
+use num_traits::One;
 use rand::RngCore;
 use std::{
     fmt::Debug,
@@ -133,6 +136,15 @@ pub trait CodecFieldElement:
 /// [2]: https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
 /// [3]: https://github.com/abetterinternet/zk-cred-longfellow/issues/40
 pub trait LagrangePolynomialFieldElement: FieldElement {
+    /// Modulus of the field.
+    ///
+    /// It would be nice if this was a constant or const fn, but BigUint::from_bytes_le is not
+    /// const.
+    ///
+    /// We also pay a performance cost because BigUint's size is dynamic, likely forcing a heap
+    /// allocation. Using a static size big num would let us allocate on the stack.
+    fn modulus() -> BigUint;
+
     /// Evaluate the 0th Lagrange basis polynomial at x.
     fn lagrange_basis_polynomial_0(x: Self) -> Self {
         // (x - x_1) * (x - x_2)
@@ -172,6 +184,33 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
     /// basis polynomial.
     // TODO: This could probably be a constant.
     fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self;
+
+    /// The multiplicative inverse of this value.
+    fn mul_inv(&self) -> Self {
+        // We use Euler's theorem to compute inverses. There are more efficient algorithms which we
+        // will adopt in the future.
+        //
+        // https://en.wikipedia.org/wiki/Modular_multiplicative_inverse#Using_Euler's_theorem
+        self.pow(Self::modulus() - (BigUint::one() + BigUint::one()))
+    }
+
+    /// Raise a field element to some power.
+    fn pow(&self, mut exponent: BigUint) -> Self {
+        // Modular exponentiation from Schneier's _Applied Cryptography_, via Wikipedia
+        // https://en.wikipedia.org/wiki/Modular_exponentiation#Pseudocode
+        let mut out = Self::ONE;
+        let mut base = *self;
+
+        while exponent > BigUint::ZERO {
+            if exponent.is_odd() {
+                out *= base;
+            }
+            exponent >>= 1;
+            base = base.square();
+        }
+
+        out
+    }
 }
 
 /// Field identifier. According to the draft specification, the encoding is of variable length ([1])
@@ -297,19 +336,19 @@ use quadratic_extension::QuadraticExtension;
 
 #[cfg(test)]
 mod tests {
-    use rand::RngCore;
-    use wasm_bindgen_test::wasm_bindgen_test;
-
     use crate::{
         Codec,
         fields::{
-            CodecFieldElement, FieldElement, FieldId, SerializedFieldElement,
-            field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
+            CodecFieldElement, FieldElement, FieldId, LagrangePolynomialFieldElement,
+            SerializedFieldElement, field2_128::Field2_128, fieldp128::FieldP128,
+            fieldp256::FieldP256, fieldp256_2::FieldP256_2, fieldp521::FieldP521,
         },
     };
+    use num_bigint::BigUint;
+    use num_traits::{One, Zero};
+    use rand::RngCore;
     use std::io::Cursor;
-
-    use super::{LagrangePolynomialFieldElement, fieldp256_2::FieldP256_2, fieldp521::FieldP521};
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     #[test]
     fn codec_roundtrip_field_p128() {
@@ -536,7 +575,7 @@ mod tests {
         assert_eq!(F::from_u128(u64::MAX as u128), F::from(u64::MAX));
     }
 
-    fn field_element_test_mul_inv<F: LagrangePolynomialFieldElement>() {
+    fn field_element_test_mul_inv_lagrange_nodes<F: LagrangePolynomialFieldElement>() {
         assert_eq!(F::sumcheck_p2_mul_inv() * F::SUMCHECK_P2, F::ONE);
         assert_eq!(
             F::one_minus_sumcheck_p2_mul_inv() * (F::ONE - F::SUMCHECK_P2),
@@ -549,10 +588,61 @@ mod tests {
         );
     }
 
+    fn field_element_test_mul_inv<F: LagrangePolynomialFieldElement>() {
+        for element in [3, 9] {
+            for field_element in [F::from(element), -F::from(element)] {
+                assert_eq!(
+                    field_element.mul_inv() * field_element,
+                    F::ONE,
+                    "field element: {field_element:?}"
+                );
+            }
+        }
+    }
+
+    fn field_element_test_pow<F: LagrangePolynomialFieldElement>() {
+        for element in [3, 9] {
+            let field_element = F::from(element);
+            assert_eq!(
+                field_element.pow(BigUint::zero()),
+                F::ONE,
+                "field element: {field_element:?}"
+            );
+
+            assert_eq!(
+                field_element.pow(BigUint::one()),
+                field_element,
+                "field element: {field_element:?}"
+            );
+
+            assert_eq!(
+                field_element.pow(BigUint::from(2usize)),
+                field_element.square(),
+                "field element: {field_element:?}"
+            );
+
+            // odd exponent
+            assert_eq!(
+                field_element.pow(BigUint::from(11usize)),
+                F::from(element.pow(11)),
+                "field element: {field_element:?}"
+            );
+
+            // even exponent
+            assert_eq!(
+                field_element.pow(BigUint::from(12usize)),
+                F::from(element.pow(12)),
+                "field element: {field_element:?}"
+            );
+        }
+    }
+
     #[test]
     fn test_field_p256() {
         field_element_test_large_characteristic::<FieldP256>();
         field_element_test_codec::<FieldP256>(true);
+        field_element_test_mul_inv_lagrange_nodes::<FieldP256>();
+        field_element_test_pow::<FieldP256>();
         field_element_test_mul_inv::<FieldP256>();
     }
 
@@ -560,6 +650,8 @@ mod tests {
     fn test_field_p128() {
         field_element_test_large_characteristic::<FieldP128>();
         field_element_test_codec::<FieldP128>(true);
+        field_element_test_mul_inv_lagrange_nodes::<FieldP128>();
+        field_element_test_pow::<FieldP128>();
         field_element_test_mul_inv::<FieldP128>();
     }
 
@@ -567,6 +659,8 @@ mod tests {
     fn test_field_p521() {
         field_element_test_large_characteristic::<FieldP521>();
         field_element_test_codec::<FieldP521>(true);
+        field_element_test_mul_inv_lagrange_nodes::<FieldP521>();
+        field_element_test_pow::<FieldP521>();
         field_element_test_mul_inv::<FieldP521>();
     }
 
@@ -578,6 +672,8 @@ mod tests {
     #[test]
     fn test_field_2_128() {
         field_element_test_codec::<Field2_128>(false);
+        field_element_test_mul_inv_lagrange_nodes::<Field2_128>();
+        field_element_test_pow::<Field2_128>();
         field_element_test_mul_inv::<Field2_128>();
     }
 

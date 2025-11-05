@@ -3,10 +3,11 @@ use crate::{
     fields::{
         CodecFieldElement, FieldElement, LagrangePolynomialFieldElement,
         fieldp256::ops::{
-            fiat_p256_add, fiat_p256_from_bytes, fiat_p256_from_montgomery,
-            fiat_p256_montgomery_domain_field_element, fiat_p256_mul,
-            fiat_p256_non_montgomery_domain_field_element, fiat_p256_opp, fiat_p256_square,
-            fiat_p256_sub, fiat_p256_to_bytes, fiat_p256_to_montgomery,
+            fiat_p256_add, fiat_p256_divstep, fiat_p256_divstep_precomp, fiat_p256_from_bytes,
+            fiat_p256_from_montgomery, fiat_p256_montgomery_domain_field_element, fiat_p256_msat,
+            fiat_p256_mul, fiat_p256_non_montgomery_domain_field_element, fiat_p256_opp,
+            fiat_p256_selectznz, fiat_p256_set_one, fiat_p256_square, fiat_p256_sub,
+            fiat_p256_to_bytes, fiat_p256_to_montgomery,
         },
     },
 };
@@ -41,6 +42,12 @@ impl FieldP256 {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xff, 0xff,
         0xff, 0xff,
     ];
+
+    const DIVSTEP_PRECOMP: fiat_p256_montgomery_domain_field_element = {
+        let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
+        fiat_p256_divstep_precomp(&mut out.0);
+        out
+    };
 
     /// Converts a field element to the non-Montgomery domain form.
     fn as_residue(&self) -> fiat_p256_non_montgomery_domain_field_element {
@@ -134,6 +141,75 @@ impl LagrangePolynomialFieldElement for FieldP256 {
 
     fn modulus() -> BigUint {
         BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice())
+    }
+
+    fn mul_inv(&self) -> Self {
+        // This is based on `inversion/c/inversion_template.c` from fiat-crypto.
+
+        // The main loop takes its input in non-Montgomery form, and produces a result in Montgomery
+        // form https://github.com/mit-plv/fiat-crypto/issues/1020#issuecomment-950662171.
+        let mut residue = fiat_p256_non_montgomery_domain_field_element([0; 4]);
+        fiat_p256_from_montgomery(&mut residue, &self.0);
+
+        let mut d = 1;
+        let mut f = [0; 5];
+        fiat_p256_msat(&mut f);
+        let mut g = [residue[0], residue[1], residue[2], residue[3], 0];
+        let mut v = fiat_p256_montgomery_domain_field_element([0; 4]);
+        let mut r = fiat_p256_montgomery_domain_field_element([0; 4]);
+        fiat_p256_set_one(&mut r);
+
+        let mut out1 = 0;
+        let mut out2 = [0; 5];
+        let mut out3 = [0; 5];
+        let mut out4 = fiat_p256_montgomery_domain_field_element([0; 4]);
+        let mut out5 = fiat_p256_montgomery_domain_field_element([0; 4]);
+
+        // The number of iterations is determined by a formula that depends on the number of bits in
+        // the prime modulus.
+        //
+        // We can avoid copying between input and output variables by swapping their roles for every
+        // other divstep operation, but this will require special handling for the last iteration.
+        for _ in 0..741 / 2 {
+            fiat_p256_divstep(
+                &mut out1,
+                &mut out2,
+                &mut out3,
+                &mut out4.0,
+                &mut out5.0,
+                d,
+                &f,
+                &g,
+                &v.0,
+                &r.0,
+            );
+            fiat_p256_divstep(
+                &mut d, &mut f, &mut g, &mut v.0, &mut r.0, out1, &out2, &out3, &out4.0, &out5.0,
+            );
+        }
+        fiat_p256_divstep(
+            &mut out1,
+            &mut out2,
+            &mut out3,
+            &mut out4.0,
+            &mut out5.0,
+            d,
+            &f,
+            &g,
+            &v.0,
+            &r.0,
+        );
+        let v = out4;
+        let f = out2;
+
+        let mut h = fiat_p256_montgomery_domain_field_element([0; 4]);
+        fiat_p256_opp(&mut h, &v);
+        let mut temp = fiat_p256_montgomery_domain_field_element([0; 4]);
+        fiat_p256_selectznz(&mut temp.0, (f[4] >> 63) as u8, &v.0, &h.0);
+        let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
+        fiat_p256_mul(&mut out, &temp, &Self::DIVSTEP_PRECOMP);
+
+        Self(out)
     }
 }
 
@@ -315,7 +391,7 @@ impl Neg for FieldP256 {
     }
 }
 
-#[allow(unused, clippy::unnecessary_cast, clippy::needless_lifetimes)]
+#[allow(unused, clippy::unnecessary_cast, clippy::needless_lifetimes, clippy::too_many_arguments, clippy::identity_op)]
 #[rustfmt::skip]
 mod ops;
 

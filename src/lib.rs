@@ -1,3 +1,5 @@
+#![feature(test)]
+
 use anyhow::{Context, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::{fmt::Display, io::Cursor};

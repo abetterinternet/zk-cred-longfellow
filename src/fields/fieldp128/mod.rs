@@ -14,10 +14,11 @@ use crate::{
     fields::{
         CodecFieldElement, FieldElement, LagrangePolynomialFieldElement,
         fieldp128::ops::{
-            fiat_p128_add, fiat_p128_from_bytes, fiat_p128_from_montgomery,
-            fiat_p128_montgomery_domain_field_element, fiat_p128_mul,
-            fiat_p128_non_montgomery_domain_field_element, fiat_p128_opp, fiat_p128_square,
-            fiat_p128_sub, fiat_p128_to_bytes, fiat_p128_to_montgomery,
+            fiat_p128_add, fiat_p128_divstep, fiat_p128_divstep_precomp, fiat_p128_from_bytes,
+            fiat_p128_from_montgomery, fiat_p128_montgomery_domain_field_element, fiat_p128_msat,
+            fiat_p128_mul, fiat_p128_non_montgomery_domain_field_element, fiat_p128_opp,
+            fiat_p128_selectznz, fiat_p128_set_one, fiat_p128_square, fiat_p128_sub,
+            fiat_p128_to_bytes, fiat_p128_to_montgomery,
         },
     },
 };
@@ -40,6 +41,12 @@ pub struct FieldP128(fiat_p128_montgomery_domain_field_element);
 impl FieldP128 {
     /// The prime modulus as an integer.
     const MODULUS: u128 = 0xfffff000000000000000000000000001;
+
+    const DIVSTEP_PRECOMP: fiat_p128_montgomery_domain_field_element = {
+        let mut out = fiat_p128_montgomery_domain_field_element([0; 2]);
+        fiat_p128_divstep_precomp(&mut out.0);
+        out
+    };
 
     /// Bytes of the prime modulus, in little endian order.
     ///
@@ -126,6 +133,61 @@ impl LagrangePolynomialFieldElement for FieldP128 {
 
     fn modulus() -> BigUint {
         BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice())
+    }
+
+    fn mul_inv(&self) -> Self {
+        // This is based on `inversion/c/inversion_template.c` from fiat-crypto.
+
+        // The main loop takes its input in non-Montgomery form, and produces a result in Montgomery
+        // form https://github.com/mit-plv/fiat-crypto/issues/1020#issuecomment-950662171.
+        let mut residue = fiat_p128_non_montgomery_domain_field_element([0; 2]);
+        fiat_p128_from_montgomery(&mut residue, &self.0);
+
+        let mut d = 1;
+        let mut f = [0; 3];
+        fiat_p128_msat(&mut f);
+        let mut g = [residue[0], residue[1], 0];
+        let mut v = fiat_p128_montgomery_domain_field_element([0; 2]);
+        let mut r = fiat_p128_montgomery_domain_field_element([0; 2]);
+        fiat_p128_set_one(&mut r);
+
+        let mut out1 = 0;
+        let mut out2 = [0; 3];
+        let mut out3 = [0; 3];
+        let mut out4 = fiat_p128_montgomery_domain_field_element([0; 2]);
+        let mut out5 = fiat_p128_montgomery_domain_field_element([0; 2]);
+
+        // The number of iterations is determined by a formula that depends on the number of bits in
+        // the prime modulus.
+        //
+        // We can avoid copying between input and output variables by swapping their roles for every
+        // other divstep operation.
+        for _ in 0..372 / 2 {
+            fiat_p128_divstep(
+                &mut out1,
+                &mut out2,
+                &mut out3,
+                &mut out4.0,
+                &mut out5.0,
+                d,
+                &f,
+                &g,
+                &v.0,
+                &r.0,
+            );
+            fiat_p128_divstep(
+                &mut d, &mut f, &mut g, &mut v.0, &mut r.0, out1, &out2, &out3, &out4.0, &out5.0,
+            );
+        }
+
+        let mut h = fiat_p128_montgomery_domain_field_element([0; 2]);
+        fiat_p128_opp(&mut h, &v);
+        let mut temp = fiat_p128_montgomery_domain_field_element([0; 2]);
+        fiat_p128_selectznz(&mut temp.0, (f[2] >> 63) as u8, &v.0, &h.0);
+        let mut out = fiat_p128_montgomery_domain_field_element([0; 2]);
+        fiat_p128_mul(&mut out, &temp, &Self::DIVSTEP_PRECOMP);
+
+        Self(out)
     }
 }
 
@@ -304,7 +366,7 @@ impl Neg for FieldP128 {
     }
 }
 
-#[allow(unused, clippy::unnecessary_cast, clippy::needless_lifetimes)]
+#[allow(unused, clippy::unnecessary_cast, clippy::needless_lifetimes, clippy::too_many_arguments, clippy::identity_op)]
 #[rustfmt::skip]
 mod ops;
 

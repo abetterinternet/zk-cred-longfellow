@@ -81,6 +81,10 @@ impl LagrangePolynomialFieldElement for Field2_128 {
         // https://github.com/abetterinternet/zk-cred-longfellow/issues/47
         todo!()
     }
+
+    fn mul_inv(&self) -> Self {
+        todo!()
+    }
 }
 
 impl Debug for Field2_128 {

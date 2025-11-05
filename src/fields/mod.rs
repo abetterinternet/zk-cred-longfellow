@@ -9,7 +9,6 @@ use anyhow::{Context, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use num_bigint::BigUint;
 use num_integer::Integer;
-use num_traits::One;
 use rand::RngCore;
 use std::{
     fmt::Debug,
@@ -186,13 +185,7 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
     fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self;
 
     /// The multiplicative inverse of this value.
-    fn mul_inv(&self) -> Self {
-        // We use Euler's theorem to compute inverses. There are more efficient algorithms which we
-        // will adopt in the future.
-        //
-        // https://en.wikipedia.org/wiki/Modular_multiplicative_inverse#Using_Euler's_theorem
-        self.pow(Self::modulus() - (BigUint::one() + BigUint::one()))
-    }
+    fn mul_inv(&self) -> Self;
 
     /// Raise a field element to some power.
     fn pow(&self, mut exponent: BigUint) -> Self {
@@ -210,6 +203,45 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
         }
 
         out
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    extern crate test;
+
+    use std::hint::black_box;
+    use test::bench::Bencher;
+
+    use num_bigint::BigUint;
+    use num_traits::One;
+
+    use crate::fields::{
+        FieldElement, LagrangePolynomialFieldElement, fieldp128::FieldP128, fieldp256::FieldP256,
+    };
+
+    #[bench]
+    fn p128_inv_euler(b: &mut Bencher) {
+        let input = black_box(FieldP128::ONE);
+        b.iter(|| input.pow(FieldP128::modulus() - (BigUint::one() + BigUint::one())));
+    }
+
+    #[bench]
+    fn p128_inv_divstep(b: &mut Bencher) {
+        let input = black_box(FieldP128::ONE);
+        b.iter(|| input.mul_inv());
+    }
+
+    #[bench]
+    fn p256_inv_euler(b: &mut Bencher) {
+        let input = black_box(FieldP128::ONE);
+        b.iter(|| input.pow(FieldP256::modulus() - (BigUint::one() + BigUint::one())));
+    }
+
+    #[bench]
+    fn p256_inv_divstep(b: &mut Bencher) {
+        let input = black_box(FieldP256::ONE);
+        b.iter(|| input.mul_inv());
     }
 }
 
@@ -588,7 +620,7 @@ mod tests {
         );
     }
 
-    fn field_element_test_mul_inv<F: LagrangePolynomialFieldElement>() {
+    fn field_element_test_mul_inv<F: LagrangePolynomialFieldElement + CodecFieldElement>() {
         for element in [3, 9] {
             for field_element in [F::from(element), -F::from(element)] {
                 assert_eq!(
@@ -597,6 +629,14 @@ mod tests {
                     "field element: {field_element:?}"
                 );
             }
+        }
+        for _ in 0..100000 {
+            let field_element = F::sample();
+            assert_eq!(
+                field_element.mul_inv() * field_element,
+                F::ONE,
+                "field element: {field_element:?}"
+            );
         }
     }
 

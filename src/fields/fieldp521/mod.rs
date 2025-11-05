@@ -11,6 +11,7 @@ use crate::{
 };
 use anyhow::{Context, anyhow};
 use num_bigint::BigUint;
+use num_traits::One;
 use std::{
     cmp::Ordering,
     fmt::{self, Debug},
@@ -130,6 +131,14 @@ impl LagrangePolynomialFieldElement for FieldP521 {
 
     fn modulus() -> BigUint {
         BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice())
+    }
+
+    fn mul_inv(&self) -> Self {
+        // We use Euler's theorem to compute inverses. There are more efficient algorithms which we
+        // will adopt in the future.
+        //
+        // https://en.wikipedia.org/wiki/Modular_multiplicative_inverse#Using_Euler's_theorem
+        self.pow(Self::modulus() - (BigUint::one() + BigUint::one()))
     }
 }
 
@@ -317,7 +326,7 @@ impl Neg for FieldP521 {
     }
 }
 
-#[allow(unused, clippy::unnecessary_cast, clippy::needless_lifetimes)]
+#[allow(unused, clippy::unnecessary_cast, clippy::needless_lifetimes, clippy::too_many_arguments, clippy::identity_op)]
 #[rustfmt::skip]
 mod ops;
 

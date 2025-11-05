@@ -19,6 +19,7 @@ word_by_word_montgomery \
     to_bytes from_bytes \
     add sub opp \
     mul square \
+    msat divstep_precomp divstep \
     selectznz \
     one
 
@@ -48,5 +49,6 @@ word_by_word_montgomery \
     to_bytes from_bytes \
     add sub opp \
     mul square \
+    msat divstep_precomp divstep \
     selectznz \
     one

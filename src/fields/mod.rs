@@ -358,7 +358,7 @@ mod tests {
     use num_bigint::BigUint;
     use num_traits::{One, Zero};
     use rand::RngCore;
-    use std::{io::Cursor, panic::catch_unwind};
+    use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[test]
@@ -684,10 +684,7 @@ mod tests {
     fn test_field_2_128() {
         field_element_test_codec::<Field2_128>(false);
         field_element_test_mul_inv_lagrange_nodes::<Field2_128>();
-        // We don't yet have this stuff wired up for this field.
-        // https://github.com/abetterinternet/zk-cred-longfellow/issues/47
-        catch_unwind(field_element_test_pow::<Field2_128>).unwrap_err();
-        catch_unwind(field_element_test_mul_inv::<Field2_128>).unwrap_err();
+        field_element_test_mul_inv::<Field2_128>();
     }
 
     #[test]

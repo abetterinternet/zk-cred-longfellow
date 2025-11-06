@@ -4,9 +4,12 @@
 
 use crate::{
     Codec,
-    fields::{CodecFieldElement, FieldElement, LagrangePolynomialFieldElement},
+    fields::{
+        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, mul_inv_field_order,
+    },
 };
 use anyhow::Context;
+use num_bigint::BigUint;
 #[cfg(target_arch = "aarch64")]
 use std::arch::is_aarch64_feature_detected;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
@@ -74,10 +77,8 @@ impl LagrangePolynomialFieldElement for Field2_128 {
     }
 
     fn mul_inv(&self) -> Self {
-        // It doesn't really make sense to represent the modulus of this field (which is a
-        // polynomial) as an integer (even a big one).
-        // https://github.com/abetterinternet/zk-cred-longfellow/issues/47
-        todo!()
+        let field_order = BigUint::from_slice(&[0, 0, 0, 0, 1]); // 2 ^ 128
+        mul_inv_field_order(self, field_order)
     }
 }
 

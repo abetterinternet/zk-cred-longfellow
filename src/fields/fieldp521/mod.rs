@@ -7,6 +7,7 @@ use crate::{
             fiat_p521_carry_sub, fiat_p521_from_bytes, fiat_p521_loose_field_element,
             fiat_p521_relax, fiat_p521_tight_field_element, fiat_p521_to_bytes,
         },
+        mul_inv_modulus,
     },
 };
 use anyhow::{Context, anyhow};
@@ -128,8 +129,8 @@ impl LagrangePolynomialFieldElement for FieldP521 {
         .unwrap()
     }
 
-    fn modulus() -> BigUint {
-        BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice())
+    fn mul_inv(&self) -> Self {
+        mul_inv_modulus(self, BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice()))
     }
 }
 

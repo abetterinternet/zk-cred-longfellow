@@ -8,6 +8,7 @@ use crate::{
             fiat_p256_non_montgomery_domain_field_element, fiat_p256_opp, fiat_p256_square,
             fiat_p256_sub, fiat_p256_to_bytes, fiat_p256_to_montgomery,
         },
+        mul_inv_modulus,
     },
 };
 use anyhow::{Context, anyhow};
@@ -132,8 +133,8 @@ impl LagrangePolynomialFieldElement for FieldP256 {
         .unwrap()
     }
 
-    fn modulus() -> BigUint {
-        BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice())
+    fn mul_inv(&self) -> Self {
+        mul_inv_modulus(self, BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice()))
     }
 }
 

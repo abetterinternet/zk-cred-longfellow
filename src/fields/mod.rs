@@ -136,15 +136,6 @@ pub trait CodecFieldElement:
 /// [2]: https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
 /// [3]: https://github.com/abetterinternet/zk-cred-longfellow/issues/40
 pub trait LagrangePolynomialFieldElement: FieldElement {
-    /// Modulus of the field.
-    ///
-    /// It would be nice if this was a constant or const fn, but BigUint::from_bytes_le is not
-    /// const.
-    ///
-    /// We also pay a performance cost because BigUint's size is dynamic, likely forcing a heap
-    /// allocation. Using a static size big num would let us allocate on the stack.
-    fn modulus() -> BigUint;
-
     /// Evaluate the 0th Lagrange basis polynomial at x.
     fn lagrange_basis_polynomial_0(x: Self) -> Self {
         // (x - x_1) * (x - x_2)
@@ -186,13 +177,7 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
     fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self;
 
     /// The multiplicative inverse of this value.
-    fn mul_inv(&self) -> Self {
-        // We use Euler's theorem to compute inverses. There are more efficient algorithms which we
-        // will adopt in the future.
-        //
-        // https://en.wikipedia.org/wiki/Modular_multiplicative_inverse#Using_Euler's_theorem
-        self.pow(Self::modulus() - (BigUint::one() + BigUint::one()))
-    }
+    fn mul_inv(&self) -> Self;
 
     /// Raise a field element to some power.
     fn pow(&self, mut exponent: BigUint) -> Self {
@@ -211,6 +196,15 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
 
         out
     }
+}
+
+/// Compute the multiplicative inverse of base, using the provided modulus.
+fn mul_inv_modulus<FE: LagrangePolynomialFieldElement>(base: &FE, modulus: BigUint) -> FE {
+    // We use Euler's theorem to compute inverses. There are more efficient algorithms which we
+    // will adopt in the future.
+    //
+    // https://en.wikipedia.org/wiki/Modular_multiplicative_inverse#Using_Euler's_theorem
+    base.pow(modulus - (BigUint::one() + BigUint::one()))
 }
 
 /// Field identifier. According to the draft specification, the encoding is of variable length ([1])

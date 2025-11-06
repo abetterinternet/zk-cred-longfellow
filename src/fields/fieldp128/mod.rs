@@ -1,14 +1,3 @@
-use std::{
-    cmp::Ordering,
-    fmt::{self, Debug},
-    io::{self, Read},
-    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
-};
-
-use anyhow::{Context, anyhow};
-use num_bigint::BigUint;
-use subtle::ConstantTimeEq;
-
 use crate::{
     Codec,
     fields::{
@@ -19,8 +8,18 @@ use crate::{
             fiat_p128_non_montgomery_domain_field_element, fiat_p128_opp, fiat_p128_square,
             fiat_p128_sub, fiat_p128_to_bytes, fiat_p128_to_montgomery,
         },
+        mul_inv_modulus,
     },
 };
+use anyhow::{Context, anyhow};
+use num_bigint::BigUint;
+use std::{
+    cmp::Ordering,
+    fmt::{self, Debug},
+    io::{self, Read},
+    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+};
+use subtle::ConstantTimeEq;
 
 /// FieldP128 is the field with modulus 2^128 - 2^108 + 1, described in [Section 7.2 of
 /// draft-google-cfrg-libzk-00][1]. The field does not get a name in the draft, but P128 comes from
@@ -124,8 +123,8 @@ impl LagrangePolynomialFieldElement for FieldP128 {
         Self::try_from(b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f").unwrap()
     }
 
-    fn modulus() -> BigUint {
-        BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice())
+    fn mul_inv(&self) -> Self {
+        mul_inv_modulus(self, BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice()))
     }
 }
 

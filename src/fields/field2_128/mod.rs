@@ -2,6 +2,11 @@
 //!
 //! This is defined using the irreducible polynomial x^128 + x^7 + x^2 + x + 1.
 
+use crate::{
+    Codec,
+    fields::{CodecFieldElement, FieldElement, LagrangePolynomialFieldElement},
+};
+use anyhow::Context;
 #[cfg(target_arch = "aarch64")]
 use std::arch::is_aarch64_feature_detected;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
@@ -11,14 +16,7 @@ use std::{
     io::{Cursor, Read},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-
-use anyhow::Context;
 use subtle::ConstantTimeEq;
-
-use crate::{
-    Codec,
-    fields::{CodecFieldElement, FieldElement, LagrangePolynomialFieldElement},
-};
 
 /// An element of the field GF(2^128).
 ///
@@ -75,7 +73,7 @@ impl LagrangePolynomialFieldElement for Field2_128 {
         Self::from_u128(170141183460469231731687303715884105665)
     }
 
-    fn modulus() -> num_bigint::BigUint {
+    fn mul_inv(&self) -> Self {
         // It doesn't really make sense to represent the modulus of this field (which is a
         // polynomial) as an integer (even a big one).
         // https://github.com/abetterinternet/zk-cred-longfellow/issues/47

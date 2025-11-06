@@ -180,6 +180,9 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
     fn mul_inv(&self) -> Self;
 
     /// Raise a field element to some power.
+    ///
+    /// This is constant-time with respect to the field element input, but variable-time with
+    /// respect to the exponent.
     fn pow(&self, mut exponent: BigUint) -> Self {
         // Modular exponentiation from Schneier's _Applied Cryptography_, via Wikipedia
         // https://en.wikipedia.org/wiki/Modular_exponentiation#Pseudocode

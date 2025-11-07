@@ -8,7 +8,7 @@ use crate::{
             fiat_p128_non_montgomery_domain_field_element, fiat_p128_opp, fiat_p128_square,
             fiat_p128_sub, fiat_p128_to_bytes, fiat_p128_to_montgomery,
         },
-        mul_inv_modulus,
+        mul_inv_field_order,
     },
 };
 use anyhow::{Context, anyhow};
@@ -124,7 +124,7 @@ impl LagrangePolynomialFieldElement for FieldP128 {
     }
 
     fn mul_inv(&self) -> Self {
-        mul_inv_modulus(self, BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice()))
+        mul_inv_field_order(self, BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice()))
     }
 }
 

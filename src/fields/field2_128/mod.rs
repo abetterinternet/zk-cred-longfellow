@@ -74,25 +74,8 @@ impl LagrangePolynomialFieldElement for Field2_128 {
     }
 
     fn mul_inv(&self) -> Self {
-        // The multiplicative group of any finite field is a group with order one less than the field
-        // order. Let n = |F*| = |F| - 1.
-        //
-        // Every element of the group has an order that divides the group's order, by Lagrange's
-        // theorem. That is, |g| | n. Thus, we can write |g| * a = n, for some integer a.
-        //
-        // Let h = g ^ (n - 1). We can rewrite this as follows.
-        //
-        // h = g ^ (|g| * a - 1)
-        // h = g ^ (|g| * (a - 1) + |g| - 1)
-        // h = g ^ (|g| * (a - 1)) * g ^ (|g| - 1)
-        // h = (g ^ |g|) ^ (a - 1) * g ^ (|g| - 1)
-        // h = e ^ (a - 1) * g ^ (|g| - 1)
-        // h = g ^ (|g| - 1)
-        //
-        // This element h is the inverse of g, because h * g = g ^ (|g| - 1) * g = g ^ |g| = e.
-        //
-        // Therefore, we can compute inverses by exponentiating elements, g ^ -1 = g ^ (|F| - 2).
-        // We do so with an optimized addition chain exponentiation routine.
+        // Compute the multiplicative inverse by exponentiating to the power (2^128 - 2). See
+        // FieldP256::mul_inv() for an explanation of this technique.
         addition_chains::gf_2_128_m2::exp(*self)
     }
 }

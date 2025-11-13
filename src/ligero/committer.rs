@@ -3,10 +3,16 @@
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
 
 use crate::{
-    constraints::proof_constraints::QuadraticConstraint, fields::FieldElement,
-    ligero::LigeroParameters, witness::Witness,
+    constraints::proof_constraints::QuadraticConstraint,
+    fields::{CodecFieldElement, LagrangePolynomialFieldElement, field_element_iter_from_source},
+    ligero::{
+        LigeroParameters, extend,
+        merkle::{MerkleTree, Node},
+    },
+    witness::Witness,
 };
 use anyhow::Context;
+use sha2::{Digest, Sha256};
 
 /// A commitment to a witness vector, as specified in [1]. Concretely, this is the root of a Merkle
 /// tree of SHA-256 hashes.
@@ -43,20 +49,174 @@ impl LigeroCommitment {
     /// of the commitment is specified in [1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
-    pub fn commit<FE: FieldElement>(
-        _parameters: &LigeroParameters,
-        _witness: &Witness<FE>,
-        _quadratic_constraints: &[QuadraticConstraint],
-    ) -> Result<Self, anyhow::Error> {
-        // Construct the tableau matrix from the witness and the constraints
+    ///
+    /// This function could probably allocate a whole lot less by allocating vecs up front.
+    pub fn commit<FE, TableauGenerator, MerkleTreeNonceGenerator>(
+        parameters: &LigeroParameters,
+        witness: &Witness<FE>,
+        quadratic_constraints: &[QuadraticConstraint],
+        tableau_generator: TableauGenerator,
+        mut merkle_tree_nonce_generator: MerkleTreeNonceGenerator,
+    ) -> Result<Self, anyhow::Error>
+    where
+        FE: LagrangePolynomialFieldElement + CodecFieldElement,
+        TableauGenerator: FnMut() -> FE,
+        MerkleTreeNonceGenerator: FnMut() -> [u8; 32],
+    {
+        // Rows for the witnesses, but not the quadratic constraints
+        let num_witness_rows = witness.len().div_ceil(parameters.witnesses_per_row);
+        // Each quadratic constraint contributes three witnesses
+        let num_quadratic_rows = 3 * quadratic_constraints
+            .len()
+            .div_ceil(parameters.witnesses_per_row);
+        // Rows for low degree test, linear test and quadratic test
+        let expected_tableau_size = 3 + num_witness_rows + num_quadratic_rows;
+        let mut tableau = Vec::with_capacity(expected_tableau_size);
 
-        // Construct a Merkle tree from the tableau
-        todo!()
+        let mut element_generator = field_element_iter_from_source(tableau_generator);
+
+        // Construct the tableau matrix from the witness and the constraints.
+        // Fill the low degree test row: extend(RANDOM[BLOCK], BLOCK, NCOL)
+        let base_row = element_generator
+            .by_ref()
+            .take(parameters.row_size)
+            .collect::<Vec<_>>();
+        tableau.push(extend(&base_row, parameters.num_columns));
+
+        // Fill the linear test row ("IDOT"): random field elements where elements [nreq..nreq+wr)
+        // sum to 0, extended to NCOL
+        let mut sum = FE::ZERO;
+        let mut index = 0;
+        let mut row_random_elements = element_generator.by_ref().take(parameters.dblock() - 1);
+
+        let mut z: Vec<_> = std::iter::from_fn(|| {
+            let element = if index == parameters.nreq {
+                // Reserve the first witness spot for the additive inverse of the sum of the
+                // remaining witnesses. Per the spec we could put this element anywhere in the
+                // witnesses, but this matches longfellow-zk and makes it easier to test against
+                // their tableau and commitment.
+                Some(FE::ZERO)
+            } else {
+                let element = row_random_elements.next();
+                if (parameters.nreq + 1..parameters.nreq + parameters.witnesses_per_row)
+                    .contains(&index)
+                {
+                    // Unwrap safety: the iterator should contain exactly the number of elements we
+                    // need, so a panic here means we have misinterpreted the specification.
+                    sum += element.unwrap();
+                }
+                element
+            };
+
+            index += 1;
+            element
+        })
+        .take(parameters.dblock())
+        .collect();
+
+        z[parameters.nreq] = -sum;
+        // Specification interpretation verification: we should have consumed row_random_elements
+        assert_eq!(row_random_elements.next(), None);
+        // Specification interpretation verification: make sure range nreq..nreq+wr sums to 0.
+        assert_eq!(
+            FE::ZERO,
+            z.iter()
+                .skip(parameters.nreq)
+                .take(parameters.witnesses_per_row)
+                .fold(FE::ZERO, |acc, elem| acc + elem)
+        );
+        tableau.push(extend(&z, parameters.num_columns));
+
+        // Quadratic test row: NREQ random elements then zeroes for each witness, then more random
+        // elements to fill to DBLOCK, then extended to NCOL
+        let mut index = 0;
+        let zq: Vec<_> = std::iter::from_fn(|| {
+            let next = if index < parameters.nreq
+                || index >= parameters.nreq + parameters.witnesses_per_row
+            {
+                element_generator.next()
+            } else {
+                Some(FE::ZERO)
+            };
+
+            index += 1;
+            next
+        })
+        .take(parameters.dblock())
+        .collect();
+        tableau.push(extend(zq.as_slice(), parameters.num_columns));
+
+        // Padded witness rows: NREQ random elements, then witnesses_per_row elements of the witness
+        // extended to NCOL
+        for witness_row in 0..num_witness_rows {
+            tableau.push(extend(
+                element_generator
+                    .by_ref()
+                    .take(parameters.nreq)
+                    .chain(witness.elements(
+                        witness_row * parameters.witnesses_per_row,
+                        parameters.witnesses_per_row,
+                    ))
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                parameters.num_columns,
+            ));
+        }
+
+        // Padded quadratic witness rows: NREQ random elements, then witnesses_per_row elements from
+        // the x, y or z witnesses, depending on the quadratic witness row index. Then extended to
+        // NCOL.
+        let mut quad_constraint_x = quadratic_constraints.iter().map(|q| q.x);
+        let mut quad_constraint_y = quadratic_constraints.iter().map(|q| q.y);
+        let mut quad_constraint_z = quadratic_constraints.iter().map(|q| q.z);
+
+        for quad_constraint_row in 0..num_quadratic_rows {
+            let mut row = Vec::with_capacity(parameters.row_size);
+            row.extend(element_generator.by_ref().take(parameters.nreq));
+
+            for _ in 0..parameters.witnesses_per_row {
+                let witness = match quad_constraint_row % 3 {
+                    0 => quad_constraint_x.next(),
+                    1 => quad_constraint_y.next(),
+                    2 => quad_constraint_z.next(),
+                    _ => unreachable!("impossible remainder"),
+                }
+                .map(|index| witness.element(index))
+                .unwrap_or(FE::ZERO);
+                row.push(witness);
+            }
+
+            tableau.push(extend(row.as_slice(), parameters.num_columns));
+        }
+
+        // Make sure we allocated the tableau correctly up front.
+        assert_eq!(tableau.len(), expected_tableau_size);
+
+        // Construct a Merkle tree from the tableau columns
+        let mut field_element_buf = Vec::with_capacity(FE::num_bytes());
+        let mut tree = MerkleTree::new(parameters.num_columns as usize - parameters.dblock());
+        for leaf_index in parameters.dblock()..(parameters.num_columns as usize) {
+            let mut sha256 = Sha256::new();
+
+            // longfellow-zk hashes a random nonce into each leaf before the tableau elements, which
+            // is not discussed in the draft specification.
+            sha256.update(merkle_tree_nonce_generator());
+            for row in &tableau {
+                field_element_buf.truncate(0);
+                row[leaf_index].encode(&mut field_element_buf)?;
+                sha256.update(&field_element_buf);
+            }
+            tree.set_leaf(leaf_index - parameters.dblock(), Node::from(sha256));
+        }
+        tree.build();
+
+        Ok(Self(tree.root().into()))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::{
         circuit::Evaluation,
         constraints::proof_constraints::quadratic_constraints,
@@ -65,10 +225,7 @@ mod tests {
         witness::{Witness, WitnessLayout},
     };
 
-    use super::*;
-
     #[test]
-    #[ignore]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
         let (test_vector, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
@@ -84,10 +241,17 @@ mod tests {
             || test_vector.pad().unwrap(),
         );
 
-        let ligero_commitment = LigeroCommitment::commit::<FieldP128>(
+        // Fix the nonce to match what longfellow-zk will do: all zeroes, but set the first byte to
+        // what the fixed RNG yields.
+        let mut merkle_tree_nonce = [0; 32];
+        merkle_tree_nonce[0] = test_vector.pad.unwrap() as u8;
+
+        let ligero_commitment = LigeroCommitment::commit::<FieldP128, _, _>(
             test_vector.ligero_parameters.as_ref().unwrap(),
             &witness,
             &quadratic_constraints,
+            || test_vector.pad().unwrap(),
+            || merkle_tree_nonce,
         )
         .unwrap();
 

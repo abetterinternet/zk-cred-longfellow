@@ -9,7 +9,6 @@ use anyhow::{Context, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use num_bigint::BigUint;
 use num_integer::Integer;
-use num_traits::One;
 use rand::RngCore;
 use std::{
     fmt::Debug,
@@ -201,29 +200,6 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
     }
 }
 
-/// Compute the multiplicative inverse of base, using the provided order of the field.
-fn mul_inv_field_order<FE: LagrangePolynomialFieldElement>(base: &FE, field_order: BigUint) -> FE {
-    // The multiplicative group of any finite field is a group with order one less than the field
-    // order. Let n = |F*| = |F| - 1.
-    //
-    // Every element of the group has an order that divides the group's order, by Lagrange's
-    // theorem. That is, |g| | n. Thus, we can write |g| * a = n, for some integer a.
-    //
-    // Let h = g ^ (n - 1). We can rewrite this as follows.
-    //
-    // h = g ^ (|g| * a - 1)
-    // h = g ^ (|g| * (a - 1) + |g| - 1)
-    // h = g ^ (|g| * (a - 1)) * g ^ (|g| - 1)
-    // h = (g ^ |g|) ^ (a - 1) * g ^ (|g| - 1)
-    // h = e ^ (a - 1) * g ^ (|g| - 1)
-    // h = g ^ (|g| - 1)
-    //
-    // This element h is the inverse of g, because h * g = g ^ (|g| - 1) * g = g ^ |g| = e.
-    //
-    // Therefore, we can compute inverses by exponentiating elements, g ^ -1 = g ^ (|F| - 2).
-    base.pow(field_order - (BigUint::one() + BigUint::one()))
-}
-
 /// Field identifier. According to the draft specification, the encoding is of variable length ([1])
 /// but in the Longfellow implementation ([2]), they're always 3 bytes long.
 ///
@@ -344,6 +320,8 @@ pub mod fieldp521;
 
 mod quadratic_extension;
 use quadratic_extension::QuadraticExtension;
+
+mod addition_chains;
 
 #[cfg(test)]
 mod tests {

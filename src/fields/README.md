@@ -24,7 +24,7 @@ make standalone-ocaml
 
 Once the fiat-crypto binaries have been compiled, ensure they are on your `PATH`
 by adding the `src/ExtractionOCaml` subdirectory to the `PATH` environment
-variable. Then, run `codegen.sh` in this directory.
+variable. Then, run `codegen_fiat_crypto.sh` in this directory.
 
 ## Algorithm choice
 
@@ -53,3 +53,23 @@ field, and it uses Unsaturated Solinas for the P-521 base field.
 
 For $\mathbb{F}_p128$, we use the Word-by-word Montgomery algorithm, since
 Unsaturated Solinas runs into the same issues as with the P-256 base field.
+
+# Generating addition chain exponentiation routines
+
+Multiplicative inverse operations are implemented with addition chain
+exponentiation. These routines are generated using the `addchain` tool.
+
+## Prerequisites
+
+Install [addchain](https://github.com/mmcloughlin/addchain/blob/master/README.md#usage),
+either from prebuilt binaries or by compiling it from source.
+
+## Addition chain search
+
+Ensure that `addchain` is on your `PATH`. The addition chain search can be
+re-run by executing `find_addition_chains.sh` in this directory.
+
+## Code generation
+
+Run `codegen_addchain.sh` to generate exponentiation routines from addition
+chain files and the template file. As before, `addchain` must be on your `PATH`.

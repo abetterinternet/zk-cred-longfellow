@@ -1,17 +1,15 @@
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement,
+        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, addition_chains,
         fieldp521::ops::{
             fiat_p521_carry_add, fiat_p521_carry_mul, fiat_p521_carry_opp, fiat_p521_carry_square,
             fiat_p521_carry_sub, fiat_p521_from_bytes, fiat_p521_loose_field_element,
             fiat_p521_relax, fiat_p521_tight_field_element, fiat_p521_to_bytes,
         },
-        mul_inv_field_order,
     },
 };
 use anyhow::{Context, anyhow};
-use num_bigint::BigUint;
 use std::{
     cmp::Ordering,
     fmt::{self, Debug},
@@ -130,7 +128,26 @@ impl LagrangePolynomialFieldElement for FieldP521 {
     }
 
     fn mul_inv(&self) -> Self {
-        mul_inv_field_order(self, BigUint::from_bytes_le(Self::MODULUS_BYTES.as_slice()))
+        // The multiplicative group of any finite field is a group with order one less than the field
+        // order. Let n = |F*| = |F| - 1.
+        //
+        // Every element of the group has an order that divides the group's order, by Lagrange's
+        // theorem. That is, |g| | n. Thus, we can write |g| * a = n, for some integer a.
+        //
+        // Let h = g ^ (n - 1). We can rewrite this as follows.
+        //
+        // h = g ^ (|g| * a - 1)
+        // h = g ^ (|g| * (a - 1) + |g| - 1)
+        // h = g ^ (|g| * (a - 1)) * g ^ (|g| - 1)
+        // h = (g ^ |g|) ^ (a - 1) * g ^ (|g| - 1)
+        // h = e ^ (a - 1) * g ^ (|g| - 1)
+        // h = g ^ (|g| - 1)
+        //
+        // This element h is the inverse of g, because h * g = g ^ (|g| - 1) * g = g ^ |g| = e.
+        //
+        // Therefore, we can compute inverses by exponentiating elements, g ^ -1 = g ^ (|F| - 2).
+        // We do so with an optimized addition chain exponentiation routine.
+        addition_chains::p521m2::exp(*self)
     }
 }
 

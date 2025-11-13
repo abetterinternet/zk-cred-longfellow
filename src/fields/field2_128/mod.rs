@@ -4,12 +4,9 @@
 
 use crate::{
     Codec,
-    fields::{
-        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, mul_inv_field_order,
-    },
+    fields::{CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, addition_chains},
 };
 use anyhow::Context;
-use num_bigint::BigUint;
 #[cfg(target_arch = "aarch64")]
 use std::arch::is_aarch64_feature_detected;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
@@ -77,8 +74,26 @@ impl LagrangePolynomialFieldElement for Field2_128 {
     }
 
     fn mul_inv(&self) -> Self {
-        let field_order = BigUint::from_slice(&[0, 0, 0, 0, 1]); // 2 ^ 128
-        mul_inv_field_order(self, field_order)
+        // The multiplicative group of any finite field is a group with order one less than the field
+        // order. Let n = |F*| = |F| - 1.
+        //
+        // Every element of the group has an order that divides the group's order, by Lagrange's
+        // theorem. That is, |g| | n. Thus, we can write |g| * a = n, for some integer a.
+        //
+        // Let h = g ^ (n - 1). We can rewrite this as follows.
+        //
+        // h = g ^ (|g| * a - 1)
+        // h = g ^ (|g| * (a - 1) + |g| - 1)
+        // h = g ^ (|g| * (a - 1)) * g ^ (|g| - 1)
+        // h = (g ^ |g|) ^ (a - 1) * g ^ (|g| - 1)
+        // h = e ^ (a - 1) * g ^ (|g| - 1)
+        // h = g ^ (|g| - 1)
+        //
+        // This element h is the inverse of g, because h * g = g ^ (|g| - 1) * g = g ^ |g| = e.
+        //
+        // Therefore, we can compute inverses by exponentiating elements, g ^ -1 = g ^ (|F| - 2).
+        // We do so with an optimized addition chain exponentiation routine.
+        addition_chains::gf_2_128_m2::exp(*self)
     }
 }
 

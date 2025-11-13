@@ -1,9 +1,11 @@
-#!/usr/bin/env sh
-set -ev
+#!/usr/bin/env bash
+set -e
 
-# The addchain binary must be on the path already. For installation
-# instructions, see
-# https://github.com/mmcloughlin/addchain/blob/master/README.md#usage.
+if ! hash addchain; then
+    echo "The addchain binary must be on the path already. For installation instructions,"
+    echo "see https://github.com/mmcloughlin/addchain/blob/master/README.md#usage."
+    exit 1
+fi
 
 cd "$(dirname "$0")"/addition_chains
 

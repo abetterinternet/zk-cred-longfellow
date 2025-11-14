@@ -4,12 +4,9 @@
 
 use crate::{
     Codec,
-    fields::{
-        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, mul_inv_field_order,
-    },
+    fields::{CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, addition_chains},
 };
 use anyhow::Context;
-use num_bigint::BigUint;
 #[cfg(target_arch = "aarch64")]
 use std::arch::is_aarch64_feature_detected;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
@@ -77,8 +74,9 @@ impl LagrangePolynomialFieldElement for Field2_128 {
     }
 
     fn mul_inv(&self) -> Self {
-        let field_order = BigUint::from_slice(&[0, 0, 0, 0, 1]); // 2 ^ 128
-        mul_inv_field_order(self, field_order)
+        // Compute the multiplicative inverse by exponentiating to the power (2^128 - 2). See
+        // FieldP256::mul_inv() for an explanation of this technique.
+        addition_chains::gf_2_128_m2::exp(*self)
     }
 }
 

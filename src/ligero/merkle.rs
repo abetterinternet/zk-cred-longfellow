@@ -16,6 +16,18 @@ impl From<[u8; 32]> for Node {
     }
 }
 
+impl From<Sha256> for Node {
+    fn from(hash: Sha256) -> Self {
+        Self::from(<[u8; 32]>::from(hash.finalize()))
+    }
+}
+
+impl From<Node> for [u8; 32] {
+    fn from(value: Node) -> Self {
+        value.0
+    }
+}
+
 /// An inclusion proof from a Merkle tree.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Proof(Vec<Node>);

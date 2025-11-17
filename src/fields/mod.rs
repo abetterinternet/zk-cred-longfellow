@@ -200,6 +200,18 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
     }
 }
 
+pub fn field_element_iter<FE: CodecFieldElement>() -> impl Iterator<Item = FE> {
+    std::iter::from_fn(|| Some(FE::sample()))
+}
+
+pub fn field_element_iter_from_source<F, FE>(mut source: F) -> impl Iterator<Item = FE>
+where
+    FE: CodecFieldElement,
+    F: FnMut() -> FE,
+{
+    std::iter::from_fn(move || Some(source()))
+}
+
 /// Field identifier. According to the draft specification, the encoding is of variable length ([1])
 /// but in the Longfellow implementation ([2]), they're always 3 bytes long.
 ///

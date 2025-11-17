@@ -109,6 +109,11 @@ pub struct Witness<FieldElement> {
 }
 
 impl<FE: FieldElement> Witness<FE> {
+    /// Number of field elements in the witness.
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
     /// Construct a witness vector for the layout, generating pad values.
     pub fn fill_witness<PadGenerator: FnMut() -> FE>(
         layout: WitnessLayout,
@@ -162,6 +167,16 @@ impl<FE: FieldElement> Witness<FE> {
     /// Get an element of the witness.
     pub fn element(&self, index: usize) -> FE {
         self.values[index]
+    }
+
+    /// Get an iterator over a range of witnesses, or zeroes if the witness index is undefined.
+    pub fn elements(&self, start: usize, count: usize) -> impl Iterator<Item = FE> {
+        self.values
+            .iter()
+            .skip(start)
+            .copied()
+            .chain(std::iter::repeat(FE::ZERO))
+            .take(count)
     }
 }
 

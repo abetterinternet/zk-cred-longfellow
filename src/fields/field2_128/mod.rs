@@ -34,7 +34,7 @@ impl FieldElement for Field2_128 {
     }
 
     fn square(&self) -> Self {
-        *self * self
+        Self(galois_square(self.0))
     }
 }
 
@@ -265,30 +265,45 @@ impl CachedFeatureFlag {
     }
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+static FEATURES: CachedFeatureFlag = CachedFeatureFlag::new(|| {
+    is_x86_feature_detected!("sse2") && is_x86_feature_detected!("pclmulqdq")
+});
+#[cfg(target_arch = "aarch64")]
+static FEATURES: CachedFeatureFlag = CachedFeatureFlag::new(|| {
+    is_aarch64_feature_detected!("neon") && is_aarch64_feature_detected!("aes")
+});
+
 /// Multiplies two GF(2^128) elements, represented as `u128`s.
 ///
 /// This dispatches to an appropriate implementation depending on CPU support, or a fallback
 /// implementation.
 fn galois_multiply(x: u128, y: u128) -> u128 {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        static FEATURES: CachedFeatureFlag = CachedFeatureFlag::new(|| {
-            is_x86_feature_detected!("sse2") && is_x86_feature_detected!("pclmulqdq")
-        });
-        if FEATURES.get() {
-            return unsafe { backend_x86::galois_multiply(x, y) };
-        }
+    if FEATURES.get() {
+        return unsafe { backend_x86::galois_multiply(x, y) };
     }
     #[cfg(target_arch = "aarch64")]
-    {
-        static FEATURES: CachedFeatureFlag = CachedFeatureFlag::new(|| {
-            is_aarch64_feature_detected!("neon") && is_aarch64_feature_detected!("aes")
-        });
-        if FEATURES.get() {
-            return unsafe { backend_aarch64::galois_multiply(x, y) };
-        }
+    if FEATURES.get() {
+        return unsafe { backend_aarch64::galois_multiply(x, y) };
     }
     backend_bit_slicing::galois_multiply(x, y)
+}
+
+/// Squares a GF(2^128) element, represented as a `u128`.
+///
+/// This dispatches to an appropriate implementation depending on CPU support, or a fallback
+/// implementation.
+fn galois_square(x: u128) -> u128 {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if FEATURES.get() {
+        return unsafe { backend_x86::galois_square(x) };
+    }
+    #[cfg(target_arch = "aarch64")]
+    if FEATURES.get() {
+        return unsafe { backend_aarch64::galois_square(x) };
+    }
+    backend_bit_slicing::galois_square(x)
 }
 
 #[cfg(test)]
@@ -299,7 +314,9 @@ mod tests {
     use crate::fields::field2_128::backend_aarch64;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     use crate::fields::field2_128::backend_x86;
-    use crate::fields::field2_128::{backend_bit_slicing, backend_naive_loop, galois_multiply};
+    use crate::fields::field2_128::{
+        backend_bit_slicing, backend_naive_loop, galois_multiply, galois_square,
+    };
 
     static ARGS: [u128; 8] = [
         u128::MIN,
@@ -328,12 +345,20 @@ mod tests {
                     "0x{x:x} * 0x{y:x}, 0x{expected:x} != 0x{assoc_result:x}"
                 );
             }
+            let expected = backend_naive_loop::galois_square(x);
+            let result = backend_bit_slicing::galois_square(x);
+            assert_eq!(
+                expected, result,
+                "0x{x:x}^2, 0x{expected:x} != 0x{result:x}"
+            );
         }
     }
 
     #[test]
     fn feature_detection() {
         let result = galois_multiply(3, 3);
+        assert_eq!(result, 5);
+        let result = galois_square(3);
         assert_eq!(result, 5);
     }
 
@@ -379,7 +404,7 @@ mod tests {
 
     #[test]
     #[ignore = "nondeterministic test"]
-    fn random_test_bit_slicing() {
+    fn random_test_multiply_bit_slicing() {
         for _ in 0..10_000 {
             let x = random();
             let y = random();
@@ -394,8 +419,22 @@ mod tests {
 
     #[test]
     #[ignore = "nondeterministic test"]
+    fn random_test_square_bit_slicing() {
+        for _ in 0..10_000 {
+            let x = random();
+            let expected = backend_naive_loop::galois_square(x);
+            let result = backend_bit_slicing::galois_square(x);
+            assert_eq!(
+                expected, result,
+                "0x{x:032x}^2 returned 0x{result:032x} not 0x{expected:032x}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "nondeterministic test"]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn random_testing_x86() {
+    fn random_test_multiply_x86() {
         for _ in 0..10_000 {
             let x = random();
             let y = random();
@@ -410,8 +449,23 @@ mod tests {
 
     #[test]
     #[ignore = "nondeterministic test"]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn random_test_square_x86() {
+        for _ in 0..10_000 {
+            let x = random();
+            let expected = backend_bit_slicing::galois_square(x);
+            let result = unsafe { backend_x86::galois_square(x) };
+            assert_eq!(
+                expected, result,
+                "0x{x:032x}^2 returned 0x{result:032x} not 0x{expected:032x}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "nondeterministic test"]
     #[cfg(target_arch = "aarch64")]
-    fn random_testing_aarch64() {
+    fn random_test_multiply_aarch64() {
         for _ in 0..10_000 {
             let x = random();
             let y = random();
@@ -420,6 +474,21 @@ mod tests {
             assert_eq!(
                 expected, result,
                 "0x{x:032x} * 0x{y:032x} returned 0x{result:032x} not 0x{expected:032x}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "nondeterministic test"]
+    #[cfg(target_arch = "aarch64")]
+    fn random_test_square_aarch64() {
+        for _ in 0..10_000 {
+            let x = random();
+            let expected = backend_bit_slicing::galois_square(x);
+            let result = unsafe { backend_aarch64::galois_square(x) };
+            assert_eq!(
+                expected, result,
+                "0x{x:032x}^2 returned 0x{result:032x} not 0x{expected:032x}"
             );
         }
     }
@@ -438,6 +507,12 @@ mod tests {
                     "0x{x:032x} * 0x{y:032x} returned 0x{result:032x} not 0x{expected:032x}"
                 );
             }
+            let expected = backend_naive_loop::galois_square(x);
+            let result = backend_bit_slicing::galois_square(x);
+            assert_eq!(
+                expected, result,
+                "0x{x:032x}^2 returned 0x{result:032x} not 0x{expected:032x}"
+            );
         }
     }
 
@@ -455,6 +530,12 @@ mod tests {
                     "0x{x:032x} * 0x{y:032x} returned 0x{result:032x} not 0x{expected:032x}"
                 );
             }
+            let expected = backend_bit_slicing::galois_square(x);
+            let result = unsafe { backend_x86::galois_square(x) };
+            assert_eq!(
+                expected, result,
+                "0x{x:032x}^2 returned 0x{result:032x} not 0x{expected:032x}"
+            );
         }
     }
 
@@ -472,6 +553,12 @@ mod tests {
                     "0x{x:032x} * 0x{y:032x} returned 0x{result:032x} not 0x{expected:032x}"
                 );
             }
+            let expected = backend_bit_slicing::galois_square(x);
+            let result = unsafe { backend_aarch64::galois_square(x) };
+            assert_eq!(
+                expected, result,
+                "0x{x:032x}^2 returned 0x{result:032x} not 0x{expected:032x}"
+            );
         }
     }
 }

@@ -45,3 +45,10 @@ fn decompose(value: u128) -> [bool; 128] {
     }
     bits
 }
+
+/// Squares a GF(2^128) element, represented as a `u128`.
+///
+/// This is a very slow implementation of multiplication, using arrays of booleans and loops.
+pub(super) fn galois_square(x: u128) -> u128 {
+    galois_multiply(x, x)
+}

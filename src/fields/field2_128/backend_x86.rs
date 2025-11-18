@@ -32,6 +32,35 @@ pub(super) fn galois_multiply(x: u128, y: u128) -> u128 {
     let result_low = _mm_xor_si128(product1, middle_low);
     let result_high = _mm_xor_si128(product4, middle_high);
 
+    let reduced = reduce(result_low, result_high);
+    unpack_u128(reduced)
+}
+
+/// Squares a GF(2^128) element, represented as a `u128`.
+#[target_feature(enable = "sse2")]
+#[target_feature(enable = "pclmulqdq")]
+pub(super) fn galois_square(x: u128) -> u128 {
+    let x = pack_u128(x);
+
+    // Perform carryless multiplication using schoolbook multiplication and the PCLMULQDQ
+    // instruction.
+    //
+    // In the terms of the variables used by `galois_multiply()`, we know when squaring that
+    // `product2` and `product3` will be equal. Therefore, `middle` will be zero, since the field
+    // has characteristic two and `product2` and `product3` cancel out.
+    let product1 = _mm_clmulepi64_si128::<0x00>(x, x);
+    let product4 = _mm_clmulepi64_si128::<0x11>(x, x);
+    let result_low = product1;
+    let result_high = product4;
+
+    let reduced = reduce(result_low, result_high);
+    unpack_u128(reduced)
+}
+
+/// Reduce an intermediate 256-bit product by the field's quotient polynomial.
+#[target_feature(enable = "sse2")]
+#[target_feature(enable = "pclmulqdq")]
+fn reduce(result_low: __m128i, result_high: __m128i) -> __m128i {
     // Perform the first step of the reduction by x^128 + x^7 + x^2 + x + 1. The carryless product
     // above is 255 bits wide, and x^7 + x^2 + x + 1 is 8 bits wide. Thus, after one step of
     // reduction, we will have an intermediate result that is 134 bits wide. A second reduction step
@@ -89,7 +118,7 @@ pub(super) fn galois_multiply(x: u128, y: u128) -> u128 {
     second_reduction = _mm_xor_si128(second_reduction, shifted_2);
     second_reduction = _mm_xor_si128(second_reduction, shifted_7);
 
-    unpack_u128(second_reduction)
+    second_reduction
 }
 
 #[target_feature(enable = "sse2")]

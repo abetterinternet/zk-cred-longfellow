@@ -186,9 +186,7 @@ pub fn extend<FE: LagrangePolynomialFieldElement>(nodes: &[FE], evaluations: usi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fields::{
-        field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256, fieldp521::FieldP521,
-    };
+    use crate::fields::{fieldp128::FieldP128, fieldp256::FieldP256, fieldp521::FieldP521};
 
     fn extend_x_2<FE: LagrangePolynomialFieldElement>() {
         let output = extend(
@@ -224,11 +222,5 @@ mod tests {
     #[test]
     fn extend_x_2_p521() {
         extend_x_2::<FieldP521>();
-    }
-
-    #[ignore]
-    #[test]
-    fn extend_x_2_2_128() {
-        extend_x_2::<Field2_128>();
     }
 }

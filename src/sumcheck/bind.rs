@@ -283,6 +283,8 @@ pub fn bindeq<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use super::*;
     use crate::fields::fieldp256::FieldP256;
     use std::iter::Iterator;
@@ -297,7 +299,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn one_dimension_bind_nothing() {
         let original = field_vec::<FieldP256>(&[0, 1, 2, 3, 4]);
         let bound = original.bind(&[]);
@@ -308,7 +310,7 @@ mod tests {
         assert_eq!(original.element(original.len()), FieldP256::ZERO);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn one_dimension_bind_one() {
         let original = field_vec::<FieldP256>(&[0, 1, 2, 3, 4]);
         let bound = original.bind(&[FieldP256::ONE]);
@@ -318,7 +320,7 @@ mod tests {
         check_field_vec(&field_vec::<FieldP256>(&[1, 3, 0, 0, 0, 0]), &bound);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn one_dimension_bind_zero() {
         let original = field_vec::<FieldP256>(&[0, 1, 2, 3, 4]);
         let bound = original.bind(&[FieldP256::ZERO]);
@@ -362,17 +364,17 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn one_dimension_bind_five_even_length() {
         one_dimension_bind_five(field_vec::<FieldP256>(&(0..100).collect::<Vec<_>>()));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn one_dimension_bind_five_odd_length() {
         one_dimension_bind_five(field_vec::<FieldP256>(&(0..101).collect::<Vec<_>>()));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn one_dimension_bindv() {
         // Bind to multiple field elements, described as bindv in the spec
         let original = field_vec::<FieldP256>(&(0..100).collect::<Vec<_>>());
@@ -394,7 +396,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn two_dimension_bind_one() {
         let original = vec![
             field_vec::<FieldP256>(&[0, 5, 10, 15, 20]),
@@ -420,7 +422,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn two_dimension_bind_zero() {
         let original = vec![
             field_vec::<FieldP256>(&[0, 5, 10, 15, 20]),
@@ -434,7 +436,7 @@ mod tests {
         assert_eq!(bound.element([2, 2]), FieldP256::from(14));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn two_dimension_bindv() {
         let original = vec![
             field_vec::<FieldP256>(&[0; 5]),
@@ -490,7 +492,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn three_dimension_bind_one() {
         let original = vec![
             vec![field_vec(&[0; 5]); 2],
@@ -522,7 +524,7 @@ mod tests {
         assert_eq!(bound.element([original.len(), 0, 0]), FieldP256::ZERO);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn three_dimension_bindv() {
         let original = vec![
             vec![field_vec(&[0; 5]); 2],
@@ -590,7 +592,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn transpose_2d() {
         let original = vec![
             field_vec::<FieldP256>(&[0, 5, 10, 15, 20]),
@@ -643,7 +645,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn transpose_3d() {
         // Transposing a 3d array should only affect the last two dimensions
         let original = vec![vec![
@@ -671,7 +673,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn scalar_mul_1d() {
         let original = field_vec::<FieldP256>(&[1, 2, 3, 4, 5]);
 
@@ -682,7 +684,7 @@ mod tests {
         assert_eq!(scaled_again, field_vec(&[6, 12, 18, 24, 30]));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn scalar_mul_2d() {
         let original = vec![
             field_vec::<FieldP256>(&[1, 2, 3, 4, 5]),
@@ -705,7 +707,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn scalar_mul_3d() {
         let original = vec![
             vec![field_vec::<FieldP256>(&[0; 5]); 2],
@@ -731,7 +733,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn bindeq_equivalence() {
         // 6.2: bindv(EQ_{n}, X) = bindeq(l, X) for n = 2^l
         fn construct_eq(n: usize) -> Vec<Vec<FieldP256>> {

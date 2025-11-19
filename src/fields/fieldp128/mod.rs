@@ -311,12 +311,14 @@ mod ops;
 mod tests {
     use std::io::Cursor;
 
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use crate::{
         Codec,
         fields::{FieldElement, fieldp128::FieldP128},
     };
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn modulus_bytes_correct() {
         let mut p_minus_one_bytes = FieldP128::MODULUS_BYTES;
         p_minus_one_bytes[0] -= 1;

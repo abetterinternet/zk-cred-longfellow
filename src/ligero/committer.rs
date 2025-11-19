@@ -217,6 +217,8 @@ impl LigeroCommitment {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use super::*;
     use crate::{
         circuit::Evaluation,
@@ -227,7 +229,7 @@ mod tests {
         witness::{Witness, WitnessLayout},
     };
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
         let (test_vector, circuit) = decode_test_vector!(
             "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",

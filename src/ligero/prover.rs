@@ -146,6 +146,8 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use super::*;
     use crate::{
         constraints::proof_constraints::quadratic_constraints, decode_test_vector,
@@ -153,7 +155,7 @@ mod tests {
     };
     use std::io::Cursor;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn ligero_proof_codec_roundtrip() {
         let (test_vector, circuit) = decode_test_vector!(
             "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",

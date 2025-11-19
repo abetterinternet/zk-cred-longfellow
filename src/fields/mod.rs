@@ -372,7 +372,7 @@ mod tests {
     use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_field_p128() {
         let element = SerializedFieldElement(Vec::from([
             0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
@@ -388,7 +388,7 @@ mod tests {
         assert_eq!(element, decoded)
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn field_p128_from_bytes_accept() {
         FieldP128::try_from(
             &[
@@ -399,7 +399,7 @@ mod tests {
         .expect("Exactly the length of a field element (16 bytes), but a legal field value.");
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn field_p128_from_bytes_reject() {
         for (label, invalid_element) in [
             ("Empty slice", &[][..]),
@@ -423,7 +423,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_field_p256() {
         let element = SerializedFieldElement(Vec::from([
             0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
@@ -440,7 +440,7 @@ mod tests {
         assert_eq!(element, decoded)
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn field_p256_from_bytes_accept() {
         FieldP256::try_from(
             &[
@@ -452,7 +452,7 @@ mod tests {
         .expect("Exactly the length of a field element (32 bytes), but a legal field value.");
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn field_p256_from_bytes_reject() {
         for (label, invalid_element) in [
             ("Empty slice", &[][..]),
@@ -479,22 +479,22 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn field_p256_roundtrip() {
         FieldP256::from_u128(111).roundtrip();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn field_p128_roundtrip() {
         FieldP128::from_u128(111).roundtrip();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn field_p521_roundtrip() {
         FieldP521::from_u128(111).roundtrip();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn field_2_128_roundtrip() {
         Field2_128::from_u128(0xdeadbeef12345678f00faaaabbbbcccc).roundtrip();
     }
@@ -659,7 +659,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_field_p256() {
         field_element_test_large_characteristic::<FieldP256>();
         field_element_test_codec::<FieldP256>(true);
@@ -668,7 +668,7 @@ mod tests {
         field_element_test_mul_inv::<FieldP256>();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_field_p128() {
         field_element_test_large_characteristic::<FieldP128>();
         field_element_test_codec::<FieldP128>(true);
@@ -677,7 +677,7 @@ mod tests {
         field_element_test_mul_inv::<FieldP128>();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_field_p521() {
         field_element_test_large_characteristic::<FieldP521>();
         field_element_test_codec::<FieldP521>(true);
@@ -686,19 +686,19 @@ mod tests {
         field_element_test_mul_inv::<FieldP521>();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_field_p256_squared() {
         field_element_test_large_characteristic::<FieldP256_2>();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_field_2_128() {
         field_element_test_codec::<Field2_128>(false);
         field_element_test_mul_inv_lagrange_nodes::<Field2_128>();
         field_element_test_mul_inv::<Field2_128>();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn sample_field_without_excess_bits() {
         // Crude test that checks the rejection rate is below 50%.
         let count = 100;
@@ -716,7 +716,7 @@ mod tests {
         assert!(total_rejections as f64 / (total_rejections as f64 + count as f64) < 0.5);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn sample_field_with_excess_bits_without_rejections() {
         // FieldP521 has excess bits, but every 521 bit integer except the field prime itself, is a
         // valid field element, so if excess bit masking is correctly implemented, the chance of
@@ -734,7 +734,7 @@ mod tests {
         assert_eq!(total_rejections, 0);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn sample_binary_field() {
         // GF(2^128) has an order that is a power of two, so we should never trigger rejection
         // sampling when generating random field elements.
@@ -773,22 +773,22 @@ mod tests {
         assert_eq!(FE::lagrange_basis_polynomial_2(FE::SUMCHECK_P2), FE::ONE);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn lagrange_basis_polynomial_field_p128() {
         lagrange_basis_polynomial_test::<FieldP128>();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn lagrange_basis_polynomial_field_p256() {
         lagrange_basis_polynomial_test::<FieldP256>();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn lagrange_basis_polynomial_field_p521() {
         lagrange_basis_polynomial_test::<FieldP521>();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn lagrange_basis_polynomial_field_2_128() {
         lagrange_basis_polynomial_test::<Field2_128>();
     }

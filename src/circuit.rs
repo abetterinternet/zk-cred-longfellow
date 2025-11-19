@@ -532,7 +532,7 @@ pub(crate) mod tests {
     use std::{collections::HashSet, io::Cursor};
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn roundtrip_quad() {
         let quad = Quad {
             gate_index: Size(1),
@@ -620,7 +620,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn roundtrip_circuit_longfellow_rfc_1() {
         roundtrip_circuit_test_vector::<FieldP128>(decode_test_vector!(
             "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
@@ -628,14 +628,14 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn roundtrip_circuit_test_vector_mac() {
         roundtrip_circuit_test_vector::<FieldP256>(decode_test_vector!(
             "longfellow-mac-circuit-902a955fbb22323123aac5b69bdf3442e6ea6f80-1",
         ));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn evaluate_circuit_longfellow_rfc_1_true() {
         let (test_vector, circuit) = decode_test_vector!(
             "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
@@ -660,7 +660,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn evaluate_circuit_longfellow_rfc_1_false() {
         let (test_vector, circuit) = decode_test_vector!(
             "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
@@ -857,7 +857,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn evaluate_assertion_pass_partial() {
         // The input value of 1 should cause the in-circuit assertion to fail. The circuit output is still zero.
         let circuit = make_assertion_test_circuit();
@@ -865,7 +865,7 @@ pub(crate) mod tests {
         assert!(error.to_string().contains("assertion failed"));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn evaluate_assertion_fail() {
         // This input should cause both the in-circuit assertion to fail and the circuit output be non-zero.
         let circuit = make_assertion_test_circuit();
@@ -873,7 +873,7 @@ pub(crate) mod tests {
         assert!(error.to_string().contains("assertion failed"));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn evaluate_assertion_pass_full() {
         // The input value of 2 satisfies both the in-circuit assertion and the circuit output condition.
         let circuit = make_assertion_test_circuit();

@@ -143,10 +143,12 @@ impl<FE: FieldElement> MulAssign<FE> for Term<FE> {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use super::*;
     use crate::fields::fieldp256::FieldP256;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn term_ops() {
         let term = Term::new(1);
 
@@ -190,7 +192,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn expression_ops() {
         let mut expression = SymbolicExpression::new(11);
         assert_eq!(expression.lhs_terms(), vec![]);

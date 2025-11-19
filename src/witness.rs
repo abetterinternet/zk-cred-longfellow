@@ -182,12 +182,14 @@ impl<FE: FieldElement> Witness<FE> {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use super::*;
     use crate::fields::fieldp128::FieldP128;
     #[cfg(panic = "unwind")]
     use std::panic::catch_unwind;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn witness_layout() {
         // private inputs:    private_input_0 | private_input_1 | private_input_2 |
         // layer 0: logw = 0: vl | vr | vl * vr

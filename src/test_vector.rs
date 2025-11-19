@@ -8,10 +8,7 @@ use crate::{
     ligero::{LigeroParameters, committer::LigeroCommitment},
 };
 use serde::Deserialize;
-use std::{
-    fs::File,
-    io::{BufReader, Cursor, Read},
-};
+use std::io::Cursor;
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct Constraints {
@@ -29,6 +26,57 @@ impl Constraints {
             .map(|element| FE::try_from(hex::decode(element).unwrap().as_slice()).unwrap())
             .collect()
     }
+}
+
+/// Includes test vector files at compile time, and passes them to [`CircuitTestVector::decode()`].
+#[macro_export]
+macro_rules! decode_test_vector {
+    ($test_vector_name:expr $(,)?) => {
+        CircuitTestVector::decode(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/test-vectors/circuit/",
+                $test_vector_name,
+                ".json"
+            )),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/test-vectors/circuit/",
+                $test_vector_name,
+                ".circuit.zst"
+            )),
+            None,
+            None,
+        )
+    };
+    ($test_vector_name:expr, proofs $(,)?) => {
+        CircuitTestVector::decode(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/test-vectors/circuit/",
+                $test_vector_name,
+                ".json"
+            )),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/test-vectors/circuit/",
+                $test_vector_name,
+                ".circuit.zst"
+            )),
+            Some(include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/test-vectors/circuit/",
+                $test_vector_name,
+                ".sumcheck-proof"
+            ))),
+            Some(include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/test-vectors/circuit/",
+                $test_vector_name,
+                ".ligero-proof"
+            ))),
+        )
+    };
 }
 
 /// JSON descriptor of a circuit test vector.
@@ -70,21 +118,15 @@ pub(crate) struct CircuitTestVector {
 }
 
 impl CircuitTestVector {
-    pub(crate) fn decode(test_vector_name: &'static str) -> (Self, Circuit) {
-        let test_vector_path = format!("test-vectors/circuit/{test_vector_name}");
+    pub(crate) fn decode(
+        json: &[u8],
+        compressed_circuit: &[u8],
+        sumcheck_proof: Option<&[u8]>,
+        ligero_proof: Option<&[u8]>,
+    ) -> (Self, Circuit) {
+        let mut test_vector: Self = serde_json::from_slice(json).unwrap();
 
-        let mut test_vector: Self = serde_json::from_reader(BufReader::new(
-            File::open(format!("{test_vector_path}.json")).unwrap(),
-        ))
-        .unwrap();
-
-        let mut compressed_circuit = Vec::new();
-        File::open(format!("{test_vector_path}.circuit.zst"))
-            .unwrap()
-            .read_to_end(&mut compressed_circuit)
-            .unwrap();
-
-        test_vector.serialized_circuit = zstd::decode_all(compressed_circuit.as_slice()).unwrap();
+        test_vector.serialized_circuit = zstd::decode_all(compressed_circuit).unwrap();
         let mut cursor = Cursor::new(test_vector.serialized_circuit.as_slice());
         let circuit = Circuit::decode(&mut cursor).unwrap();
 
@@ -95,15 +137,13 @@ impl CircuitTestVector {
         );
 
         // Not all test vectors have serialized sumcheck proofs
-        if let Ok(mut file) = File::open(format!("{test_vector_path}.sumcheck-proof")) {
-            file.read_to_end(&mut test_vector.serialized_sumcheck_proof)
-                .unwrap();
+        if let Some(sumcheck_proof) = sumcheck_proof {
+            test_vector.serialized_sumcheck_proof = sumcheck_proof.to_vec();
         }
 
         // Not all test vectors have serialized Ligero proofs
-        if let Ok(mut file) = File::open(format!("{test_vector_path}.ligero-proof")) {
-            file.read_to_end(&mut test_vector.serialized_ligero_proof)
-                .unwrap();
+        if let Some(ligero_proof) = ligero_proof {
+            test_vector.serialized_ligero_proof = ligero_proof.to_vec();
         }
 
         assert_eq!(circuit.num_quads(), test_vector.quads as usize);

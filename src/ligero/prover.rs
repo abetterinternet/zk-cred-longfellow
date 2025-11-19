@@ -148,15 +148,17 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
 mod tests {
     use super::*;
     use crate::{
-        constraints::proof_constraints::quadratic_constraints, fields::fieldp128::FieldP128,
-        test_vector::CircuitTestVector, witness::WitnessLayout,
+        constraints::proof_constraints::quadratic_constraints, decode_test_vector,
+        fields::fieldp128::FieldP128, test_vector::CircuitTestVector, witness::WitnessLayout,
     };
     use std::io::Cursor;
 
     #[test]
     fn ligero_proof_codec_roundtrip() {
-        let (test_vector, circuit) =
-            CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
+        let (test_vector, circuit) = decode_test_vector!(
+            "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
+            proofs,
+        );
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let quadratic_constraints = quadratic_constraints(&circuit);

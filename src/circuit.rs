@@ -522,6 +522,7 @@ pub(crate) mod tests {
     use crate::{
         Codec, Size,
         circuit::{Circuit, CircuitLayer, Evaluation, Quad},
+        decode_test_vector,
         fields::{
             CodecFieldElement, FieldElement, FieldId, SerializedFieldElement, fieldp128::FieldP128,
             fieldp256::FieldP256,
@@ -558,9 +559,9 @@ pub(crate) mod tests {
         assert_eq!(next_quad, next_decoded);
     }
 
-    fn roundtrip_circuit_test_vector<FE: CodecFieldElement>(name: &'static str) {
-        let (test_vector, circuit) = CircuitTestVector::decode(name);
-
+    fn roundtrip_circuit_test_vector<FE: CodecFieldElement>(
+        (test_vector, circuit): (CircuitTestVector, Circuit),
+    ) {
         // Verifies that circuits conform to a few invariants that we have interpreted from the
         // specification. Panics if any invariant does not hold for this circuit.
         //
@@ -621,22 +622,25 @@ pub(crate) mod tests {
 
     #[test]
     fn roundtrip_circuit_longfellow_rfc_1() {
-        roundtrip_circuit_test_vector::<FieldP128>(
+        roundtrip_circuit_test_vector::<FieldP128>(decode_test_vector!(
             "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
-        );
+            proofs,
+        ));
     }
 
     #[test]
     fn roundtrip_circuit_test_vector_mac() {
-        roundtrip_circuit_test_vector::<FieldP256>(
+        roundtrip_circuit_test_vector::<FieldP256>(decode_test_vector!(
             "longfellow-mac-circuit-902a955fbb22323123aac5b69bdf3442e6ea6f80-1",
-        );
+        ));
     }
 
     #[test]
     fn evaluate_circuit_longfellow_rfc_1_true() {
-        let (test_vector, circuit) =
-            CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
+        let (test_vector, circuit) = decode_test_vector!(
+            "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
+            proofs,
+        );
 
         let evaluation: Evaluation<FieldP128> = circuit
             .evaluate(&test_vector.valid_inputs.unwrap())
@@ -658,8 +662,10 @@ pub(crate) mod tests {
 
     #[test]
     fn evaluate_circuit_longfellow_rfc_1_false() {
-        let (test_vector, circuit) =
-            CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
+        let (test_vector, circuit) = decode_test_vector!(
+            "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
+            proofs,
+        );
 
         // Evaluate with other values. At least one output element should be nonzero.
         assert!(

@@ -31,6 +31,12 @@ impl TryFrom<&[u8]> for LigeroCommitment {
     }
 }
 
+impl From<Node> for LigeroCommitment {
+    fn from(value: Node) -> Self {
+        Self(<[u8; 32]>::from(value))
+    }
+}
+
 impl LigeroCommitment {
     /// The commitment as a slice of bytes.
     pub fn as_bytes(&self) -> &[u8] {
@@ -49,13 +55,14 @@ impl LigeroCommitment {
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
     ///
     /// This function could probably allocate a whole lot less by allocating vecs up front.
+    #[allow(clippy::type_complexity)]
     pub fn commit<FE, TableauGenerator, MerkleTreeNonceGenerator>(
         tableau_layout: &TableauLayout,
         witness: &Witness<FE>,
         quadratic_constraints: &[QuadraticConstraint],
         tableau_generator: TableauGenerator,
         mut merkle_tree_nonce_generator: MerkleTreeNonceGenerator,
-    ) -> Result<Self, anyhow::Error>
+    ) -> Result<(MerkleTree, Vec<Vec<FE>>, Vec<[u8; 32]>), anyhow::Error>
     where
         FE: LagrangePolynomialFieldElement + CodecFieldElement,
         TableauGenerator: FnMut() -> FE,
@@ -85,7 +92,7 @@ impl LigeroCommitment {
         let mut row_random_elements = element_generator.by_ref().take(tableau_layout.dblock() - 1);
 
         let mut z: Vec<_> = std::iter::from_fn(|| {
-            let element = if index == tableau_layout.nreq() {
+            let element = if index == tableau_layout.num_requested_columns() {
                 // Reserve the first witness spot for the additive inverse of the sum of the
                 // remaining witnesses. Per the spec we could put this element anywhere in the
                 // witnesses, but this matches longfellow-zk and makes it easier to test against
@@ -93,8 +100,8 @@ impl LigeroCommitment {
                 Some(FE::ZERO)
             } else {
                 let element = row_random_elements.next();
-                if (tableau_layout.nreq() + 1
-                    ..tableau_layout.nreq() + tableau_layout.witnesses_per_row())
+                if (tableau_layout.num_requested_columns() + 1
+                    ..tableau_layout.num_requested_columns() + tableau_layout.witnesses_per_row())
                     .contains(&index)
                 {
                     // Unwrap safety: the iterator should contain exactly the number of elements we
@@ -110,14 +117,14 @@ impl LigeroCommitment {
         .take(tableau_layout.dblock())
         .collect();
 
-        z[tableau_layout.nreq()] = -sum;
+        z[tableau_layout.num_requested_columns()] = -sum;
         // Specification interpretation verification: we should have consumed row_random_elements
         assert_eq!(row_random_elements.next(), None);
         // Specification interpretation verification: make sure range nreq..nreq+wr sums to 0.
         assert_eq!(
             FE::ZERO,
             z.iter()
-                .skip(tableau_layout.nreq())
+                .skip(tableau_layout.num_requested_columns())
                 .take(tableau_layout.witnesses_per_row())
                 .fold(FE::ZERO, |acc, elem| acc + elem)
         );
@@ -127,8 +134,9 @@ impl LigeroCommitment {
         // elements to fill to DBLOCK, then extended to NCOL
         let mut index = 0;
         let zq: Vec<_> = std::iter::from_fn(|| {
-            let next = if index < tableau_layout.nreq()
-                || index >= tableau_layout.nreq() + tableau_layout.witnesses_per_row()
+            let next = if index < tableau_layout.num_requested_columns()
+                || index
+                    >= tableau_layout.num_requested_columns() + tableau_layout.witnesses_per_row()
             {
                 element_generator.next()
             } else {
@@ -148,7 +156,7 @@ impl LigeroCommitment {
             tableau.push(extend(
                 element_generator
                     .by_ref()
-                    .take(tableau_layout.nreq())
+                    .take(tableau_layout.num_requested_columns())
                     .chain(witness.elements(
                         witness_row * tableau_layout.witnesses_per_row(),
                         tableau_layout.witnesses_per_row(),
@@ -168,7 +176,11 @@ impl LigeroCommitment {
 
         for quad_constraint_row in 0..num_quadratic_rows {
             let mut row = Vec::with_capacity(tableau_layout.block_size());
-            row.extend(element_generator.by_ref().take(tableau_layout.nreq()));
+            row.extend(
+                element_generator
+                    .by_ref()
+                    .take(tableau_layout.num_requested_columns()),
+            );
 
             for _ in 0..tableau_layout.witnesses_per_row() {
                 let witness = match quad_constraint_row % 3 {
@@ -211,7 +223,7 @@ impl LigeroCommitment {
         }
         tree.build();
 
-        Ok(Self(tree.root().into()))
+        Ok((tree, tableau, merkle_tree_nonces))
     }
 }
 
@@ -258,7 +270,7 @@ mod tests {
             quadratic_constraints.len(),
         );
 
-        let ligero_commitment = LigeroCommitment::commit::<FieldP128, _, _>(
+        let (tree, _, _) = LigeroCommitment::commit::<FieldP128, _, _>(
             &tableau_layout,
             &witness,
             &quadratic_constraints,
@@ -267,6 +279,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(ligero_commitment, test_vector.ligero_commitment().unwrap());
+        assert_eq!(
+            LigeroCommitment::from(tree.root()),
+            test_vector.ligero_commitment().unwrap()
+        );
     }
 }

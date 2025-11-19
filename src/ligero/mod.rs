@@ -64,7 +64,7 @@ impl<'a> TableauLayout<'a> {
 
     /// The number of columns of the commitment matrix that the Verifier requests to be revealed by
     /// the Prover. Also `NREQ`.
-    pub fn nreq(&self) -> usize {
+    pub fn num_requested_columns(&self) -> usize {
         self.parameters.nreq
     }
 

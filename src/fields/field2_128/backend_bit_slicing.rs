@@ -150,11 +150,13 @@ fn clmul128_square(x: u128) -> U256 {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use crate::fields::field2_128::backend_bit_slicing::{
         U256, clmul64, clmul128, galois_multiply,
     };
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_clmul64() {
         assert_eq!(clmul64(1, 1), 1);
         assert_eq!(clmul64(1, 2), 2);
@@ -172,7 +174,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_clmul128() {
         assert_eq!(clmul128(1, 1).low, 1);
         assert_eq!(clmul128(1, 2).low, 2);
@@ -222,7 +224,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_multiply() {
         assert_eq!(
             galois_multiply(0x1_0000_0000_0000_0000, 0x1_0000_0000_0000_0000),

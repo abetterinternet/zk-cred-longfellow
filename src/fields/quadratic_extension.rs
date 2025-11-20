@@ -228,12 +228,14 @@ impl<B: Neg<Output = B>> Neg for QuadraticExtension<B> {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use crate::fields::{
         FieldElement, fieldp128::FieldP128, fieldp256::FieldP256, fieldp256_2::FieldP256_2,
         quadratic_extension::QuadraticExtension,
     };
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_debug() {
         assert_eq!(
             format!(
@@ -247,7 +249,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_extension_field() {
         let x = FieldP256_2(QuadraticExtension {
             real: FieldP256::ZERO,

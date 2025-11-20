@@ -238,6 +238,8 @@ impl MerkleTree {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use super::*;
 
     fn simple_tree() -> MerkleTree {
@@ -252,7 +254,7 @@ mod tests {
         tree
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn prove_all_leaves() {
         let tree = simple_tree();
         let proof = tree.prove(&[0, 1, 2, 3]);
@@ -299,7 +301,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn prove_leaf_subset() {
         let tree = simple_tree();
         let proof = tree.prove(&[0, 1]);
@@ -336,7 +338,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn prove_multiple_subtrees() {
         let tree = simple_tree();
         let proof = tree.prove(&[0, 3]);
@@ -373,7 +375,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_inclusion_proof() {
         InclusionProof(vec![
             Node::from([1; 32]),

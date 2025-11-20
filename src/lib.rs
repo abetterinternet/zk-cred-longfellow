@@ -232,31 +232,33 @@ impl Codec for [u8; 32] {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use super::*;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_u8() {
         12u8.roundtrip();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_u32() {
         0xffffab65u32.roundtrip();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_size() {
         Size::from(12345).roundtrip();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn encode_size_too_big() {
         // 1 << 24 is too big to be encoded as a 3 byte size, so this should fail
         let mut bytes = Vec::new();
         Size::from(1 << 24).encode(&mut bytes).unwrap_err();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn encode_delta_positive_overflow() {
         // (1 << 31 - 0) << 1 will overflow u32, so this should fail
         let mut bytes = Vec::new();
@@ -265,7 +267,7 @@ mod tests {
             .unwrap_err();
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn encode_delta_negative_overflow() {
         // (1 << 31 - 0) << 1 will overflow u32, so this should fail
         let mut bytes = Vec::new();

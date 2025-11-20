@@ -309,6 +309,7 @@ fn galois_square(x: u128) -> u128 {
 #[cfg(test)]
 mod tests {
     use rand::random;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     #[cfg(target_arch = "aarch64")]
     use crate::fields::field2_128::backend_aarch64;
@@ -329,7 +330,7 @@ mod tests {
         0x0000_0000_0000_0001_0000_0000_0000_0000u128,
     ];
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn compare_bit_slicing() {
         for (i, x) in ARGS.into_iter().enumerate() {
             for y in ARGS[i..].iter().copied() {
@@ -354,7 +355,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn feature_detection() {
         let result = galois_multiply(3, 3);
         assert_eq!(result, 5);
@@ -368,7 +369,7 @@ mod tests {
     const TEST_VECTOR_B: u128 = 0x48692853686179295b477565726f6e5d;
     const TEST_VECTOR_PRODUCT: u128 = 0x40229a09a5ed12e7e4e10da323506d2;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_vector_naive_loop() {
         let result = backend_naive_loop::galois_multiply(TEST_VECTOR_A, TEST_VECTOR_B);
         assert_eq!(result, TEST_VECTOR_PRODUCT);
@@ -376,7 +377,7 @@ mod tests {
         assert_eq!(result, TEST_VECTOR_PRODUCT);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_vector_bit_slicing() {
         let result = backend_bit_slicing::galois_multiply(TEST_VECTOR_A, TEST_VECTOR_B);
         assert_eq!(result, TEST_VECTOR_PRODUCT);
@@ -402,7 +403,7 @@ mod tests {
         assert_eq!(result, TEST_VECTOR_PRODUCT);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     #[ignore = "nondeterministic test"]
     fn random_test_multiply_bit_slicing() {
         for _ in 0..10_000 {
@@ -417,7 +418,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     #[ignore = "nondeterministic test"]
     fn random_test_square_bit_slicing() {
         for _ in 0..10_000 {
@@ -493,7 +494,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     #[ignore = "test is slow without optimization"]
     fn low_hamming_weight_bit_slicing() {
         for i in 0..128 {

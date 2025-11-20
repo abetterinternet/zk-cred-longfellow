@@ -339,16 +339,21 @@ impl<FE: CodecFieldElement> ProofLayer<FE> {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use super::*;
     use crate::{
-        Size, fields::fieldp128::FieldP128, test_vector::CircuitTestVector, witness::WitnessLayout,
+        Size, decode_test_vector, fields::fieldp128::FieldP128, test_vector::CircuitTestVector,
+        witness::WitnessLayout,
     };
     use std::io::Cursor;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
-        let (test_vector, circuit) =
-            CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
+        let (test_vector, circuit) = decode_test_vector!(
+            "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
+            proofs,
+        );
 
         assert_eq!(circuit.num_copies, Size(1));
 
@@ -396,10 +401,12 @@ mod tests {
         assert_eq!(proof_encoded, test_vector.serialized_sumcheck_proof);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn roundtrip_encoded_proof() {
-        let (test_vector, circuit) =
-            CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
+        let (test_vector, circuit) = decode_test_vector!(
+            "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
+            proofs,
+        );
         let test_vector_decoded = SumcheckProof::<FieldP128>::decode(
             &circuit,
             &mut Cursor::new(&test_vector.serialized_sumcheck_proof),

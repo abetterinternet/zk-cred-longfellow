@@ -182,11 +182,14 @@ impl<FE: FieldElement> Witness<FE> {
 
 #[cfg(test)]
 mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use super::*;
     use crate::fields::fieldp128::FieldP128;
+    #[cfg(panic = "unwind")]
     use std::panic::catch_unwind;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn witness_layout() {
         // private inputs:    private_input_0 | private_input_1 | private_input_2 |
         // layer 0: logw = 0: vl | vr | vl * vr
@@ -222,9 +225,13 @@ mod tests {
                 )
             );
         };
+        #[cfg_attr(not(panic = "unwind"), allow(unused_variables))]
         let wire_bad = |layer| {
-            catch_unwind(|| layout.wire_witness_indices(layer)).unwrap_err();
-            catch_unwind(|| witness.wire_witnesses(layer)).unwrap_err();
+            #[cfg(panic = "unwind")]
+            {
+                catch_unwind(|| layout.wire_witness_indices(layer)).unwrap_err();
+                catch_unwind(|| witness.wire_witnesses(layer)).unwrap_err();
+            }
         };
         let poly_ok = |layer, round, hand, want_p0, want_p2| {
             assert_eq!(
@@ -239,9 +246,13 @@ mod tests {
                 }
             )
         };
+        #[cfg_attr(not(panic = "unwind"), allow(unused_variables))]
         let poly_bad = |layer, round, hand| {
-            catch_unwind(|| layout.polynomial_witness_indices(layer, round, hand)).unwrap_err();
-            catch_unwind(|| witness.polynomial_witnesses(layer, round, hand)).unwrap_err();
+            #[cfg(panic = "unwind")]
+            {
+                catch_unwind(|| layout.polynomial_witness_indices(layer, round, hand)).unwrap_err();
+                catch_unwind(|| witness.polynomial_witnesses(layer, round, hand)).unwrap_err();
+            }
         };
 
         // Layer 0. No polynomials on layer 0.

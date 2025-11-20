@@ -9,7 +9,7 @@
         "rate": 4,
         "witnesses_per_row": 15,
         "quadratic_constraints_per_row": 2,
-        "row_size": 21,
+        "block_size": 21,
         "num_columns": 128
     },
     "valid_inputs": [45, 5, 6],

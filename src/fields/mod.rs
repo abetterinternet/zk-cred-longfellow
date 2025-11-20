@@ -117,6 +117,27 @@ pub trait CodecFieldElement:
 
         (field_element, rejections)
     }
+
+    /// Whether or not this field element fits in the subfield associated with the field.
+    fn fits_in_subfield(&self) -> bool {
+        // For now, we only support fields where the subfield and the field are the same.
+        true
+    }
+
+    /// Encode this element as an element of the subfield associated with the field.
+    fn encode_in_subfield(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        // For now, we only support fields where the subfield and the field are the same.
+        self.encode(bytes)
+    }
+
+    /// Decode a fixed length array of elements from the subfield into the field.
+    fn decode_fixed_array_in_subfield(
+        bytes: &mut Cursor<&[u8]>,
+        count: usize,
+    ) -> Result<Vec<Self>, anyhow::Error> {
+        // For now, we only support fields where the subfield and the field are the same.
+        Self::decode_fixed_array(bytes, count)
+    }
 }
 
 /// Elements of a field in which we can interpolate polynomials up to degree two. Our nodes are

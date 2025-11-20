@@ -15,7 +15,7 @@ use std::mem::swap;
 
 /// Generate a sumcheck proof of evaluation of a circuit.
 #[derive(Clone, Debug)]
-pub struct Prover<'a> {
+pub struct SumcheckProver<'a> {
     circuit: &'a Circuit,
 }
 
@@ -25,12 +25,12 @@ pub struct Prover<'a> {
 #[allow(dead_code)]
 pub struct ProverResult<FE> {
     /// The sumcheck proof from which Ligero constraints may be generated.
-    pub proof: Proof<FE>,
+    pub proof: SumcheckProof<FE>,
     /// The transcript after all the proof messages have been written to it.
     pub transcript: Transcript,
 }
 
-impl<'a> Prover<'a> {
+impl<'a> SumcheckProver<'a> {
     pub fn new(circuit: &'a Circuit) -> Self {
         Self { circuit }
     }
@@ -59,7 +59,7 @@ impl<'a> Prover<'a> {
         let output_wire_bindings = transcript.generate_output_wire_bindings(self.circuit)?;
         let mut bindings = [output_wire_bindings.clone(), output_wire_bindings];
 
-        let mut proof = Proof {
+        let mut proof = SumcheckProof {
             layers: Vec::with_capacity(self.circuit.num_layers()),
         };
 
@@ -220,11 +220,11 @@ impl<'a> Prover<'a> {
 
 /// Proof constructed by sumcheck.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Proof<FieldElement> {
+pub struct SumcheckProof<FieldElement> {
     pub layers: Vec<ProofLayer<FieldElement>>,
 }
 
-impl<FE: CodecFieldElement> Proof<FE> {
+impl<FE: CodecFieldElement> SumcheckProof<FE> {
     /// Decode a proof from the bytes. This can't be an implementation of [`Codec`][crate::Codec]
     /// because we need the circuit this is a proof of to know how many layers there are.
     pub fn decode(
@@ -366,7 +366,7 @@ mod tests {
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
         let mut transcript = Transcript::new(b"test").unwrap();
 
-        let proof = Prover::new(&circuit)
+        let proof = SumcheckProver::new(&circuit)
             .prove(
                 &evaluation,
                 &mut transcript,
@@ -375,7 +375,7 @@ mod tests {
             )
             .unwrap();
 
-        let test_vector_decoded = Proof::decode(
+        let test_vector_decoded = SumcheckProof::decode(
             &circuit,
             &mut Cursor::new(&test_vector.serialized_sumcheck_proof),
         )
@@ -400,7 +400,7 @@ mod tests {
     fn roundtrip_encoded_proof() {
         let (test_vector, circuit) =
             CircuitTestVector::decode("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
-        let test_vector_decoded = Proof::<FieldP128>::decode(
+        let test_vector_decoded = SumcheckProof::<FieldP128>::decode(
             &circuit,
             &mut Cursor::new(&test_vector.serialized_sumcheck_proof),
         )

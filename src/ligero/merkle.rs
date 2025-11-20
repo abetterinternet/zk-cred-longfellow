@@ -30,7 +30,7 @@ impl From<Node> for [u8; 32] {
 
 /// An inclusion proof from a Merkle tree.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Proof(Vec<Node>);
+pub struct InclusionProof(Vec<Node>);
 
 /// A Merkle tree of digests, enabling proofs that some digest is a leaf of the tree.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -116,7 +116,7 @@ impl MerkleTree {
 
     /// Prove that all the requested leaves are included in the tree. The indices are into the leaf
     /// layer of the tree.
-    pub fn prove(&self, requested_leaves: &[usize]) -> Proof {
+    pub fn prove(&self, requested_leaves: &[usize]) -> InclusionProof {
         let marked = Self::mark_tree(self.tree_size(), self.leaf_count(), requested_leaves);
 
         let mut proof = Vec::new();
@@ -133,7 +133,7 @@ impl MerkleTree {
             }
         }
 
-        Proof(proof)
+        InclusionProof(proof)
     }
 
     /// Verify that the `proof` proves that the `included_nodes` (each consisting of a digest and
@@ -143,7 +143,7 @@ impl MerkleTree {
         leaf_count: usize,
         included_nodes: &[Node],
         included_node_indices: &[usize],
-        proof: &Proof,
+        proof: &InclusionProof,
     ) -> Result<(), anyhow::Error> {
         if included_nodes.len() != included_node_indices.len() {
             return Err(anyhow!("lengths of nodes and node indices must match"));

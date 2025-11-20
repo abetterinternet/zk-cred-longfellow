@@ -65,6 +65,7 @@ pub(crate) struct CircuitTestVector {
     pub(crate) serialized_ligero_proof: Vec<u8>,
     /// The fixed pad value to use during constraint generation.
     pub(crate) pad: Option<u64>,
+    /// Parameters for the Ligero proof.
     pub(crate) ligero_parameters: Option<LigeroParameters>,
 }
 

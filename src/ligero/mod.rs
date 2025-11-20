@@ -2,9 +2,8 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4
 
-use serde::Deserialize;
-
 use crate::fields::LagrangePolynomialFieldElement;
+use serde::Deserialize;
 
 pub mod committer;
 pub mod merkle;
@@ -14,26 +13,113 @@ pub mod verifier;
 /// Common parameters for the Ligero proof system. Described in [Section 4.2][1].
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.2
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct LigeroParameters {
-    /// The number of columns of the commitment matrix that the Verifier requests to be revealed by the Prover.
+    /// The number of columns of the commitment matrix that the Verifier requests to be revealed by
+    /// the Prover. Also `NREQ`.
     pub nreq: usize,
-    /// The number of witness values included in each row. Also "WR".
+    /// The number of witness values included in each row. Also `WR`.
     pub witnesses_per_row: usize,
-    /// The number of quadratic constraints written in each row. Also "QR".
+    /// The number of quadratic constraints written in each row. Also `QR`.
     pub quadratic_constraints_per_row: usize,
-    /// The size of each row, in terms of number of field elements. Also "BLOCK".
-    /// There is some confusion in the specification between this and NCOL.
-    pub row_size: usize,
-    /// The total size of a tableau row.
-    /// There is some confusion in the specification between this and BLOCK.
-    pub num_columns: u128,
+    /// The size of a block, in terms of number of field elements. Also `BLOCK`. The specification
+    /// describes this quantity as the "size of each row", but that would be `NCOL` or
+    /// `num_columns`.
+    pub block_size: usize,
+    /// The total size of a tableau row. Also `NCOL`.
+    pub num_columns: usize,
 }
 
-impl LigeroParameters {
-    /// DBLOCK, 2 * BLOCK - 1
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableauLayout<'a> {
+    parameters: &'a LigeroParameters,
+    num_witnesses: usize,
+    num_quadratic_constraints: usize,
+}
+
+impl<'a> TableauLayout<'a> {
+    pub fn new(
+        parameters: &'a LigeroParameters,
+        num_witnesses: usize,
+        num_quadratic_constraints: usize,
+    ) -> Self {
+        Self {
+            parameters,
+            num_witnesses,
+            num_quadratic_constraints,
+        }
+    }
+
+    /// The size of a block, in terms of number of field elements. Also `BLOCK`. The specification
+    /// describes this quantity as the "size of each row", but that would be `NCOL` or
+    /// `num_columns`.
+    pub fn block_size(&self) -> usize {
+        self.parameters.block_size
+    }
+
+    /// The total size of a tableau row. Also `NCOL`.
+    pub fn num_columns(&self) -> usize {
+        self.parameters.num_columns
+    }
+
+    /// The number of columns of the commitment matrix that the Verifier requests to be revealed by
+    /// the Prover. Also `NREQ`.
+    pub fn nreq(&self) -> usize {
+        self.parameters.nreq
+    }
+
+    /// `DBLOCK = 2 * BLOCK - 1`
     pub fn dblock(&self) -> usize {
-        self.row_size * 2 - 1
+        self.parameters.block_size * 2 - 1
+    }
+
+    /// The number of witness values included in each row. Also `WR`.
+    pub fn witnesses_per_row(&self) -> usize {
+        self.parameters.witnesses_per_row
+    }
+
+    /// The number of quadratic constraints written in each row. Also `QR`.
+    pub fn quadratic_constraints_per_row(&self) -> usize {
+        self.parameters.quadratic_constraints_per_row
+    }
+
+    /// Index of the first row of the tableau containing witnesses, used in the linear constraint
+    /// test.
+    pub fn first_witness_row(&self) -> usize {
+        // One row each for low degree, linear and quadratic tests.
+        3
+    }
+
+    /// Index of the first row of the tableau containing quadratic constraints on the witnesses.
+    pub fn first_quadratic_constraint_row(&self) -> usize {
+        self.first_witness_row() + self.num_linear_constraint_rows()
+    }
+
+    /// The number of triples of tableau rows needed to represent the quadratic constraints
+    pub fn num_quadratic_triples(&self) -> usize {
+        self.num_quadratic_constraints
+            .div_ceil(self.parameters.quadratic_constraints_per_row)
+    }
+
+    /// The number of tableau rows needed to represent the quadratic constraints.
+    pub fn num_quadratic_rows(&self) -> usize {
+        3 * self.num_quadratic_triples()
+    }
+
+    /// The number of tableau rows needed to represent linear constraints on the witnesses.
+    pub fn num_linear_constraint_rows(&self) -> usize {
+        self.num_witnesses
+            .div_ceil(self.parameters.witnesses_per_row)
+    }
+
+    /// The total number of rows in the tableau for witness constraints.
+    pub fn num_constraint_rows(&self) -> usize {
+        self.num_linear_constraint_rows() + self.num_quadratic_rows()
+    }
+
+    /// The total number of rows in the tableau.
+    pub fn num_rows(&self) -> usize {
+        self.first_witness_row() + self.num_linear_constraint_rows() + self.num_quadratic_rows()
     }
 }
 
@@ -42,15 +128,15 @@ impl LigeroParameters {
 /// that polynomial at `[0, evaluations)`.
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.1
-pub fn extend<FE: LagrangePolynomialFieldElement>(nodes: &[FE], evaluations: u128) -> Vec<FE> {
+pub fn extend<FE: LagrangePolynomialFieldElement>(nodes: &[FE], evaluations: usize) -> Vec<FE> {
     // For now we use the relatively straightforward method of computing Lagrange basis polynomials
     // for each provided point.
     //
     // https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
-    let mut output = Vec::with_capacity(evaluations as usize);
+    let mut output = Vec::with_capacity(evaluations);
     let mut denominators = vec![None; nodes.len()];
 
-    for input in (0..evaluations).map(FE::from_u128) {
+    for input in (0..evaluations).map(|e| FE::from_u128(e as u128)) {
         let mut eval = FE::ZERO;
 
         // Evaluate each basis polynomial

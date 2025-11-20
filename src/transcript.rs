@@ -250,6 +250,54 @@ impl Transcript {
             .take(length)
             .collect())
     }
+
+    /// Generate a value smaller than `max`.
+    fn generate_natural(&mut self, max: usize) -> usize {
+        let fsprf = self.get_current_fsprf();
+
+        let mut num_bits = max.ilog2() as usize;
+        if max.count_ones() > 1 {
+            num_bits += 1;
+        }
+        let num_sampled_bytes = num_bits.div_ceil(8);
+
+        loop {
+            let mut sampled_bytes = [0u8; (usize::BITS as usize).div_ceil(8)];
+            for (sampled_byte, fsprf_byte) in sampled_bytes[..num_sampled_bytes]
+                .iter_mut()
+                .zip(&mut *fsprf)
+            {
+                *sampled_byte = fsprf_byte;
+            }
+            let excess_bits = num_sampled_bytes * 8 - num_bits;
+            if excess_bits != 0 {
+                sampled_bytes[num_sampled_bytes - 1] &= (1 << (8 - excess_bits)) - 1;
+            }
+
+            let natural = usize::from_le_bytes(sampled_bytes);
+            if natural < max {
+                break natural;
+            }
+        }
+    }
+
+    /// Generate `count` values in the range `[0, max)` with no repeated values. `max` must be
+    /// greater than `count.
+    pub fn generate_naturals_without_replacement(
+        &mut self,
+        max: usize,
+        count: usize,
+    ) -> Vec<usize> {
+        assert!(max > count);
+        let mut list: Vec<_> = (0usize..max).collect();
+        for i in 0..count {
+            let j = i + self.generate_natural(max - i);
+            list.swap(i, j);
+        }
+
+        list.truncate(count);
+        list
+    }
 }
 
 impl PartialEq for Transcript {
@@ -329,7 +377,7 @@ impl Iterator for FiatShamirPseudoRandomFunction {
 mod tests {
     use super::*;
     use crate::fields::{FieldElement, fieldp256::FieldP256};
-    use std::iter::Iterator;
+    use std::{collections::HashSet, iter::Iterator};
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -591,6 +639,18 @@ mod tests {
                 FieldP256::try_from(hex::decode(expected_challenge).unwrap().as_slice()).unwrap();
 
             assert_eq!(expected_field, sampled);
+        }
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn generate_naturals_without_replacement() {
+        let mut transcript = Transcript::new(b"test").unwrap();
+        transcript.write_bytes(b"some bytes").unwrap();
+
+        let mut seen = HashSet::new();
+        for natural in transcript.generate_naturals_without_replacement(1_000_001, 1_000_000) {
+            assert!(natural < 1_000_001);
+            assert!(seen.insert(natural));
         }
     }
 }

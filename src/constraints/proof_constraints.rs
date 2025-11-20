@@ -10,7 +10,7 @@ use crate::{
     ligero::committer::LigeroCommitment,
     sumcheck::{
         bind::{ElementwiseSum, SumcheckArray, bindeq},
-        prover::Proof,
+        prover::SumcheckProof,
     },
     transcript::Transcript,
     witness::WitnessLayout,
@@ -46,7 +46,7 @@ pub struct QuadraticConstraint {
 
 /// Construct quadratic constraints from the circuit. Since quadratic constraints are purely in
 /// terms of witness values, they can be determined from nothing but the circuit.
-pub fn quadratic_constraints<FE: CodecFieldElement>(circuit: &Circuit) -> Vec<QuadraticConstraint> {
+pub fn quadratic_constraints(circuit: &Circuit) -> Vec<QuadraticConstraint> {
     let witness_layout = WitnessLayout::from_circuit(circuit);
 
     (0..circuit.num_layers())
@@ -91,7 +91,7 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<F
         public_inputs: &[FE],
         transcript: &mut Transcript,
         ligero_commitment: &LigeroCommitment,
-        proof: &Proof<FE>,
+        proof: &SumcheckProof<FE>,
     ) -> Result<Self, anyhow::Error> {
         let mut constraints = Self {
             linear_constraint_lhs: Vec::with_capacity(
@@ -316,6 +316,20 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<F
 
         Ok(constraints)
     }
+
+    /// The number of linear constraints.
+    pub fn len(&self) -> usize {
+        self.linear_constraint_rhs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.linear_constraint_rhs.is_empty()
+    }
+
+    /// Left hand side terms of the linear constraints.
+    pub fn left_hand_side_terms(&self) -> &[LinearConstraintLhsTerm<FE>] {
+        &self.linear_constraint_lhs
+    }
 }
 
 #[cfg(test)]
@@ -324,7 +338,7 @@ mod tests {
     use crate::{
         circuit::Evaluation,
         fields::{FieldElement, fieldp128::FieldP128},
-        sumcheck::prover::Prover,
+        sumcheck::prover::SumcheckProver,
         test_vector::CircuitTestVector,
         witness::Witness,
     };
@@ -350,7 +364,7 @@ mod tests {
         // Fork the transcript
         let mut constraint_transcript = proof_transcript.clone();
 
-        let proof = Prover::new(&circuit)
+        let proof = SumcheckProver::new(&circuit)
             .prove(
                 &evaluation,
                 &mut proof_transcript,
@@ -407,7 +421,7 @@ mod tests {
             circuit.num_layers() + 1
         );
 
-        let quadratic_constraints = quadratic_constraints::<FieldP128>(&circuit);
+        let quadratic_constraints = quadratic_constraints(&circuit);
 
         assert_eq!(quadratic_constraints.len(), circuit.num_layers());
 
@@ -439,7 +453,7 @@ mod tests {
         // Fork the transcript
         let mut constraint_transcript = proof_transcript.clone();
 
-        let proof = Prover::new(&circuit)
+        let proof = SumcheckProver::new(&circuit)
             .prove(
                 &evaluation,
                 &mut proof_transcript,
@@ -476,7 +490,7 @@ mod tests {
         assert_eq!(lhs_summed, test_vector_constraints.linear_constraint_rhs());
 
         assert_eq!(
-            quadratic_constraints::<FieldP128>(&circuit),
+            quadratic_constraints(&circuit),
             test_vector_constraints.quadratic
         );
     }

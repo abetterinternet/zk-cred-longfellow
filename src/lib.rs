@@ -216,6 +216,20 @@ impl Codec for u32 {
     }
 }
 
+impl Codec for [u8; 32] {
+    fn decode(bytes: &mut std::io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        let bytes: [u8; 32] = u8::decode_fixed_array(bytes, 32)?
+            .try_into()
+            .map_err(|_| anyhow!("failed to convert byte vec to array"))?;
+
+        Ok(bytes)
+    }
+
+    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        u8::encode_fixed_array(self.as_slice(), bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

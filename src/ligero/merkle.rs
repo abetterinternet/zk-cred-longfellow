@@ -2,6 +2,7 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.1
 
+use crate::Codec;
 use anyhow::anyhow;
 use sha2::{Digest, Sha256};
 
@@ -28,9 +29,42 @@ impl From<Node> for [u8; 32] {
     }
 }
 
+impl Codec for Node {
+    fn decode(bytes: &mut std::io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        <[u8; 32]>::decode(bytes).map(Self)
+    }
+
+    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        self.0.encode(bytes)
+    }
+}
+
 /// An inclusion proof from a Merkle tree.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct InclusionProof(Vec<Node>);
+
+/// Serialization of an inclusion proof implied by `write_merkle` in [7.4][1].
+///
+/// Surprisingly, the length of this particular array is u32, not u24 as elsewhere in Longfellow.
+/// see`write_size` and `read_size` in lib/zk/zk_proof.h.
+///
+/// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
+impl Codec for InclusionProof {
+    fn decode(bytes: &mut std::io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        let length = u32::decode(bytes)?;
+        Node::decode_fixed_array(bytes, length as usize).map(Self)
+    }
+
+    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        let len: u32 = self
+            .0
+            .len()
+            .try_into()
+            .map_err(|_| anyhow!("proof too big to be encoded"))?;
+        len.encode(bytes)?;
+        Node::encode_fixed_array(&self.0, bytes)
+    }
+}
 
 /// A Merkle tree of digests, enabling proofs that some digest is a leaf of the tree.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -337,5 +371,16 @@ mod tests {
             )
             .unwrap_err();
         }
+    }
+
+    #[test]
+    fn codec_roundtrip_inclusion_proof() {
+        InclusionProof(vec![
+            Node::from([1; 32]),
+            Node::from([2; 32]),
+            Node::from([3; 32]),
+            Node::from([4; 32]),
+        ])
+        .roundtrip();
     }
 }

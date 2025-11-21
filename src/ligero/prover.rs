@@ -133,10 +133,8 @@ impl<'a> LigeroProver<'a> {
             .zip(tableau.iter().skip(self.tableau_layout.first_witness_row()))
         {
             inner_product_vector_extended.truncate(0);
-            inner_product_vector_extended.extend(std::iter::repeat_n(
-                FE::ZERO,
-                self.tableau_layout.num_requested_columns(),
-            ));
+            inner_product_vector_extended
+                .resize(self.tableau_layout.num_requested_columns(), FE::ZERO);
             inner_product_vector_extended.extend(witnesses);
             // Specification interpretation verification: nreq + the witnesses should be block size
             assert_eq!(
@@ -159,6 +157,7 @@ impl<'a> LigeroProver<'a> {
         // Check that nothing grew the dot proof behind our back
         assert_eq!(dot_proof.len(), self.tableau_layout.dblock());
 
+        // Also uquad, u_quad in the specification.
         let quad_proof_blinding =
             transcript.generate_challenge::<FE>(self.tableau_layout.num_quadratic_triples())?;
 
@@ -173,7 +172,7 @@ impl<'a> LigeroProver<'a> {
             let y_row = &tableau[first_y_row + index][0..self.tableau_layout.dblock()];
             let z_row = &tableau[first_z_row + index][0..self.tableau_layout.dblock()];
 
-            // quadratic_proof += quad[i] * (z[i] - x[i] * y[i])
+            // quadratic_proof += uquad[i] * (z[i] - x[i] * y[i])
             for (((proof_element, x_element), y_element), z_element) in
                 quadratic_proof.iter_mut().zip(x_row).zip(y_row).zip(z_row)
             {
@@ -208,13 +207,11 @@ impl<'a> LigeroProver<'a> {
             self.tableau_layout.num_requested_columns(),
         );
 
-        // The specification for `requested_columns` says we should construct a table of
+        // The specification for requested_columns suggests we should construct a table of
         // num_requested_columns rows and num_rows columns, whose rows consist of the tableau
-        // columns at requested_column_indices.
-        // But that's not what longfellow-zk does: first, it doesn't transpose the requested columns
-        // as we might expect. Second, it offsets the requested column indices by DBLOCK, for an
-        // unclear reason.
-        // See `compute_req` in `lib/ligero/ligero_prover.h`.
+        // columns at requested_column_indices, but longfellow-zk doesn't transpose, and we match
+        // their behavior.
+        // See compute_req in lib/ligero/ligero_prover.h.
         let mut requested_tableau_columns = vec![
             FE::ZERO;
             self.tableau_layout.num_rows()
@@ -225,6 +222,9 @@ impl<'a> LigeroProver<'a> {
             for (column, requested_column_index) in requested_column_indices.iter().enumerate() {
                 requested_tableau_columns
                     [row * self.tableau_layout.num_requested_columns() + column] =
+                    // Offset by dblock so we send tableau values and not witnesses. We send few
+                    // enough columns that the verifier can't interpolate the polynomial and
+                    // recompute witnesses.
                     tableau[row][*requested_column_index + self.tableau_layout.dblock()];
             }
         }

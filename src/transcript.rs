@@ -239,11 +239,6 @@ impl Transcript {
         })
     }
 
-    /// Get the current FSPRF state, for debugging.
-    pub fn fsprf_state(&self) -> FsprfState {
-        FsprfState(self.fsprf_seed.clone().finalize().to_vec())
-    }
-
     /// Generate a challenge, consisting of `length` field elements.
     pub fn generate_challenge<FE: CodecFieldElement>(
         &mut self,
@@ -317,16 +312,6 @@ impl PartialEq for Transcript {
 }
 
 impl Eq for Transcript {}
-
-pub struct FsprfState(Vec<u8>);
-
-impl Debug for FsprfState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("FsprfState")
-            .field(&hex::encode(&self.0))
-            .finish()
-    }
-}
 
 /// An iterator producing an infinite stream of bytes based on the provided key.
 ///

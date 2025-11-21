@@ -32,7 +32,7 @@ impl<'a> LigeroProver<'a> {
 
     /// Prove that the commitment satisfies the provided constraints. The provided transcript should
     /// have been used in [`LinearConstraints::from_proof`] (or, equivalently,
-    /// [`SumcheckProver::prove`]).
+    /// [`crate::sumcheck::prover::SumcheckProver::prove`]).
     ///
     /// This is specified in [4.4][1].
     ///

@@ -5,10 +5,11 @@
 use crate::Codec;
 use anyhow::anyhow;
 use sha2::{Digest, Sha256};
+use std::fmt::Debug;
 
 /// The value of a node of a [`MerkleTree`]. A tree could use various hashing algorithms, but we
 /// only support SHA-256, and so a `Digest` is always a 32 byte array, saving us a heap allocation.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub struct Node([u8; 32]);
 
 impl From<[u8; 32]> for Node {
@@ -36,6 +37,12 @@ impl Codec for Node {
 
     fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
         self.0.encode(bytes)
+    }
+}
+
+impl Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Node").field(&hex::encode(self.0)).finish()
     }
 }
 

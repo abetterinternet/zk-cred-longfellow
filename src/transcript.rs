@@ -3,6 +3,8 @@
 //!
 //! <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3>
 
+use std::fmt::Debug;
+
 use crate::{
     circuit::Circuit, fields::CodecFieldElement, ligero::committer::LigeroCommitment,
     sumcheck::Polynomial,

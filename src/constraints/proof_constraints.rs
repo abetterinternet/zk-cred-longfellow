@@ -353,9 +353,8 @@ mod tests {
             proofs,
         );
 
-        let evaluation: Evaluation<FieldP128> = circuit
-            .evaluate(&test_vector.valid_inputs.unwrap())
-            .unwrap();
+        let evaluation: Evaluation<FieldP128> =
+            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let witness = Witness::fill_witness(
@@ -444,9 +443,8 @@ mod tests {
 
         let test_vector_constraints = test_vector.constraints.as_ref().unwrap();
 
-        let evaluation: Evaluation<FieldP128> = circuit
-            .evaluate(test_vector.valid_inputs.as_deref().unwrap())
-            .unwrap();
+        let evaluation: Evaluation<FieldP128> =
+            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let witness = Witness::fill_witness(

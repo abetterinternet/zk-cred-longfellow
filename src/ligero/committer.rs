@@ -248,9 +248,8 @@ mod tests {
             proofs,
         );
 
-        let evaluation: Evaluation<FieldP128> = circuit
-            .evaluate(test_vector.valid_inputs.as_deref().unwrap())
-            .unwrap();
+        let evaluation: Evaluation<FieldP128> =
+            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         let quadratic_constraints = quadratic_constraints(&circuit);
         let witness = Witness::fill_witness(

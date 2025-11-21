@@ -358,9 +358,8 @@ mod tests {
         assert_eq!(circuit.num_copies, Size(1));
 
         // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
-        let evaluation: Evaluation<FieldP128> = circuit
-            .evaluate(test_vector.valid_inputs.as_deref().unwrap())
-            .unwrap();
+        let evaluation: Evaluation<FieldP128> =
+            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         let witness = Witness::fill_witness(
             WitnessLayout::from_circuit(&circuit),

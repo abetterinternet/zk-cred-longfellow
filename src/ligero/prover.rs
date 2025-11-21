@@ -273,8 +273,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
     /// sizes of fields.
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
-    #[allow(dead_code)]
-    fn decode(
+    pub fn decode(
         tableau_layout: &TableauLayout,
         bytes: &mut std::io::Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
@@ -345,8 +344,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
     /// `Codec` implementation because we need the Ligero parameters to know the sizes of objects.
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
-    #[allow(dead_code)]
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
         FE::encode_fixed_array(&self.low_degree_test_proof, bytes)?;
         FE::encode_fixed_array(&self.dot_proof, bytes)?;
         FE::encode_fixed_array(&self.quadratic_proof.0, bytes)?;
@@ -420,9 +418,8 @@ mod tests {
             proofs,
         );
 
-        let evaluation: Evaluation<FieldP128> = circuit
-            .evaluate(test_vector.valid_inputs.as_deref().unwrap())
-            .unwrap();
+        let evaluation: Evaluation<FieldP128> =
+            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         let witness = Witness::fill_witness(
             WitnessLayout::from_circuit(&circuit),

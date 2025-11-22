@@ -2,7 +2,7 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.1
 
-use crate::Codec;
+use crate::{Codec, ligero::committer::LigeroCommitment};
 use anyhow::anyhow;
 use sha2::{Digest, Sha256};
 use std::fmt::Debug;
@@ -27,6 +27,12 @@ impl From<Sha256> for Node {
 impl From<Node> for [u8; 32] {
     fn from(value: Node) -> Self {
         value.0
+    }
+}
+
+impl From<LigeroCommitment> for Node {
+    fn from(value: LigeroCommitment) -> Self {
+        Self(value.into_bytes())
     }
 }
 

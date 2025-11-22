@@ -173,8 +173,6 @@ impl Circuit {
     }
 
     /// Evaluate the circuit with the provided inputs.
-    ///
-    /// Bugs: taking inputs as u128 is inadequate for larger fields like P256.
     pub fn evaluate<FE: CodecFieldElement>(
         &self,
         inputs: &[FE],

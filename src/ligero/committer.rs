@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 /// tree of SHA-256 hashes.
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LigeroCommitment([u8; 32]);
 
 impl TryFrom<&[u8]> for LigeroCommitment {
@@ -41,6 +41,10 @@ impl LigeroCommitment {
     /// The commitment as a slice of bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+
+    pub fn into_bytes(&self) -> [u8; 32] {
+        self.0
     }
 
     /// A fake but well-formed commitment for tests.

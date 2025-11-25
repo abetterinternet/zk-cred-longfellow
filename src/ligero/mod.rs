@@ -50,6 +50,21 @@ impl<'a> TableauLayout<'a> {
         }
     }
 
+    /// Index of the low degree test row.
+    pub const fn low_degree_test_row() -> usize {
+        0
+    }
+
+    /// Index of the dot proof row, aka linear test row.
+    pub const fn dot_proof_row() -> usize {
+        1
+    }
+
+    /// Index of the quadratic test row.
+    pub const fn quadratic_test_row() -> usize {
+        2
+    }
+
     /// The size of a block, in terms of number of field elements. Also `BLOCK`. The specification
     /// describes this quantity as the "size of each row", but that would be `NCOL` or
     /// `num_columns`.
@@ -120,6 +135,31 @@ impl<'a> TableauLayout<'a> {
     /// The total number of rows in the tableau.
     pub fn num_rows(&self) -> usize {
         self.first_witness_row() + self.num_linear_constraint_rows() + self.num_quadratic_rows()
+    }
+
+    /// Gather the tableau elements at the provided indices from source, in the order of the
+    /// indices. As specified in [2.1][1].
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.1
+    pub fn gather_iter<FE: LagrangePolynomialFieldElement>(
+        &self,
+        source: &[FE],
+        indices: &[usize],
+    ) -> impl Iterator<Item = FE> {
+        // offset by dblock so that we yield tableau elements, not witnesses.
+        indices.iter().map(|index| source[*index + self.dblock()])
+    }
+
+    /// Gather the tableau elements at the provided indices from source, in the order of the indices. As
+    /// specified in [2.1][1].
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.1
+    pub fn gather<FE: LagrangePolynomialFieldElement>(
+        &self,
+        source: &[FE],
+        indices: &[usize],
+    ) -> Vec<FE> {
+        self.gather_iter(source, indices).collect()
     }
 }
 

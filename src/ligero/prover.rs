@@ -55,11 +55,13 @@ impl<'a> LigeroProver<'a> {
 
         // The blind is also "u" in the specification. Generate one blind element for each witness
         // and quadratic witness row in the tableau.
-        let low_degree_test_blind = transcript
-            .generate_challenge::<FE>(tableau.len() - self.tableau_layout.first_witness_row())?;
+        let low_degree_test_blind =
+            transcript.generate_challenge::<FE>(self.tableau_layout.num_constraint_rows())?;
 
         // Sum tableau rows into the low degree test
-        let mut low_degree_test_proof = tableau[0][0..self.tableau_layout.block_size()].to_vec();
+        let mut low_degree_test_proof = tableau[TableauLayout::low_degree_test_row()]
+            [0..self.tableau_layout.block_size()]
+            .to_vec();
         for (witness_row, challenge) in tableau
             .iter()
             .skip(self.tableau_layout.first_witness_row())
@@ -72,60 +74,22 @@ impl<'a> LigeroProver<'a> {
             }
         }
 
-        // Sum random linear combinations of linear constraints into IDOT row
-        let mut inner_product_vector = vec![
-            FE::ZERO;
-            self.tableau_layout.witnesses_per_row()
-                * self.tableau_layout.num_constraint_rows()
-        ];
-
-        let linear_constraint_alpha =
+        let linear_constraint_alphas =
             transcript.generate_challenge::<FE>(linear_constraints.len())?;
-        for LinearConstraintLhsTerm {
-            constraint_number,
-            witness_index,
-            constant_factor,
-        } in linear_constraints.left_hand_side_terms()
-        {
-            inner_product_vector[*witness_index] +=
-                linear_constraint_alpha[*constraint_number] * constant_factor;
-        }
-
-        // Sum quadratic constraints into IDOT row
         let quad_constraint_alphas =
             transcript.generate_challenge::<FE>(3 * quadratic_constraints.len())?;
 
-        // Quadratic constraints come after the linear constraints in the inner product vector
-        let xs_start = self.tableau_layout.num_linear_constraint_rows()
-            * self.tableau_layout.witnesses_per_row();
-        let ys_start = xs_start
-            + self.tableau_layout.num_quadratic_triples() * self.tableau_layout.witnesses_per_row();
-        let zs_start = ys_start
-            + self.tableau_layout.num_quadratic_triples() * self.tableau_layout.witnesses_per_row();
+        // Sum random linear combinations of linear constraints into IDOT row
+        let inner_product_vector = inner_product_vector(
+            self.tableau_layout,
+            linear_constraints,
+            &linear_constraint_alphas,
+            quadratic_constraints,
+            &quad_constraint_alphas,
+        )?;
 
-        for i in 0..self.tableau_layout.num_quadratic_triples() {
-            for j in 0..self.tableau_layout.witnesses_per_row() {
-                let index = j + i * self.tableau_layout.witnesses_per_row();
-                if index >= quadratic_constraints.len() {
-                    break;
-                }
-                let QuadraticConstraint { x, y, z } = quadratic_constraints[index];
-                let alpha_x = quad_constraint_alphas[index * 3];
-                let alpha_y = quad_constraint_alphas[index * 3 + 1];
-                let alpha_z = quad_constraint_alphas[index * 3 + 2];
-
-                inner_product_vector[xs_start + index] += alpha_x;
-                inner_product_vector[x] -= alpha_x;
-
-                inner_product_vector[ys_start + index] += alpha_y;
-                inner_product_vector[y] -= alpha_y;
-
-                inner_product_vector[zs_start + index] += alpha_z;
-                inner_product_vector[z] -= alpha_z;
-            }
-        }
-
-        let mut dot_proof = tableau[1][0..self.tableau_layout.dblock()].to_vec();
+        let mut dot_proof =
+            tableau[TableauLayout::dot_proof_row()][0..self.tableau_layout.dblock()].to_vec();
         let mut inner_product_vector_extended =
             Vec::with_capacity(self.tableau_layout.block_size());
         for (witnesses, tableau_row) in inner_product_vector
@@ -161,7 +125,8 @@ impl<'a> LigeroProver<'a> {
         let quad_proof_blinding =
             transcript.generate_challenge::<FE>(self.tableau_layout.num_quadratic_triples())?;
 
-        let mut quadratic_proof = tableau[2][0..self.tableau_layout.dblock()].to_vec();
+        let mut quadratic_proof =
+            tableau[TableauLayout::quadratic_test_row()][0..self.tableau_layout.dblock()].to_vec();
 
         let first_x_row = self.tableau_layout.first_quadratic_constraint_row();
         let first_y_row = first_x_row + self.tableau_layout.num_quadratic_triples();
@@ -214,8 +179,8 @@ impl<'a> LigeroProver<'a> {
         // See compute_req in lib/ligero/ligero_prover.h.
         let mut requested_tableau_columns = vec![
             FE::ZERO;
-            self.tableau_layout.num_rows()
-                * self.tableau_layout.num_requested_columns()
+            self.tableau_layout.num_requested_columns()
+                * self.tableau_layout.num_rows()
         ];
 
         for row in 0..self.tableau_layout.num_rows() {
@@ -229,8 +194,8 @@ impl<'a> LigeroProver<'a> {
             }
         }
 
-        let requested_tableau_columns = requested_tableau_columns
-            .chunks(self.tableau_layout.num_rows())
+        let tableau_columns = requested_tableau_columns
+            .chunks(self.tableau_layout.num_requested_columns())
             .map(|c| c.to_vec())
             .collect();
 
@@ -248,22 +213,75 @@ impl<'a> LigeroProver<'a> {
             low_degree_test_proof,
             dot_proof,
             quadratic_proof: (quadratic_proof_low.to_vec(), quadratic_proof_high.to_vec()),
-            requested_tableau_columns,
+            tableau_columns,
             inclusion_proof,
             merkle_tree_nonces,
         })
     }
 }
 
+pub fn inner_product_vector<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
+    tableau_layout: &TableauLayout,
+    linear_constraints: &LinearConstraints<FE>,
+    linear_constraint_alphas: &[FE],
+    quadratic_constraints: &[QuadraticConstraint],
+    quadratic_constraint_alphas: &[FE],
+) -> Result<Vec<FE>, anyhow::Error> {
+    let mut inner_product_vector =
+        vec![FE::ZERO; tableau_layout.witnesses_per_row() * tableau_layout.num_constraint_rows()];
+
+    for LinearConstraintLhsTerm {
+        constraint_number,
+        witness_index,
+        constant_factor,
+    } in linear_constraints.left_hand_side_terms()
+    {
+        inner_product_vector[*witness_index] +=
+            linear_constraint_alphas[*constraint_number] * constant_factor;
+    }
+
+    // Sum quadratic constraints into IDOT row. Quadratic constraints come after the linear
+    // constraints in the inner product vector.
+    let xs_start = tableau_layout.num_linear_constraint_rows() * tableau_layout.witnesses_per_row();
+    let ys_start =
+        xs_start + tableau_layout.num_quadratic_triples() * tableau_layout.witnesses_per_row();
+    let zs_start =
+        ys_start + tableau_layout.num_quadratic_triples() * tableau_layout.witnesses_per_row();
+
+    for i in 0..tableau_layout.num_quadratic_triples() {
+        for j in 0..tableau_layout.witnesses_per_row() {
+            let index = j + i * tableau_layout.witnesses_per_row();
+            if index >= quadratic_constraints.len() {
+                break;
+            }
+            let QuadraticConstraint { x, y, z } = quadratic_constraints[index];
+            let alpha_x = quadratic_constraint_alphas[index * 3];
+            let alpha_y = quadratic_constraint_alphas[index * 3 + 1];
+            let alpha_z = quadratic_constraint_alphas[index * 3 + 2];
+
+            inner_product_vector[xs_start + index] += alpha_x;
+            inner_product_vector[x] -= alpha_x;
+
+            inner_product_vector[ys_start + index] += alpha_y;
+            inner_product_vector[y] -= alpha_y;
+
+            inner_product_vector[zs_start + index] += alpha_z;
+            inner_product_vector[z] -= alpha_z;
+        }
+    }
+
+    Ok(inner_product_vector)
+}
+
 /// A Ligero proof.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LigeroProof<FieldElement> {
-    low_degree_test_proof: Vec<FieldElement>,
-    dot_proof: Vec<FieldElement>,
-    quadratic_proof: (Vec<FieldElement>, Vec<FieldElement>),
-    merkle_tree_nonces: Vec<[u8; 32]>,
-    requested_tableau_columns: Vec<Vec<FieldElement>>,
-    inclusion_proof: InclusionProof,
+    pub low_degree_test_proof: Vec<FieldElement>,
+    pub dot_proof: Vec<FieldElement>,
+    pub quadratic_proof: (Vec<FieldElement>, Vec<FieldElement>),
+    pub merkle_tree_nonces: Vec<[u8; 32]>,
+    pub tableau_columns: Vec<Vec<FieldElement>>,
+    pub inclusion_proof: InclusionProof,
 }
 
 impl<FE: CodecFieldElement> LigeroProof<FE> {
@@ -273,8 +291,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
     /// sizes of fields.
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
-    #[allow(dead_code)]
-    fn decode(
+    pub fn decode(
         tableau_layout: &TableauLayout,
         bytes: &mut std::io::Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
@@ -325,7 +342,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
         }
 
         let tableau_columns = column_elements
-            .chunks(tableau_layout.num_rows())
+            .chunks(tableau_layout.num_requested_columns())
             .map(|v| v.to_vec())
             .collect();
 
@@ -336,7 +353,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
             dot_proof,
             quadratic_proof,
             merkle_tree_nonces,
-            requested_tableau_columns: tableau_columns,
+            tableau_columns,
             inclusion_proof,
         })
     }
@@ -345,19 +362,14 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
     /// `Codec` implementation because we need the Ligero parameters to know the sizes of objects.
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
-    #[allow(dead_code)]
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
         FE::encode_fixed_array(&self.low_degree_test_proof, bytes)?;
         FE::encode_fixed_array(&self.dot_proof, bytes)?;
         FE::encode_fixed_array(&self.quadratic_proof.0, bytes)?;
         FE::encode_fixed_array(&self.quadratic_proof.1, bytes)?;
         <[u8; 32]>::encode_fixed_array(&self.merkle_tree_nonces, bytes)?;
 
-        let column_elements: Vec<_> = self
-            .requested_tableau_columns
-            .iter()
-            .flat_map(|v| v.iter())
-            .collect();
+        let column_elements: Vec<_> = self.tableau_columns.iter().flat_map(|v| v.iter()).collect();
         let mut column_elements_written = 0;
         let mut is_subfield_run = false;
         while column_elements_written < column_elements.len() {
@@ -394,6 +406,17 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
 
         Ok(())
     }
+
+    /// Stitch the quadratic proof parts back together with the middle span of zeroes.
+    pub fn quadratic_proof(&self, tableau_layout: &TableauLayout) -> Vec<FE> {
+        let mut proof = Vec::with_capacity(tableau_layout.num_columns());
+        proof.extend(&self.quadratic_proof.0);
+        proof.resize(tableau_layout.block_size(), FE::ZERO);
+        proof.extend(&self.quadratic_proof.1);
+        assert_eq!(proof.len(), tableau_layout.dblock());
+
+        proof
+    }
 }
 
 #[cfg(test)]
@@ -420,9 +443,8 @@ mod tests {
             proofs,
         );
 
-        let evaluation: Evaluation<FieldP128> = circuit
-            .evaluate(test_vector.valid_inputs.as_deref().unwrap())
-            .unwrap();
+        let evaluation: Evaluation<FieldP128> =
+            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         let witness = Witness::fill_witness(
             WitnessLayout::from_circuit(&circuit),

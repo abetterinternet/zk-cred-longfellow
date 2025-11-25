@@ -173,13 +173,10 @@ impl Circuit {
     }
 
     /// Evaluate the circuit with the provided inputs.
-    ///
-    /// Bugs: taking inputs as u128 is inadequate for larger fields like P256.
     pub fn evaluate<FE: CodecFieldElement>(
         &self,
-        inputs: &[u128],
+        inputs: &[FE],
     ) -> Result<Evaluation<FE>, anyhow::Error> {
-        let inputs: Vec<_> = inputs.iter().map(|input| FE::from_u128(*input)).collect();
         // There are n layers of gates, but with the inputs, we have n + 1 layers of wires.
         let mut wires = Vec::with_capacity(self.layers.len() + 1);
 
@@ -190,7 +187,7 @@ impl Circuit {
         // layers are constructed to propagate the constant 1.
         //
         // https://eprint.iacr.org/2024/2010.pdf, section 2.1
-        wires.push([&[FE::ONE], inputs.as_slice()].concat());
+        wires.push([&[FE::ONE], inputs].concat());
 
         // We are iterating over layers in reverse, so the output layer is at the end of the
         // iterator
@@ -642,9 +639,8 @@ pub(crate) mod tests {
             proofs,
         );
 
-        let evaluation: Evaluation<FieldP128> = circuit
-            .evaluate(&test_vector.valid_inputs.unwrap())
-            .unwrap();
+        let evaluation: Evaluation<FieldP128> =
+            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         // Output size should match circuit serialization and values should all be zero
         assert_eq!(circuit.num_outputs, evaluation.wires[0].len());
@@ -670,7 +666,7 @@ pub(crate) mod tests {
         // Evaluate with other values. At least one output element should be nonzero.
         assert!(
             circuit
-                .evaluate(&test_vector.invalid_inputs.unwrap())
+                .evaluate(&test_vector.invalid_inputs())
                 .unwrap()
                 .outputs()
                 .iter()
@@ -695,9 +691,8 @@ pub(crate) mod tests {
 
         assert_eq!(circuit.num_quads(), test_vector.quads as usize);
 
-        let evaluation: Evaluation<FieldP128> = circuit
-            .evaluate(&test_vector.valid_inputs.unwrap())
-            .unwrap();
+        let evaluation: Evaluation<FieldP128> =
+            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         for output in evaluation.outputs() {
             assert_eq!(*output, FieldP128::ZERO);
@@ -861,7 +856,7 @@ pub(crate) mod tests {
     fn evaluate_assertion_pass_partial() {
         // The input value of 1 should cause the in-circuit assertion to fail. The circuit output is still zero.
         let circuit = make_assertion_test_circuit();
-        let error = circuit.evaluate::<FieldP128>(&[1]).unwrap_err();
+        let error = circuit.evaluate(&[FieldP128::ONE]).unwrap_err();
         assert!(error.to_string().contains("assertion failed"));
     }
 
@@ -869,7 +864,7 @@ pub(crate) mod tests {
     fn evaluate_assertion_fail() {
         // This input should cause both the in-circuit assertion to fail and the circuit output be non-zero.
         let circuit = make_assertion_test_circuit();
-        let error = circuit.evaluate::<FieldP128>(&[5]).unwrap_err();
+        let error = circuit.evaluate(&[FieldP128::from_u128(5)]).unwrap_err();
         assert!(error.to_string().contains("assertion failed"));
     }
 
@@ -877,7 +872,7 @@ pub(crate) mod tests {
     fn evaluate_assertion_pass_full() {
         // The input value of 2 satisfies both the in-circuit assertion and the circuit output condition.
         let circuit = make_assertion_test_circuit();
-        let evaluation = circuit.evaluate::<FieldP128>(&[2]).unwrap();
+        let evaluation = circuit.evaluate(&[FieldP128::from_u128(2)]).unwrap();
         assert_eq!(evaluation.outputs()[0], FieldP128::ZERO);
     }
 }

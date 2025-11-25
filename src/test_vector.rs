@@ -160,4 +160,22 @@ impl CircuitTestVector {
             LigeroCommitment::try_from(hex::decode(string).unwrap().as_slice()).unwrap()
         })
     }
+
+    pub(crate) fn valid_inputs<FE: FieldElement>(&self) -> Vec<FE> {
+        self.valid_inputs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|input| FE::from_u128(*input))
+            .collect()
+    }
+
+    pub(crate) fn invalid_inputs<FE: FieldElement>(&self) -> Vec<FE> {
+        self.invalid_inputs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|input| FE::from_u128(*input))
+            .collect()
+    }
 }

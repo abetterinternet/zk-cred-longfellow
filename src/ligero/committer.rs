@@ -4,9 +4,9 @@
 
 use crate::{
     constraints::proof_constraints::QuadraticConstraint,
-    fields::{LagrangePolynomialFieldElement, field_element_iter_from_source},
+    fields::{CodecFieldElement, LagrangePolynomialFieldElement, field_element_iter_from_source},
     ligero::{
-        CodewordMatrixLayout, LigeroParameters, extend,
+        LigeroParameters, TableauLayout, extend,
         merkle::{MerkleTree, Node},
     },
     witness::Witness,
@@ -55,15 +55,15 @@ impl LigeroCommitment {
     }
 }
 
-/// An actual codeword matrix containing values.
+/// An actual tableau containing values.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodewordMatrix<'a, FieldElement> {
-    layout: CodewordMatrixLayout<'a>,
+pub struct Tableau<'a, FieldElement> {
+    layout: TableauLayout<'a>,
     contents: Vec<Vec<FieldElement>>,
 }
 
-impl<'a, FE: LagrangePolynomialFieldElement> CodewordMatrix<'a, FE> {
-    /// Build the codeword matrix.
+impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE> {
+    /// Build the tableau.
     pub fn build(
         ligero_parameters: &'a LigeroParameters,
         witness: &Witness<FE>,
@@ -77,7 +77,7 @@ impl<'a, FE: LagrangePolynomialFieldElement> CodewordMatrix<'a, FE> {
         )
     }
 
-    /// Build the codeword matrix using the provided function to generate random elements.
+    /// Build the tableau using the provided function to generate random elements.
     pub fn build_with_field_element_generator<FieldElementGenerator>(
         ligero_parameters: &'a LigeroParameters,
         witness: &Witness<FE>,
@@ -87,7 +87,7 @@ impl<'a, FE: LagrangePolynomialFieldElement> CodewordMatrix<'a, FE> {
     where
         FieldElementGenerator: FnMut() -> FE,
     {
-        let layout = CodewordMatrixLayout::new(
+        let layout = TableauLayout::new(
             ligero_parameters,
             witness.len(),
             quadratic_constraints.len(),
@@ -98,17 +98,17 @@ impl<'a, FE: LagrangePolynomialFieldElement> CodewordMatrix<'a, FE> {
         // Each quadratic constraint contributes three witnesses
         let num_quadratic_rows = layout.num_quadratic_rows();
         // Rows for low degree test, linear test and quadratic test
-        let mut matrix = Vec::with_capacity(layout.num_rows());
+        let mut tableau = Vec::with_capacity(layout.num_rows());
 
         let mut element_generator = field_element_iter_from_source(field_element_generator);
 
-        // Construct the tableau matrix from the witness and the constraints.
+        // Construct the tableau from the witness and the constraints.
         // Fill the low degree test row: extend(RANDOM[BLOCK], BLOCK, NCOL)
         let low_degree_test_row: Vec<_> = element_generator
             .by_ref()
             .take(layout.block_size())
             .collect();
-        matrix.push(extend(&low_degree_test_row, layout.num_columns()));
+        tableau.push(extend(&low_degree_test_row, layout.num_columns()));
 
         // Fill the linear test row ("IDOT"): random field elements where elements [nreq..nreq+wr)
         // sum to 0, extended to NCOL
@@ -151,7 +151,7 @@ impl<'a, FE: LagrangePolynomialFieldElement> CodewordMatrix<'a, FE> {
                 .take(layout.witnesses_per_row())
                 .fold(FE::ZERO, |acc, elem| acc + elem)
         );
-        matrix.push(extend(&linear_test_row, layout.num_columns()));
+        tableau.push(extend(&linear_test_row, layout.num_columns()));
 
         // Quadratic test row: NREQ random elements then zeroes for each witness, then more random
         // elements to fill to DBLOCK, then extended to NCOL
@@ -168,12 +168,12 @@ impl<'a, FE: LagrangePolynomialFieldElement> CodewordMatrix<'a, FE> {
         })
         .take(layout.dblock())
         .collect();
-        matrix.push(extend(quadratic_test_row.as_slice(), layout.num_columns()));
+        tableau.push(extend(quadratic_test_row.as_slice(), layout.num_columns()));
 
         // Padded witness rows: NREQ random elements, then witnesses_per_row elements of the witness
         // extended to NCOL
         for witness_row in 0..num_witness_rows {
-            matrix.push(extend(
+            tableau.push(extend(
                 element_generator
                     .by_ref()
                     .take(layout.num_requested_columns())
@@ -214,30 +214,30 @@ impl<'a, FE: LagrangePolynomialFieldElement> CodewordMatrix<'a, FE> {
                 row.push(witness);
             }
 
-            matrix.push(extend(row.as_slice(), layout.num_columns()));
+            tableau.push(extend(row.as_slice(), layout.num_columns()));
         }
 
         // Make sure we allocated the tableau correctly up front.
-        assert_eq!(matrix.len(), layout.num_rows());
+        assert_eq!(tableau.len(), layout.num_rows());
 
-        CodewordMatrix {
+        Tableau {
             layout,
-            contents: matrix,
+            contents: tableau,
         }
     }
 
-    /// The layout of the matrix.
-    pub fn layout(&'_ self) -> &'_ CodewordMatrixLayout<'_> {
+    /// The layout of the tableau.
+    pub fn layout(&'_ self) -> &'_ TableauLayout<'_> {
         &self.layout
     }
 
-    /// Commit to the contents of the codeword matrix, returning a Merkle tree whose leaves are
-    /// hashes of the matrix columns. A nonce is hashed into each leaf.
+    /// Commit to the contents of the tableau, returning a Merkle tree whose leaves are hashes of
+    /// the columns. A nonce is hashed into each leaf.
     pub fn commit(&self) -> Result<MerkleTree, anyhow::Error> {
         self.commit_with_merkle_tree_nonce_generator(random::<[u8; 32]>)
     }
 
-    /// Commit to the contents of the codeword matrix, using nonces from the provided generator.
+    /// Commit to the contents of the tableau, using nonces from the provided generator.
     pub fn commit_with_merkle_tree_nonce_generator<MerkleTreeNonceGenerator>(
         &self,
         mut merkle_tree_nonce_generator: MerkleTreeNonceGenerator,
@@ -309,7 +309,7 @@ mod tests {
         let mut merkle_tree_nonce = [0; 32];
         merkle_tree_nonce[0] = test_vector.pad.unwrap() as u8;
 
-        let tree = CodewordMatrix::build_with_field_element_generator(
+        let tree = Tableau::build_with_field_element_generator(
             &test_vector.ligero_parameters(),
             &witness,
             &quadratic_constraints,

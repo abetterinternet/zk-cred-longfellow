@@ -6,7 +6,7 @@
 use crate::{
     circuit::Circuit,
     constraints::symbolic::{SymbolicExpression, Term},
-    fields::LagrangePolynomialFieldElement,
+    fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     ligero::committer::LigeroCommitment,
     sumcheck::{
         bind::{ElementwiseSum, SumcheckArray, bindeq},
@@ -73,7 +73,7 @@ pub struct LinearConstraints<FieldElement> {
     rhs: Vec<FieldElement>,
 }
 
-impl<FE: LagrangePolynomialFieldElement> LinearConstraints<FE> {
+impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<FE> {
     /// Construct constraints from the provided proof of execution for the circuit and public
     /// inputs.
     ///

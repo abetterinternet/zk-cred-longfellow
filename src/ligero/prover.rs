@@ -9,8 +9,8 @@ use crate::{
     },
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     ligero::{
-        CodewordMatrixLayout,
-        committer::CodewordMatrix,
+        TableauLayout,
+        committer::Tableau,
         extend,
         merkle::{InclusionProof, MerkleTree},
     },
@@ -32,9 +32,9 @@ impl LigeroProver {
     /// This is specified in [4.4][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.4
-    pub fn ligero_prove<FE: LagrangePolynomialFieldElement>(
+    pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         transcript: &mut Transcript,
-        codeword_matrix: &CodewordMatrix<FE>,
+        tableau: &Tableau<FE>,
         merkle_tree: &MerkleTree,
         linear_constraints: &LinearConstraints<FE>,
         quadratic_constraints: &[QuadraticConstraint],
@@ -49,16 +49,16 @@ impl LigeroProver {
         // The blind is also "u" in the specification. Generate one blind element for each witness
         // and quadratic witness row in the tableau.
         let low_degree_test_blind =
-            transcript.generate_challenge::<FE>(codeword_matrix.layout().num_constraint_rows())?;
+            transcript.generate_challenge::<FE>(tableau.layout().num_constraint_rows())?;
 
         // Sum blinded witness rows into the low degree test
-        let mut low_degree_test_proof = codeword_matrix.contents()
-            [CodewordMatrixLayout::low_degree_test_row()][0..codeword_matrix.layout().block_size()]
+        let mut low_degree_test_proof = tableau.contents()[TableauLayout::low_degree_test_row()]
+            [0..tableau.layout().block_size()]
             .to_vec();
-        for (witness_row, blind) in codeword_matrix
+        for (witness_row, blind) in tableau
             .contents()
             .iter()
-            .skip(codeword_matrix.layout().first_witness_row())
+            .skip(tableau.layout().first_witness_row())
             .zip(low_degree_test_blind)
         {
             for (ldt_column, witness_column) in
@@ -75,68 +75,67 @@ impl LigeroProver {
 
         // Sum random linear combinations of linear constraints into the dot proof
         let inner_product_vector = inner_product_vector(
-            codeword_matrix.layout(),
+            tableau.layout(),
             linear_constraints,
             &linear_constraint_alphas,
             quadratic_constraints,
             &quad_constraint_alphas,
         )?;
 
-        let mut dot_proof = codeword_matrix.contents()[CodewordMatrixLayout::dot_proof_row()]
-            [0..codeword_matrix.layout().dblock()]
+        let mut dot_proof = tableau.contents()[TableauLayout::dot_proof_row()]
+            [0..tableau.layout().dblock()]
             .to_vec();
-        let mut inner_product_vector_extended =
-            Vec::with_capacity(codeword_matrix.layout().block_size());
+        let mut inner_product_vector_extended = Vec::with_capacity(tableau.layout().block_size());
         for (witnesses, tableau_row) in inner_product_vector
-            .chunks(codeword_matrix.layout().witnesses_per_row())
+            .chunks(tableau.layout().witnesses_per_row())
             .zip(
-                codeword_matrix
+                tableau
                     .contents()
                     .iter()
-                    .skip(codeword_matrix.layout().first_witness_row()),
+                    .skip(tableau.layout().first_witness_row()),
             )
         {
             inner_product_vector_extended.truncate(0);
             inner_product_vector_extended
-                .resize(codeword_matrix.layout().num_requested_columns(), FE::ZERO);
+                .resize(tableau.layout().num_requested_columns(), FE::ZERO);
             inner_product_vector_extended.extend(witnesses);
             // Specification interpretation verification: nreq + the witnesses should be block size
             assert_eq!(
                 inner_product_vector_extended.len(),
-                codeword_matrix.layout().block_size()
+                tableau.layout().block_size()
             );
 
             for ((dot_proof_element, inner_product_element), tableau_element) in dot_proof
                 .iter_mut()
                 .zip(extend(
                     &inner_product_vector_extended,
-                    codeword_matrix.layout().dblock(),
+                    tableau.layout().dblock(),
                 ))
-                .zip(tableau_row.iter().take(codeword_matrix.layout().dblock()))
+                .zip(tableau_row.iter().take(tableau.layout().dblock()))
             {
                 *dot_proof_element += inner_product_element * tableau_element;
             }
         }
 
         // Check that nothing grew the dot proof behind our back
-        assert_eq!(dot_proof.len(), codeword_matrix.layout().dblock());
+        assert_eq!(dot_proof.len(), tableau.layout().dblock());
 
         // Also uquad, u_quad in the specification.
-        let quad_proof_blinding = transcript
-            .generate_challenge::<FE>(codeword_matrix.layout().num_quadratic_triples())?;
+        let quad_proof_blinding =
+            transcript.generate_challenge::<FE>(tableau.layout().num_quadratic_triples())?;
 
-        let mut quadratic_proof = codeword_matrix.contents()
-            [CodewordMatrixLayout::quadratic_test_row()][0..codeword_matrix.layout().dblock()]
+        let mut quadratic_proof = tableau.contents()[TableauLayout::quadratic_test_row()]
+            [0..tableau.layout().dblock()]
             .to_vec();
 
-        let first_x_row = codeword_matrix.layout().first_quadratic_constraint_row();
-        let first_y_row = first_x_row + codeword_matrix.layout().num_quadratic_triples();
-        let first_z_row = first_y_row + codeword_matrix.layout().num_quadratic_triples();
+        let first_x_row = tableau.layout().first_quadratic_constraint_row();
+        let first_y_row = first_x_row + tableau.layout().num_quadratic_triples();
+        let first_z_row = first_y_row + tableau.layout().num_quadratic_triples();
 
         for (index, challenge) in quad_proof_blinding.into_iter().enumerate() {
-            let x_row = &codeword_matrix.contents()[first_x_row + index];
-            let y_row = &codeword_matrix.contents()[first_y_row + index];
-            let z_row = &codeword_matrix.contents()[first_z_row + index];
+            let x_row = &tableau.contents()[first_x_row + index];
+            let y_row = &tableau.contents()[first_y_row + index];
+            let z_row = &tableau.contents()[first_z_row + index];
 
             // quadratic_proof += uquad[i] * (z[i] - x[i] * y[i])
             for (((proof_element, x), y), z) in
@@ -149,20 +148,18 @@ impl LigeroProver {
         // Specification interpretation verification: the middle part of the quadratic proof should
         // be all zeroes.
         assert_eq!(
-            &quadratic_proof[codeword_matrix.layout().num_requested_columns()
-                ..codeword_matrix.layout().block_size()],
+            &quadratic_proof
+                [tableau.layout().num_requested_columns()..tableau.layout().block_size()],
             vec![
                 FE::ZERO;
-                codeword_matrix.layout().block_size()
-                    - codeword_matrix.layout().num_requested_columns()
+                tableau.layout().block_size() - tableau.layout().num_requested_columns()
             ]
             .as_slice(),
         );
 
         // Quadratic proof consists of the nonzero parts of the proof
-        let quadratic_proof_low =
-            &quadratic_proof[0..codeword_matrix.layout().num_requested_columns()];
-        let quadratic_proof_high = &quadratic_proof[codeword_matrix.layout().block_size()..];
+        let quadratic_proof_low = &quadratic_proof[0..tableau.layout().num_requested_columns()];
+        let quadratic_proof_high = &quadratic_proof[tableau.layout().block_size()..];
 
         // Write proofs to the transcript
         transcript.write_field_element_array(&low_degree_test_proof)?;
@@ -171,8 +168,8 @@ impl LigeroProver {
         transcript.write_field_element_array(quadratic_proof_high)?;
 
         let requested_column_indices = transcript.generate_naturals_without_replacement(
-            codeword_matrix.layout().num_columns() - codeword_matrix.layout().dblock(),
-            codeword_matrix.layout().num_requested_columns(),
+            tableau.layout().num_columns() - tableau.layout().dblock(),
+            tableau.layout().num_requested_columns(),
         );
 
         // The specification for requested_columns suggests we should construct a table of
@@ -180,25 +177,22 @@ impl LigeroProver {
         // columns at requested_column_indices, but longfellow-zk doesn't transpose, and we match
         // their behavior.
         // See compute_req in lib/ligero/ligero_prover.h.
-        let mut requested_tableau_columns = vec![
-            FE::ZERO;
-            codeword_matrix.layout().num_requested_columns()
-                * codeword_matrix.layout().num_rows()
-        ];
+        let mut requested_tableau_columns =
+            vec![FE::ZERO; tableau.layout().num_requested_columns() * tableau.layout().num_rows()];
 
-        for row in 0..codeword_matrix.layout().num_rows() {
+        for row in 0..tableau.layout().num_rows() {
             for (column, requested_column_index) in requested_column_indices.iter().enumerate() {
                 requested_tableau_columns
-                    [row * codeword_matrix.layout().num_requested_columns() + column] =
+                    [row * tableau.layout().num_requested_columns() + column] =
                     // Offset by dblock so we send tableau values and not witnesses. We send few
                     // enough columns that the verifier can't interpolate the polynomial and
                     // recompute witnesses.
-                    codeword_matrix.contents()[row][*requested_column_index + codeword_matrix.layout().dblock()];
+                    tableau.contents()[row][*requested_column_index + tableau.layout().dblock()];
             }
         }
 
         let tableau_columns = requested_tableau_columns
-            .chunks(codeword_matrix.layout().num_requested_columns())
+            .chunks(tableau.layout().num_requested_columns())
             .map(|c| c.to_vec())
             .collect();
 
@@ -225,14 +219,14 @@ impl LigeroProver {
 }
 
 pub fn inner_product_vector<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
-    matrix_layout: &CodewordMatrixLayout,
+    layout: &TableauLayout,
     linear_constraints: &LinearConstraints<FE>,
     linear_constraint_alphas: &[FE],
     quadratic_constraints: &[QuadraticConstraint],
     quadratic_constraint_alphas: &[FE],
 ) -> Result<Vec<FE>, anyhow::Error> {
     let mut inner_product_vector =
-        vec![FE::ZERO; matrix_layout.witnesses_per_row() * matrix_layout.num_constraint_rows()];
+        vec![FE::ZERO; layout.witnesses_per_row() * layout.num_constraint_rows()];
 
     for LinearConstraintLhsTerm {
         constraint_number,
@@ -246,15 +240,13 @@ pub fn inner_product_vector<FE: CodecFieldElement + LagrangePolynomialFieldEleme
 
     // Sum quadratic constraints into IDOT row. Quadratic constraints come after the linear
     // constraints in the inner product vector.
-    let xs_start = matrix_layout.num_linear_constraint_rows() * matrix_layout.witnesses_per_row();
-    let ys_start =
-        xs_start + matrix_layout.num_quadratic_triples() * matrix_layout.witnesses_per_row();
-    let zs_start =
-        ys_start + matrix_layout.num_quadratic_triples() * matrix_layout.witnesses_per_row();
+    let xs_start = layout.num_linear_constraint_rows() * layout.witnesses_per_row();
+    let ys_start = xs_start + layout.num_quadratic_triples() * layout.witnesses_per_row();
+    let zs_start = ys_start + layout.num_quadratic_triples() * layout.witnesses_per_row();
 
-    for i in 0..matrix_layout.num_quadratic_triples() {
-        for j in 0..matrix_layout.witnesses_per_row() {
-            let index = j + i * matrix_layout.witnesses_per_row();
+    for i in 0..layout.num_quadratic_triples() {
+        for j in 0..layout.witnesses_per_row() {
+            let index = j + i * layout.witnesses_per_row();
             if index >= quadratic_constraints.len() {
                 break;
             }
@@ -296,27 +288,24 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
     pub fn decode(
-        matrix_layout: &CodewordMatrixLayout,
+        layout: &TableauLayout,
         bytes: &mut std::io::Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
-        let low_degree_test_proof = FE::decode_fixed_array(bytes, matrix_layout.block_size())?;
-        let dot_proof = FE::decode_fixed_array(bytes, matrix_layout.dblock())?;
+        let low_degree_test_proof = FE::decode_fixed_array(bytes, layout.block_size())?;
+        let dot_proof = FE::decode_fixed_array(bytes, layout.dblock())?;
         let quadratic_proof = (
-            FE::decode_fixed_array(bytes, matrix_layout.num_requested_columns())?,
-            FE::decode_fixed_array(bytes, matrix_layout.dblock() - matrix_layout.block_size())?,
+            FE::decode_fixed_array(bytes, layout.num_requested_columns())?,
+            FE::decode_fixed_array(bytes, layout.dblock() - layout.block_size())?,
         );
         let merkle_tree_nonces =
-            <[u8; 32]>::decode_fixed_array(bytes, matrix_layout.num_requested_columns())?;
+            <[u8; 32]>::decode_fixed_array(bytes, layout.num_requested_columns())?;
 
         // Columns are serialized as one or more runs, each of which is a length-prefixed vector. A
         // run may contain field or subfield elements.
-        let expected_column_elements =
-            matrix_layout.num_rows() * matrix_layout.num_requested_columns();
+        let expected_column_elements = layout.num_rows() * layout.num_requested_columns();
         let mut column_elements = Vec::with_capacity(expected_column_elements);
         let mut subfield_run = false;
-        while column_elements.len()
-            < matrix_layout.num_rows() * matrix_layout.num_requested_columns()
-        {
+        while column_elements.len() < layout.num_rows() * layout.num_requested_columns() {
             // Sizes are usually u24 in Longfellow, but in this case it happens to be u32. See
             // `write_size` and `read_size` in lib/zk/zk_proof.h.
             let run_length =
@@ -346,7 +335,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
         }
 
         let tableau_columns = column_elements
-            .chunks(matrix_layout.num_requested_columns())
+            .chunks(layout.num_requested_columns())
             .map(|v| v.to_vec())
             .collect();
 
@@ -412,12 +401,12 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
     }
 
     /// Stitch the quadratic proof parts back together with the middle span of zeroes.
-    pub fn quadratic_proof(&self, matrix_layout: &CodewordMatrixLayout) -> Vec<FE> {
-        let mut proof = Vec::with_capacity(matrix_layout.num_columns());
+    pub fn quadratic_proof(&self, layout: &TableauLayout) -> Vec<FE> {
+        let mut proof = Vec::with_capacity(layout.num_columns());
         proof.extend(&self.quadratic_proof.0);
-        proof.resize(matrix_layout.block_size(), FE::ZERO);
+        proof.resize(layout.block_size(), FE::ZERO);
         proof.extend(&self.quadratic_proof.1);
-        assert_eq!(proof.len(), matrix_layout.dblock());
+        assert_eq!(proof.len(), layout.dblock());
 
         proof
     }
@@ -459,7 +448,7 @@ mod tests {
 
         let quadratic_constraints = quadratic_constraints(&circuit);
 
-        let codeword_matrix = CodewordMatrix::build_with_field_element_generator(
+        let tableau = Tableau::build_with_field_element_generator(
             &ligero_parameters,
             &witness,
             &quadratic_constraints,
@@ -470,7 +459,7 @@ mod tests {
         // what the fixed RNG yields.
         let mut merkle_tree_nonce = [0; 32];
         merkle_tree_nonce[0] = test_vector.pad.unwrap() as u8;
-        let merkle_tree = codeword_matrix
+        let merkle_tree = tableau
             .commit_with_merkle_tree_nonce_generator(|| merkle_tree_nonce)
             .unwrap();
 
@@ -501,7 +490,7 @@ mod tests {
 
         let ligero_proof = LigeroProver::ligero_prove(
             &mut constraint_transcript,
-            &codeword_matrix,
+            &tableau,
             &merkle_tree,
             &linear_constraints,
             &quadratic_constraints,
@@ -524,7 +513,7 @@ mod tests {
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let quadratic_constraints = quadratic_constraints(&circuit);
-        let tableau_layout = CodewordMatrixLayout::new(
+        let tableau_layout = TableauLayout::new(
             &ligero_parameters,
             witness_layout.length(),
             quadratic_constraints.len(),

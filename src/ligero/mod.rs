@@ -15,8 +15,8 @@ pub mod verifier;
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.2
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct LigeroParameters {
-    /// The number of columns of the commitment matrix that the Verifier requests to be revealed by
-    /// the Prover. Also `NREQ`.
+    /// The number of columns of the tableau that the Verifier requests to be revealed by the
+    /// Prover. Also `NREQ`.
     pub nreq: usize,
     /// The number of witness values included in each row. Also `WR`.
     pub witnesses_per_row: usize,
@@ -30,17 +30,17 @@ pub struct LigeroParameters {
     pub num_columns: usize,
 }
 
-/// Describes the layout of the codeword matrix. The verifier does not actually have the entire
-/// codeword matrix, but needs the layout to locate corresponding values in the blinds it generates
-/// or the matrix columns revealed by the prover.
+/// Describes the layout of the tableau. The verifier does not actually have the entire tableau, but
+/// needs the layout to locate corresponding values in the blinds it generates or the columns
+/// revealed by the prover.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodewordMatrixLayout<'a> {
+pub struct TableauLayout<'a> {
     parameters: &'a LigeroParameters,
     num_witnesses: usize,
     num_quadratic_constraints: usize,
 }
 
-impl<'a> CodewordMatrixLayout<'a> {
+impl<'a> TableauLayout<'a> {
     pub fn new(
         parameters: &'a LigeroParameters,
         num_witnesses: usize,
@@ -80,8 +80,8 @@ impl<'a> CodewordMatrixLayout<'a> {
         self.parameters.num_columns
     }
 
-    /// The number of columns of the commitment matrix that the Verifier requests to be revealed by
-    /// the Prover. Also `NREQ`.
+    /// The number of columns of the tableau that the Verifier requests to be revealed by the
+    /// Prover. Also `NREQ`.
     pub fn num_requested_columns(&self) -> usize {
         self.parameters.nreq
     }

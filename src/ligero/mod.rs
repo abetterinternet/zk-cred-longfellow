@@ -30,14 +30,17 @@ pub struct LigeroParameters {
     pub num_columns: usize,
 }
 
+/// Describes the layout of the codeword matrix. The verifier does not actually have the entire
+/// codeword matrix, but needs the layout to locate corresponding values in the blinds it generates
+/// or the matrix columns revealed by the prover.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TableauLayout<'a> {
+pub struct CodewordMatrixLayout<'a> {
     parameters: &'a LigeroParameters,
     num_witnesses: usize,
     num_quadratic_constraints: usize,
 }
 
-impl<'a> TableauLayout<'a> {
+impl<'a> CodewordMatrixLayout<'a> {
     pub fn new(
         parameters: &'a LigeroParameters,
         num_witnesses: usize,

@@ -155,7 +155,7 @@ pub trait CodecFieldElement:
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
 /// [2]: https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
 /// [3]: https://github.com/abetterinternet/zk-cred-longfellow/issues/40
-pub trait LagrangePolynomialFieldElement: FieldElement {
+pub trait LagrangePolynomialFieldElement: CodecFieldElement {
     /// Evaluate the 0th Lagrange basis polynomial at x.
     fn lagrange_basis_polynomial_0(x: Self) -> Self {
         // (x - x_1) * (x - x_2)

@@ -114,7 +114,7 @@ pub(crate) struct CircuitTestVector {
     /// The fixed pad value to use during constraint generation.
     pub(crate) pad: Option<u64>,
     /// Parameters for the Ligero proof.
-    pub(crate) ligero_parameters: Option<LigeroParameters>,
+    ligero_parameters: Option<LigeroParameters>,
 }
 
 impl CircuitTestVector {
@@ -177,5 +177,9 @@ impl CircuitTestVector {
             .iter()
             .map(|input| FE::from_u128(*input))
             .collect()
+    }
+
+    pub(crate) fn ligero_parameters(&self) -> LigeroParameters {
+        self.ligero_parameters.clone().unwrap()
     }
 }

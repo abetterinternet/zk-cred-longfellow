@@ -12,10 +12,10 @@ use crate::{
 
 /// Longfellow ZK verifier.
 pub struct Verifier<'a> {
-    circuit: &'a Circuit,
-    witness_length: usize,
-    quadratic_constraints: Vec<QuadraticConstraint>,
-    ligero_parameters: LigeroParameters,
+    pub(super) circuit: &'a Circuit,
+    pub(super) witness_length: usize,
+    pub(super) quadratic_constraints: Vec<QuadraticConstraint>,
+    pub(super) ligero_parameters: LigeroParameters,
 }
 
 impl<'a> Verifier<'a> {
@@ -32,12 +32,7 @@ impl<'a> Verifier<'a> {
     }
 
     /// Verify a Longfellow ZK proof.
-    pub fn verify<FE>(
-        &self,
-        session_id: &[u8],
-        statement: &[FE],
-        proof: &Proof<FE>,
-    ) -> Result<(), anyhow::Error>
+    pub fn verify<FE>(&self, statement: &[FE], proof: &Proof<FE>) -> Result<(), anyhow::Error>
     where
         FE: CodecFieldElement + LagrangePolynomialFieldElement,
     {
@@ -54,7 +49,7 @@ impl<'a> Verifier<'a> {
         );
 
         // Start of Fiat-Shamir transcript.
-        let mut transcript = Transcript::new(session_id).unwrap();
+        let mut transcript = Transcript::new(proof.oracle()).unwrap();
 
         // Run sumcheck verifier, and produce deferred linear constraints.
         let linear_constraints = LinearConstraints::from_proof(

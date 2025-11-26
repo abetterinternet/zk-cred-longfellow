@@ -1,4 +1,5 @@
 use crate::{
+    Codec,
     circuit::Circuit,
     constraints::proof_constraints::{
         LinearConstraints, QuadraticConstraint, quadratic_constraints,
@@ -6,13 +7,16 @@ use crate::{
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     ligero::{
         LigeroCommitment, LigeroParameters,
+        merkle::Node,
         prover::{LigeroProof, ligero_prove},
-        tableau::Tableau,
+        tableau::{Tableau, TableauLayout},
     },
     sumcheck::prover::{SumcheckProof, SumcheckProver},
     transcript::Transcript,
     witness::{Witness, WitnessLayout},
+    zk_one_circuit::verifier::Verifier,
 };
+use anyhow::anyhow;
 
 /// Longfellow ZK prover.
 pub struct Prover<'a> {
@@ -94,6 +98,7 @@ impl<'a> Prover<'a> {
         )?;
 
         Ok(Proof {
+            oracle: session_id.to_vec(),
             sumcheck_proof,
             ligero_commitment: commitment,
             ligero_proof,
@@ -102,13 +107,20 @@ impl<'a> Prover<'a> {
 }
 
 /// Longfellow ZK proof.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Proof<FE> {
+    oracle: Vec<u8>,
     sumcheck_proof: SumcheckProof<FE>,
     ligero_commitment: LigeroCommitment,
     ligero_proof: LigeroProof<FE>,
 }
 
 impl<FE> Proof<FE> {
+    /// Returns the byte string used to select a random oracle.
+    pub fn oracle(&self) -> &[u8] {
+        &self.oracle
+    }
+
     /// Returns the Sumcheck component of the proof.
     pub fn sumcheck_proof(&self) -> &SumcheckProof<FE> {
         &self.sumcheck_proof
@@ -122,5 +134,90 @@ impl<FE> Proof<FE> {
     /// Returns the Ligero component of the proof.
     pub fn ligero_proof(&self) -> &LigeroProof<FE> {
         &self.ligero_proof
+    }
+}
+
+impl<F> Proof<F>
+where
+    F: CodecFieldElement,
+{
+    /// Deserialize a Longfellow ZK proof.
+    ///
+    /// See section [7.5][1].
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.5
+    pub fn decode(
+        verifier: &Verifier,
+        bytes: &mut std::io::Cursor<&[u8]>,
+    ) -> Result<Self, anyhow::Error> {
+        let layout = TableauLayout::new(
+            &verifier.ligero_parameters,
+            verifier.witness_length,
+            verifier.quadratic_constraints.len(),
+        );
+        let oracle = <[u8; 32] as Codec>::decode(bytes)?.to_vec();
+        let ligero_commitment = LigeroCommitment::from(Node::decode(bytes)?);
+        let sumcheck_proof = SumcheckProof::<F>::decode(verifier.circuit, bytes)?;
+        let ligero_proof = LigeroProof::<F>::decode(&layout, bytes)?;
+        Ok(Self {
+            oracle,
+            sumcheck_proof,
+            ligero_commitment,
+            ligero_proof,
+        })
+    }
+
+    /// Encode a Longfellow ZK proof.
+    ///
+    /// See section [7.5][1].
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.5
+    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        let oracle: &[u8; 32] = self
+            .oracle
+            .as_slice()
+            .try_into()
+            .map_err(|_| anyhow!("oracle is not 32 bytes long"))?;
+        oracle.encode(bytes)?;
+        Node::from(self.ligero_commitment.into_bytes()).encode(bytes)?;
+        self.sumcheck_proof.encode(bytes)?;
+        self.ligero_proof.encode(bytes)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use crate::{
+        decode_test_vector,
+        fields::fieldp128::FieldP128,
+        test_vector::CircuitTestVector,
+        zk_one_circuit::{
+            prover::{Proof, Prover},
+            verifier::Verifier,
+        },
+    };
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn proof_round_trip() {
+        let (test_vector, circuit) =
+            decode_test_vector!("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
+        let ligero_parameters = test_vector.ligero_parameters();
+        let all_inputs: Vec<FieldP128> = test_vector.valid_inputs();
+        let session_id = b"testtesttesttesttesttesttesttest";
+
+        let prover = Prover::new(&circuit, ligero_parameters.clone());
+        let proof = prover.prove(session_id, &all_inputs).unwrap();
+        assert_eq!(session_id, proof.oracle());
+
+        let mut encoded = Vec::new();
+        proof.encode(&mut encoded).unwrap();
+
+        let verifier = Verifier::new(&circuit, ligero_parameters);
+        let decoded = Proof::<FieldP128>::decode(&verifier, &mut Cursor::new(&encoded)).unwrap();
+        assert_eq!(proof, decoded);
     }
 }

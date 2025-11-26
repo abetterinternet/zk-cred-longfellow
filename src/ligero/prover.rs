@@ -196,13 +196,10 @@ impl LigeroProver {
             .map(|c| c.to_vec())
             .collect();
 
-        let merkle_tree_nonces = merkle_tree
-            .nonces()
+        // Gather nonces for requested columns.
+        let merkle_tree_nonces = requested_column_indices
             .iter()
-            .copied()
-            .enumerate()
-            .filter(|(index, _)| requested_column_indices.contains(index))
-            .map(|(_, nonce)| nonce)
+            .map(|index| merkle_tree.nonces()[*index])
             .collect();
 
         let inclusion_proof = merkle_tree.prove(requested_column_indices.as_slice());

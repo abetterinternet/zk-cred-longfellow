@@ -1,6 +1,8 @@
 use crate::{
     circuit::Circuit,
-    constraints::proof_constraints::{LinearConstraints, quadratic_constraints},
+    constraints::proof_constraints::{
+        LinearConstraints, QuadraticConstraint, quadratic_constraints,
+    },
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     ligero::{
         LigeroParameters,
@@ -15,6 +17,8 @@ use crate::{
 /// Longfellow ZK prover.
 pub struct Prover<'a> {
     sumcheck_prover: SumcheckProver<'a>,
+    witness_layout: WitnessLayout,
+    quadratic_constraints: Vec<QuadraticConstraint>,
     ligero_parameters: LigeroParameters,
 }
 
@@ -22,8 +26,12 @@ impl<'a> Prover<'a> {
     /// Construct a new prover from a circuit and a choice of Ligero parameters.
     pub fn new(circuit: &'a Circuit, ligero_parameters: LigeroParameters) -> Self {
         let sumcheck_prover = SumcheckProver::new(circuit);
+        let witness_layout = WitnessLayout::from_circuit(circuit);
+        let quadratic_constraints = quadratic_constraints(circuit);
         Self {
             sumcheck_prover,
+            witness_layout,
+            quadratic_constraints,
             ligero_parameters,
         }
     }
@@ -42,16 +50,18 @@ impl<'a> Prover<'a> {
         let evaluation = circuit.evaluate(inputs)?;
 
         // Select one-time-pad, and combine with circuit witness into the Ligero witness.
-        let witness_layout = WitnessLayout::from_circuit(circuit);
         let witness = Witness::fill_witness(
-            witness_layout,
+            self.witness_layout.clone(),
             evaluation.private_inputs(circuit.num_public_inputs()),
             FE::sample,
         );
 
         // Construct Ligero commitment.
-        let quadratic_constraints = quadratic_constraints(circuit);
-        let tableau = Tableau::build(&self.ligero_parameters, &witness, &quadratic_constraints);
+        let tableau = Tableau::build(
+            &self.ligero_parameters,
+            &witness,
+            &self.quadratic_constraints,
+        );
         let merkle_tree = tableau.commit()?;
         let commitment = LigeroCommitment::from(merkle_tree.root());
 
@@ -80,7 +90,7 @@ impl<'a> Prover<'a> {
             &tableau,
             &merkle_tree,
             &linear_constraints,
-            &quadratic_constraints,
+            &self.quadratic_constraints,
         )?;
 
         Ok(Proof {

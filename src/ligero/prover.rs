@@ -9,10 +9,8 @@ use crate::{
     },
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     ligero::{
-        TableauLayout,
-        committer::Tableau,
-        extend,
         merkle::{InclusionProof, MerkleTree},
+        tableau::{Tableau, TableauLayout},
     },
     transcript::Transcript,
 };
@@ -20,199 +18,185 @@ use anyhow::{Context, anyhow};
 
 const MAX_RUN_LENGTH: usize = 1 << 25;
 
-/// Prover for Ligero.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LigeroProver {}
+/// Prove that the commitment satisfies the provided constraints. The provided transcript should
+/// have been used in [`LinearConstraints::from_proof`] (or, equivalently,
+/// [`crate::sumcheck::prover::SumcheckProver::prove`]).
+///
+/// This is specified in [4.4][1].
+///
+/// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.4
+pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
+    transcript: &mut Transcript,
+    tableau: &Tableau<FE>,
+    merkle_tree: &MerkleTree,
+    linear_constraints: &LinearConstraints<FE>,
+    quadratic_constraints: &[QuadraticConstraint],
+) -> Result<LigeroProof<FE>, anyhow::Error> {
+    // Write 0xdeadbeef, padded to 32 bytes, to the transcript to match what longfellow-zk does
+    transcript.write_byte_array(&[
+        0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00,
+    ])?;
 
-impl LigeroProver {
-    /// Prove that the commitment satisfies the provided constraints. The provided transcript should
-    /// have been used in [`LinearConstraints::from_proof`] (or, equivalently,
-    /// [`crate::sumcheck::prover::SumcheckProver::prove`]).
-    ///
-    /// This is specified in [4.4][1].
-    ///
-    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.4
-    pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
-        transcript: &mut Transcript,
-        tableau: &Tableau<FE>,
-        merkle_tree: &MerkleTree,
-        linear_constraints: &LinearConstraints<FE>,
-        quadratic_constraints: &[QuadraticConstraint],
-    ) -> Result<LigeroProof<FE>, anyhow::Error> {
-        // Write 0xdeadbeef, padded to 32 bytes, to the transcript to match what longfellow-zk does
-        transcript.write_byte_array(&[
-            0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        ])?;
+    // The blind is also "u" in the specification. Generate one blind element for each witness
+    // and quadratic witness row in the tableau.
+    let low_degree_test_blind =
+        transcript.generate_challenge::<FE>(tableau.layout().num_constraint_rows())?;
 
-        // The blind is also "u" in the specification. Generate one blind element for each witness
-        // and quadratic witness row in the tableau.
-        let low_degree_test_blind =
-            transcript.generate_challenge::<FE>(tableau.layout().num_constraint_rows())?;
-
-        // Sum blinded witness rows into the low degree test
-        let mut low_degree_test_proof = tableau.contents()[TableauLayout::low_degree_test_row()]
-            [0..tableau.layout().block_size()]
-            .to_vec();
-        for (witness_row, blind) in tableau
-            .contents()
-            .iter()
-            .skip(tableau.layout().first_witness_row())
-            .zip(low_degree_test_blind)
+    // Sum blinded witness rows into the low degree test
+    let mut low_degree_test_proof = tableau.contents()[TableauLayout::low_degree_test_row()]
+        [0..tableau.layout().block_size()]
+        .to_vec();
+    for (witness_row, blind) in tableau
+        .contents()
+        .iter()
+        .skip(tableau.layout().first_witness_row())
+        .zip(low_degree_test_blind)
+    {
+        for (ldt_column, witness_column) in low_degree_test_proof.iter_mut().zip(witness_row.iter())
         {
-            for (ldt_column, witness_column) in
-                low_degree_test_proof.iter_mut().zip(witness_row.iter())
-            {
-                *ldt_column += blind * witness_column;
-            }
+            *ldt_column += blind * witness_column;
         }
+    }
 
-        let linear_constraint_alphas =
-            transcript.generate_challenge::<FE>(linear_constraints.len())?;
-        let quad_constraint_alphas =
-            transcript.generate_challenge::<FE>(3 * quadratic_constraints.len())?;
+    let linear_constraint_alphas = transcript.generate_challenge::<FE>(linear_constraints.len())?;
+    let quad_constraint_alphas =
+        transcript.generate_challenge::<FE>(3 * quadratic_constraints.len())?;
 
-        // Sum random linear combinations of linear constraints into the dot proof
-        let inner_product_vector = inner_product_vector(
-            tableau.layout(),
-            linear_constraints,
-            &linear_constraint_alphas,
-            quadratic_constraints,
-            &quad_constraint_alphas,
-        )?;
+    // Sum random linear combinations of linear constraints into the dot proof
+    let inner_product_vector = inner_product_vector(
+        tableau.layout(),
+        linear_constraints,
+        &linear_constraint_alphas,
+        quadratic_constraints,
+        &quad_constraint_alphas,
+    )?;
 
-        let mut dot_proof = tableau.contents()[TableauLayout::dot_proof_row()]
-            [0..tableau.layout().dblock()]
-            .to_vec();
-        let mut inner_product_vector_extended = Vec::with_capacity(tableau.layout().block_size());
-        for (witnesses, tableau_row) in inner_product_vector
-            .chunks(tableau.layout().witnesses_per_row())
-            .zip(
-                tableau
-                    .contents()
-                    .iter()
-                    .skip(tableau.layout().first_witness_row()),
-            )
-        {
-            inner_product_vector_extended.truncate(0);
-            inner_product_vector_extended
-                .resize(tableau.layout().num_requested_columns(), FE::ZERO);
-            inner_product_vector_extended.extend(witnesses);
-            // Specification interpretation verification: nreq + the witnesses should be block size
-            assert_eq!(
-                inner_product_vector_extended.len(),
-                tableau.layout().block_size()
-            );
-
-            for ((dot_proof_element, inner_product_element), tableau_element) in dot_proof
-                .iter_mut()
-                .zip(extend(
-                    &inner_product_vector_extended,
-                    tableau.layout().dblock(),
-                ))
-                .zip(tableau_row.iter().take(tableau.layout().dblock()))
-            {
-                *dot_proof_element += inner_product_element * tableau_element;
-            }
-        }
-
-        // Check that nothing grew the dot proof behind our back
-        assert_eq!(dot_proof.len(), tableau.layout().dblock());
-
-        // Also uquad, u_quad in the specification.
-        let quad_proof_blinding =
-            transcript.generate_challenge::<FE>(tableau.layout().num_quadratic_triples())?;
-
-        let mut quadratic_proof = tableau.contents()[TableauLayout::quadratic_test_row()]
-            [0..tableau.layout().dblock()]
-            .to_vec();
-
-        let first_x_row = tableau.layout().first_quadratic_constraint_row();
-        let first_y_row = first_x_row + tableau.layout().num_quadratic_triples();
-        let first_z_row = first_y_row + tableau.layout().num_quadratic_triples();
-
-        for (index, challenge) in quad_proof_blinding.into_iter().enumerate() {
-            let x_row = &tableau.contents()[first_x_row + index];
-            let y_row = &tableau.contents()[first_y_row + index];
-            let z_row = &tableau.contents()[first_z_row + index];
-
-            // quadratic_proof += uquad[i] * (z[i] - x[i] * y[i])
-            for (((proof_element, x), y), z) in
-                quadratic_proof.iter_mut().zip(x_row).zip(y_row).zip(z_row)
-            {
-                *proof_element += challenge * (*z - *x * y);
-            }
-        }
-
-        // Specification interpretation verification: the middle part of the quadratic proof should
-        // be all zeroes.
+    let mut dot_proof =
+        tableau.contents()[TableauLayout::dot_proof_row()][0..tableau.layout().dblock()].to_vec();
+    let mut inner_product_vector_extended = Vec::with_capacity(tableau.layout().block_size());
+    for (witnesses, tableau_row) in inner_product_vector
+        .chunks(tableau.layout().witnesses_per_row())
+        .zip(
+            tableau
+                .contents()
+                .iter()
+                .skip(tableau.layout().first_witness_row()),
+        )
+    {
+        inner_product_vector_extended.truncate(0);
+        inner_product_vector_extended.resize(tableau.layout().num_requested_columns(), FE::ZERO);
+        inner_product_vector_extended.extend(witnesses);
+        // Specification interpretation verification: nreq + the witnesses should be block size
         assert_eq!(
-            &quadratic_proof
-                [tableau.layout().num_requested_columns()..tableau.layout().block_size()],
-            vec![
-                FE::ZERO;
-                tableau.layout().block_size() - tableau.layout().num_requested_columns()
-            ]
+            inner_product_vector_extended.len(),
+            tableau.layout().block_size()
+        );
+
+        for ((dot_proof_element, inner_product_element), tableau_element) in dot_proof
+            .iter_mut()
+            .zip(FE::extend(
+                &inner_product_vector_extended,
+                tableau.layout().dblock(),
+            ))
+            .zip(tableau_row.iter().take(tableau.layout().dblock()))
+        {
+            *dot_proof_element += inner_product_element * tableau_element;
+        }
+    }
+
+    // Check that nothing grew the dot proof behind our back
+    assert_eq!(dot_proof.len(), tableau.layout().dblock());
+
+    // Also uquad, u_quad in the specification.
+    let quad_proof_blinding =
+        transcript.generate_challenge::<FE>(tableau.layout().num_quadratic_triples())?;
+
+    let mut quadratic_proof = tableau.contents()[TableauLayout::quadratic_test_row()]
+        [0..tableau.layout().dblock()]
+        .to_vec();
+
+    let first_x_row = tableau.layout().first_quadratic_constraint_row();
+    let first_y_row = first_x_row + tableau.layout().num_quadratic_triples();
+    let first_z_row = first_y_row + tableau.layout().num_quadratic_triples();
+
+    for (index, challenge) in quad_proof_blinding.into_iter().enumerate() {
+        let x_row = &tableau.contents()[first_x_row + index];
+        let y_row = &tableau.contents()[first_y_row + index];
+        let z_row = &tableau.contents()[first_z_row + index];
+
+        // quadratic_proof += uquad[i] * (z[i] - x[i] * y[i])
+        for (((proof_element, x), y), z) in
+            quadratic_proof.iter_mut().zip(x_row).zip(y_row).zip(z_row)
+        {
+            *proof_element += challenge * (*z - *x * y);
+        }
+    }
+
+    // Specification interpretation verification: the middle part of the quadratic proof should
+    // be all zeroes.
+    assert_eq!(
+        &quadratic_proof[tableau.layout().num_requested_columns()..tableau.layout().block_size()],
+        vec![FE::ZERO; tableau.layout().block_size() - tableau.layout().num_requested_columns()]
             .as_slice(),
-        );
+    );
 
-        // Quadratic proof consists of the nonzero parts of the proof
-        let quadratic_proof_low = &quadratic_proof[0..tableau.layout().num_requested_columns()];
-        let quadratic_proof_high = &quadratic_proof[tableau.layout().block_size()..];
+    // Quadratic proof consists of the nonzero parts of the proof
+    let quadratic_proof_low = &quadratic_proof[0..tableau.layout().num_requested_columns()];
+    let quadratic_proof_high = &quadratic_proof[tableau.layout().block_size()..];
 
-        // Write proofs to the transcript
-        transcript.write_field_element_array(&low_degree_test_proof)?;
-        transcript.write_field_element_array(&dot_proof)?;
-        transcript.write_field_element_array(quadratic_proof_low)?;
-        transcript.write_field_element_array(quadratic_proof_high)?;
+    // Write proofs to the transcript
+    transcript.write_field_element_array(&low_degree_test_proof)?;
+    transcript.write_field_element_array(&dot_proof)?;
+    transcript.write_field_element_array(quadratic_proof_low)?;
+    transcript.write_field_element_array(quadratic_proof_high)?;
 
-        let requested_column_indices = transcript.generate_naturals_without_replacement(
-            tableau.layout().num_columns() - tableau.layout().dblock(),
-            tableau.layout().num_requested_columns(),
-        );
+    let requested_column_indices = transcript.generate_naturals_without_replacement(
+        tableau.layout().num_columns() - tableau.layout().dblock(),
+        tableau.layout().num_requested_columns(),
+    );
 
-        // The specification for requested_columns suggests we should construct a table of
-        // num_requested_columns rows and num_rows columns, whose rows consist of the tableau
-        // columns at requested_column_indices, but longfellow-zk doesn't transpose, and we match
-        // their behavior.
-        // See compute_req in lib/ligero/ligero_prover.h.
-        let mut requested_tableau_columns =
-            vec![FE::ZERO; tableau.layout().num_requested_columns() * tableau.layout().num_rows()];
+    // The specification for requested_columns suggests we should construct a table of
+    // num_requested_columns rows and num_rows columns, whose rows consist of the tableau
+    // columns at requested_column_indices, but longfellow-zk doesn't transpose, and we match
+    // their behavior.
+    // See compute_req in lib/ligero/ligero_prover.h.
+    let mut requested_tableau_columns =
+        vec![FE::ZERO; tableau.layout().num_requested_columns() * tableau.layout().num_rows()];
 
-        for row in 0..tableau.layout().num_rows() {
-            for (column, requested_column_index) in requested_column_indices.iter().enumerate() {
-                requested_tableau_columns
+    for row in 0..tableau.layout().num_rows() {
+        for (column, requested_column_index) in requested_column_indices.iter().enumerate() {
+            requested_tableau_columns
                     [row * tableau.layout().num_requested_columns() + column] =
                     // Offset by dblock so we send tableau values and not witnesses. We send few
                     // enough columns that the verifier can't interpolate the polynomial and
                     // recompute witnesses.
                     tableau.contents()[row][*requested_column_index + tableau.layout().dblock()];
-            }
         }
-
-        let tableau_columns = requested_tableau_columns
-            .chunks(tableau.layout().num_requested_columns())
-            .map(|c| c.to_vec())
-            .collect();
-
-        // Gather nonces for requested columns.
-        let merkle_tree_nonces = requested_column_indices
-            .iter()
-            .map(|index| merkle_tree.nonces()[*index])
-            .collect();
-
-        let inclusion_proof = merkle_tree.prove(requested_column_indices.as_slice());
-
-        Ok(LigeroProof {
-            low_degree_test_proof,
-            dot_proof,
-            quadratic_proof: (quadratic_proof_low.to_vec(), quadratic_proof_high.to_vec()),
-            tableau_columns,
-            inclusion_proof,
-            merkle_tree_nonces,
-        })
     }
+
+    let tableau_columns = requested_tableau_columns
+        .chunks(tableau.layout().num_requested_columns())
+        .map(|c| c.to_vec())
+        .collect();
+
+    // Gather nonces for requested columns.
+    let merkle_tree_nonces = requested_column_indices
+        .iter()
+        .map(|index| merkle_tree.nonces()[*index])
+        .collect();
+
+    let inclusion_proof = merkle_tree.prove(requested_column_indices.as_slice());
+
+    Ok(LigeroProof {
+        low_degree_test_proof,
+        dot_proof,
+        quadratic_proof: (quadratic_proof_low.to_vec(), quadratic_proof_high.to_vec()),
+        tableau_columns,
+        inclusion_proof,
+        merkle_tree_nonces,
+    })
 }
 
 pub fn inner_product_vector<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
@@ -417,7 +401,7 @@ mod tests {
         constraints::proof_constraints::quadratic_constraints,
         decode_test_vector,
         fields::fieldp128::FieldP128,
-        ligero::committer::LigeroCommitment,
+        ligero::LigeroCommitment,
         sumcheck,
         test_vector::CircuitTestVector,
         transcript::Transcript,
@@ -487,7 +471,7 @@ mod tests {
 
         assert_eq!(transcript, constraint_transcript);
 
-        let ligero_proof = LigeroProver::ligero_prove(
+        let ligero_proof = ligero_prove(
             &mut constraint_transcript,
             &tableau,
             &merkle_tree,

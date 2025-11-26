@@ -78,6 +78,12 @@ impl LagrangePolynomialFieldElement for Field2_128 {
         // FieldP256::mul_inv() for an explanation of this technique.
         addition_chains::gf_2_128_m2::exp(*self)
     }
+
+    fn extend(_: &[Self], _: usize) -> Vec<Self> {
+        // Opt out of the default implementation which does not work for this field.
+        // https://github.com/abetterinternet/zk-cred-longfellow/issues/56
+        unimplemented!()
+    }
 }
 
 impl Debug for Field2_128 {

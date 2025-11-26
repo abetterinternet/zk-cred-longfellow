@@ -6,52 +6,147 @@ use crate::{
     constraints::proof_constraints::QuadraticConstraint,
     fields::{CodecFieldElement, LagrangePolynomialFieldElement, field_element_iter_from_source},
     ligero::{
-        LigeroParameters, TableauLayout, extend,
+        LigeroParameters,
         merkle::{MerkleTree, Node},
     },
     witness::Witness,
 };
-use anyhow::Context;
 use rand::random;
 use sha2::{Digest, Sha256};
 
-/// A commitment to a witness vector, as specified in [1]. Concretely, this is the root of a Merkle
-/// tree of SHA-256 hashes.
-///
-/// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LigeroCommitment([u8; 32]);
-
-impl TryFrom<&[u8]> for LigeroCommitment {
-    type Error = anyhow::Error;
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let commitment: [u8; 32] = value
-            .try_into()
-            .context("byte slice wrong size for commitment")?;
-        Ok(LigeroCommitment(commitment))
-    }
+/// Describes the layout of the tableau. The verifier does not actually have the entire tableau, but
+/// needs the layout to locate corresponding values in the blinds it generates or the columns
+/// revealed by the prover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableauLayout<'a> {
+    parameters: &'a LigeroParameters,
+    num_witnesses: usize,
+    num_quadratic_constraints: usize,
 }
 
-impl From<Node> for LigeroCommitment {
-    fn from(value: Node) -> Self {
-        Self(<[u8; 32]>::from(value))
-    }
-}
-
-impl LigeroCommitment {
-    /// The commitment as a slice of bytes.
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-
-    pub fn into_bytes(&self) -> [u8; 32] {
-        self.0
+impl<'a> TableauLayout<'a> {
+    pub fn new(
+        parameters: &'a LigeroParameters,
+        num_witnesses: usize,
+        num_quadratic_constraints: usize,
+    ) -> Self {
+        Self {
+            parameters,
+            num_witnesses,
+            num_quadratic_constraints,
+        }
     }
 
-    /// A fake but well-formed commitment for tests.
-    #[cfg(test)]
-    pub fn test_commitment() -> Self {
-        Self::try_from([1u8; 32].as_slice()).unwrap()
+    /// Index of the low degree test row.
+    pub const fn low_degree_test_row() -> usize {
+        0
+    }
+
+    /// Index of the dot proof row, aka linear test row.
+    pub const fn dot_proof_row() -> usize {
+        1
+    }
+
+    /// Index of the quadratic test row.
+    pub const fn quadratic_test_row() -> usize {
+        2
+    }
+
+    /// The size of a block, in terms of number of field elements. Also `BLOCK`. The specification
+    /// describes this quantity as the "size of each row", but that would be `NCOL` or
+    /// `num_columns`.
+    pub fn block_size(&self) -> usize {
+        self.parameters.block_size
+    }
+
+    /// The total size of a tableau row. Also `NCOL`.
+    pub fn num_columns(&self) -> usize {
+        self.parameters.num_columns
+    }
+
+    /// The number of columns of the tableau that the Verifier requests to be revealed by the
+    /// Prover. Also `NREQ`.
+    pub fn num_requested_columns(&self) -> usize {
+        self.parameters.nreq
+    }
+
+    /// `DBLOCK = 2 * BLOCK - 1`
+    pub fn dblock(&self) -> usize {
+        self.parameters.block_size * 2 - 1
+    }
+
+    /// The number of witness values included in each row. Also `WR`.
+    pub fn witnesses_per_row(&self) -> usize {
+        self.parameters.witnesses_per_row
+    }
+
+    /// The number of quadratic constraints written in each row. Also `QR`.
+    pub fn quadratic_constraints_per_row(&self) -> usize {
+        self.parameters.quadratic_constraints_per_row
+    }
+
+    /// Index of the first row of the tableau containing witnesses, used in the linear constraint
+    /// test.
+    pub fn first_witness_row(&self) -> usize {
+        // One row each for low degree, linear and quadratic tests.
+        3
+    }
+
+    /// Index of the first row of the tableau containing quadratic constraints on the witnesses.
+    pub fn first_quadratic_constraint_row(&self) -> usize {
+        self.first_witness_row() + self.num_linear_constraint_rows()
+    }
+
+    /// The number of triples of tableau rows needed to represent the quadratic constraints
+    pub fn num_quadratic_triples(&self) -> usize {
+        self.num_quadratic_constraints
+            .div_ceil(self.parameters.quadratic_constraints_per_row)
+    }
+
+    /// The number of tableau rows needed to represent the quadratic constraints.
+    pub fn num_quadratic_rows(&self) -> usize {
+        3 * self.num_quadratic_triples()
+    }
+
+    /// The number of tableau rows needed to represent linear constraints on the witnesses.
+    pub fn num_linear_constraint_rows(&self) -> usize {
+        self.num_witnesses
+            .div_ceil(self.parameters.witnesses_per_row)
+    }
+
+    /// The total number of rows in the tableau for witness constraints.
+    pub fn num_constraint_rows(&self) -> usize {
+        self.num_linear_constraint_rows() + self.num_quadratic_rows()
+    }
+
+    /// The total number of rows in the tableau.
+    pub fn num_rows(&self) -> usize {
+        self.first_witness_row() + self.num_linear_constraint_rows() + self.num_quadratic_rows()
+    }
+
+    /// Gather the tableau elements at the provided indices from source, in the order of the
+    /// indices. As specified in [2.1][1].
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.1
+    pub fn gather_iter<FE: LagrangePolynomialFieldElement>(
+        &self,
+        source: &[FE],
+        indices: &[usize],
+    ) -> impl Iterator<Item = FE> {
+        // offset by dblock so that we yield tableau elements, not witnesses.
+        indices.iter().map(|index| source[*index + self.dblock()])
+    }
+
+    /// Gather the tableau elements at the provided indices from source, in the order of the indices. As
+    /// specified in [2.1][1].
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.1
+    pub fn gather<FE: LagrangePolynomialFieldElement>(
+        &self,
+        source: &[FE],
+        indices: &[usize],
+    ) -> Vec<FE> {
+        self.gather_iter(source, indices).collect()
     }
 }
 
@@ -108,7 +203,7 @@ impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE>
             .by_ref()
             .take(layout.block_size())
             .collect();
-        tableau.push(extend(&low_degree_test_row, layout.num_columns()));
+        tableau.push(FE::extend(&low_degree_test_row, layout.num_columns()));
 
         // Fill the linear test row ("IDOT"): random field elements where elements [nreq..nreq+wr)
         // sum to 0, extended to NCOL
@@ -151,7 +246,7 @@ impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE>
                 .take(layout.witnesses_per_row())
                 .fold(FE::ZERO, |acc, elem| acc + elem)
         );
-        tableau.push(extend(&linear_test_row, layout.num_columns()));
+        tableau.push(FE::extend(&linear_test_row, layout.num_columns()));
 
         // Quadratic test row: NREQ random elements then zeroes for each witness, then more random
         // elements to fill to DBLOCK, then extended to NCOL
@@ -168,12 +263,15 @@ impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE>
         })
         .take(layout.dblock())
         .collect();
-        tableau.push(extend(quadratic_test_row.as_slice(), layout.num_columns()));
+        tableau.push(FE::extend(
+            quadratic_test_row.as_slice(),
+            layout.num_columns(),
+        ));
 
         // Padded witness rows: NREQ random elements, then witnesses_per_row elements of the witness
         // extended to NCOL
         for witness_row in 0..num_witness_rows {
-            tableau.push(extend(
+            tableau.push(FE::extend(
                 element_generator
                     .by_ref()
                     .take(layout.num_requested_columns())
@@ -214,7 +312,7 @@ impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE>
                 row.push(witness);
             }
 
-            tableau.push(extend(row.as_slice(), layout.num_columns()));
+            tableau.push(FE::extend(row.as_slice(), layout.num_columns()));
         }
 
         // Make sure we allocated the tableau correctly up front.
@@ -282,6 +380,7 @@ mod tests {
         constraints::proof_constraints::quadratic_constraints,
         decode_test_vector,
         fields::fieldp128::FieldP128,
+        ligero::LigeroCommitment,
         test_vector::CircuitTestVector,
         witness::{Witness, WitnessLayout},
     };

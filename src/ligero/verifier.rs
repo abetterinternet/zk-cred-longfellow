@@ -6,11 +6,10 @@ use crate::{
     constraints::proof_constraints::{LinearConstraints, QuadraticConstraint},
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     ligero::{
-        TableauLayout,
-        committer::LigeroCommitment,
-        extend,
+        LigeroCommitment,
         merkle::{MerkleTree, Node},
         prover::{LigeroProof, inner_product_vector},
+        tableau::TableauLayout,
     },
     transcript::Transcript,
 };
@@ -68,7 +67,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     }
 
     let proof_low_degree_test_row = layout.gather(
-        &extend(&proof.low_degree_test_proof, layout.num_columns()),
+        &FE::extend(&proof.low_degree_test_proof, layout.num_columns()),
         &requested_column_indices,
     );
 
@@ -115,7 +114,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         inner_product_vector_extended.resize(layout.num_requested_columns(), FE::ZERO);
         inner_product_vector_extended.extend(products);
 
-        let extended = extend(&inner_product_vector_extended, layout.num_columns());
+        let extended = FE::extend(&inner_product_vector_extended, layout.num_columns());
         for ((want_dot_row_element, inner_product_element), tableau_element) in want_dot_row
             .iter_mut()
             .zip(layout.gather_iter(&extended, &requested_column_indices))
@@ -126,7 +125,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     }
 
     let proof_dot_row = layout.gather(
-        &extend(&proof.dot_proof, layout.num_columns()),
+        &FE::extend(&proof.dot_proof, layout.num_columns()),
         &requested_column_indices,
     );
 
@@ -159,7 +158,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     }
 
     let proof_quadratic_test_row = layout.gather(
-        &extend(&proof.quadratic_proof(layout), layout.num_columns()),
+        &FE::extend(&proof.quadratic_proof(layout), layout.num_columns()),
         &requested_column_indices,
     );
 
@@ -202,7 +201,7 @@ mod tests {
         constraints::proof_constraints::quadratic_constraints,
         decode_test_vector,
         fields::{FieldElement, fieldp128::FieldP128},
-        ligero::TableauLayout,
+        ligero::tableau::TableauLayout,
         sumcheck::prover::SumcheckProof,
         test_vector::CircuitTestVector,
         transcript::Transcript,

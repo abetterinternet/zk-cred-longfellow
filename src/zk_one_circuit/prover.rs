@@ -5,9 +5,9 @@ use crate::{
     },
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     ligero::{
-        LigeroParameters,
-        committer::{LigeroCommitment, Tableau},
-        prover::{LigeroProof, LigeroProver},
+        LigeroCommitment, LigeroParameters,
+        prover::{LigeroProof, ligero_prove},
+        tableau::Tableau,
     },
     sumcheck::prover::{SumcheckProof, SumcheckProver},
     transcript::Transcript,
@@ -85,7 +85,7 @@ impl<'a> Prover<'a> {
         )?;
 
         // Generate Ligero proof.
-        let ligero_proof = LigeroProver::ligero_prove(
+        let ligero_proof = ligero_prove(
             &mut transcript,
             &tableau,
             &merkle_tree,

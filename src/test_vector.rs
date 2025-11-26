@@ -79,6 +79,19 @@ macro_rules! decode_test_vector {
     };
 }
 
+/// Load the test vector for the "rfc" circuit.
+pub(crate) fn load_rfc() -> (CircuitTestVector, Circuit) {
+    decode_test_vector!(
+        "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
+        proofs,
+    )
+}
+
+/// Load the test vector for the "mac" circuit.
+pub(crate) fn load_mac() -> (CircuitTestVector, Circuit) {
+    decode_test_vector!("longfellow-mac-circuit-902a955fbb22323123aac5b69bdf3442e6ea6f80-1")
+}
+
 /// JSON descriptor of a circuit test vector.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct CircuitTestVector {

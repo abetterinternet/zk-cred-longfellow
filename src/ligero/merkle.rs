@@ -84,6 +84,8 @@ impl Codec for InclusionProof {
 pub struct MerkleTree {
     /// The nodes of the tree. The root is at index 1. Index 0 is unused.
     digests: Vec<Node>,
+    /// The nonces hashed into the leaf nodes of the tree.
+    nonces: Vec<[u8; 32]>,
 }
 
 impl MerkleTree {
@@ -91,6 +93,7 @@ impl MerkleTree {
     pub fn new(leaf_count: usize) -> Self {
         Self {
             digests: vec![Node::default(); 2 * leaf_count],
+            nonces: vec![<[u8; 32]>::default(); leaf_count],
         }
     }
 
@@ -115,9 +118,10 @@ impl MerkleTree {
     }
 
     /// Insert the leaf into the tree.
-    pub fn set_leaf(&mut self, position: usize, leaf: Node) {
+    pub fn set_leaf(&mut self, position: usize, leaf: Node, nonce: [u8; 32]) {
         let first_leaf_index = self.leaf_count();
         self.digests[first_leaf_index + position] = leaf;
+        self.nonces[position] = nonce;
     }
 
     /// Hash `left` and `right` together into a new `Node`.
@@ -247,6 +251,12 @@ impl MerkleTree {
 
         Ok(())
     }
+
+    /// The nonces hashed into the leaf nodes of the tree. The order of nonces matches the order of
+    /// the leaves.
+    pub fn nonces(&self) -> &[[u8; 32]] {
+        &self.nonces
+    }
 }
 
 #[cfg(test)]
@@ -257,12 +267,14 @@ mod tests {
 
     fn simple_tree() -> MerkleTree {
         let mut tree = MerkleTree::new(4);
-        tree.set_leaf(0, Node([1; 32]));
-        tree.set_leaf(1, Node([2; 32]));
-        tree.set_leaf(2, Node([3; 32]));
-        tree.set_leaf(3, Node([4; 32]));
+        tree.set_leaf(0, Node([1; 32]), [1; 32]);
+        tree.set_leaf(1, Node([2; 32]), [2; 32]);
+        tree.set_leaf(2, Node([3; 32]), [3; 32]);
+        tree.set_leaf(3, Node([4; 32]), [4; 32]);
 
         tree.build();
+
+        assert_eq!(tree.nonces, &[[1; 32], [2; 32], [3; 32], [4; 32]]);
 
         tree
     }

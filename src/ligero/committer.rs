@@ -6,12 +6,13 @@ use crate::{
     constraints::proof_constraints::QuadraticConstraint,
     fields::{CodecFieldElement, LagrangePolynomialFieldElement, field_element_iter_from_source},
     ligero::{
-        TableauLayout, extend,
+        LigeroParameters, TableauLayout, extend,
         merkle::{MerkleTree, Node},
     },
     witness::Witness,
 };
 use anyhow::Context;
+use rand::random;
 use sha2::{Digest, Sha256};
 
 /// A commitment to a witness vector, as specified in [1]. Concretely, this is the root of a Merkle
@@ -52,51 +53,71 @@ impl LigeroCommitment {
     pub fn test_commitment() -> Self {
         Self::try_from([1u8; 32].as_slice()).unwrap()
     }
+}
 
-    /// Compute a Ligero commitment to the witness vector and the quadratic constraints. The layout
-    /// of the commitment is specified in [1].
-    ///
-    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
-    ///
-    /// This function could probably allocate a whole lot less by allocating vecs up front.
-    #[allow(clippy::type_complexity)]
-    pub fn commit<FE, TableauGenerator, MerkleTreeNonceGenerator>(
-        tableau_layout: &TableauLayout,
+/// An actual tableau containing values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tableau<'a, FieldElement> {
+    layout: TableauLayout<'a>,
+    contents: Vec<Vec<FieldElement>>,
+}
+
+impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE> {
+    /// Build the tableau.
+    pub fn build(
+        ligero_parameters: &'a LigeroParameters,
         witness: &Witness<FE>,
         quadratic_constraints: &[QuadraticConstraint],
-        tableau_generator: TableauGenerator,
-        mut merkle_tree_nonce_generator: MerkleTreeNonceGenerator,
-    ) -> Result<(MerkleTree, Vec<Vec<FE>>, Vec<[u8; 32]>), anyhow::Error>
+    ) -> Self {
+        Self::build_with_field_element_generator(
+            ligero_parameters,
+            witness,
+            quadratic_constraints,
+            FE::sample,
+        )
+    }
+
+    /// Build the tableau using the provided function to generate random elements.
+    pub fn build_with_field_element_generator<FieldElementGenerator>(
+        ligero_parameters: &'a LigeroParameters,
+        witness: &Witness<FE>,
+        quadratic_constraints: &[QuadraticConstraint],
+        field_element_generator: FieldElementGenerator,
+    ) -> Self
     where
-        FE: LagrangePolynomialFieldElement + CodecFieldElement,
-        TableauGenerator: FnMut() -> FE,
-        MerkleTreeNonceGenerator: FnMut() -> [u8; 32],
+        FieldElementGenerator: FnMut() -> FE,
     {
+        let layout = TableauLayout::new(
+            ligero_parameters,
+            witness.len(),
+            quadratic_constraints.len(),
+        );
+
         // Rows for the witnesses, but not the quadratic constraints
-        let num_witness_rows = tableau_layout.num_linear_constraint_rows();
+        let num_witness_rows = layout.num_linear_constraint_rows();
         // Each quadratic constraint contributes three witnesses
-        let num_quadratic_rows = tableau_layout.num_quadratic_rows();
+        let num_quadratic_rows = layout.num_quadratic_rows();
         // Rows for low degree test, linear test and quadratic test
-        let mut tableau = Vec::with_capacity(tableau_layout.num_rows());
+        let mut tableau = Vec::with_capacity(layout.num_rows());
 
-        let mut element_generator = field_element_iter_from_source(tableau_generator);
+        let mut element_generator = field_element_iter_from_source(field_element_generator);
 
-        // Construct the tableau matrix from the witness and the constraints.
+        // Construct the tableau from the witness and the constraints.
         // Fill the low degree test row: extend(RANDOM[BLOCK], BLOCK, NCOL)
-        let base_row = element_generator
+        let low_degree_test_row: Vec<_> = element_generator
             .by_ref()
-            .take(tableau_layout.block_size())
-            .collect::<Vec<_>>();
-        tableau.push(extend(&base_row, tableau_layout.num_columns()));
+            .take(layout.block_size())
+            .collect();
+        tableau.push(extend(&low_degree_test_row, layout.num_columns()));
 
         // Fill the linear test row ("IDOT"): random field elements where elements [nreq..nreq+wr)
         // sum to 0, extended to NCOL
         let mut sum = FE::ZERO;
         let mut index = 0;
-        let mut row_random_elements = element_generator.by_ref().take(tableau_layout.dblock() - 1);
+        let mut row_random_elements = element_generator.by_ref().take(layout.dblock() - 1);
 
-        let mut z: Vec<_> = std::iter::from_fn(|| {
-            let element = if index == tableau_layout.num_requested_columns() {
+        let mut linear_test_row: Vec<_> = std::iter::from_fn(|| {
+            let element = if index == layout.num_requested_columns() {
                 // Reserve the first witness spot for the additive inverse of the sum of the
                 // remaining witnesses. Per the spec we could put this element anywhere in the
                 // witnesses, but this matches longfellow-zk and makes it easier to test against
@@ -104,10 +125,7 @@ impl LigeroCommitment {
                 Some(FE::ZERO)
             } else {
                 let element = row_random_elements.next();
-                if (tableau_layout.num_requested_columns() + 1
-                    ..tableau_layout.num_requested_columns() + tableau_layout.witnesses_per_row())
-                    .contains(&index)
-                {
+                if (layout.num_requested_columns() + 1..layout.block_size()).contains(&index) {
                     // Unwrap safety: the iterator should contain exactly the number of elements we
                     // need, so a panic here means we have misinterpreted the specification.
                     sum += element.unwrap();
@@ -118,30 +136,28 @@ impl LigeroCommitment {
             index += 1;
             element
         })
-        .take(tableau_layout.dblock())
+        .take(layout.dblock())
         .collect();
 
-        z[tableau_layout.num_requested_columns()] = -sum;
+        linear_test_row[layout.num_requested_columns()] = -sum;
         // Specification interpretation verification: we should have consumed row_random_elements
         assert_eq!(row_random_elements.next(), None);
         // Specification interpretation verification: make sure range nreq..nreq+wr sums to 0.
         assert_eq!(
             FE::ZERO,
-            z.iter()
-                .skip(tableau_layout.num_requested_columns())
-                .take(tableau_layout.witnesses_per_row())
+            linear_test_row
+                .iter()
+                .skip(layout.num_requested_columns())
+                .take(layout.witnesses_per_row())
                 .fold(FE::ZERO, |acc, elem| acc + elem)
         );
-        tableau.push(extend(&z, tableau_layout.num_columns()));
+        tableau.push(extend(&linear_test_row, layout.num_columns()));
 
         // Quadratic test row: NREQ random elements then zeroes for each witness, then more random
         // elements to fill to DBLOCK, then extended to NCOL
         let mut index = 0;
-        let zq: Vec<_> = std::iter::from_fn(|| {
-            let next = if index < tableau_layout.num_requested_columns()
-                || index
-                    >= tableau_layout.num_requested_columns() + tableau_layout.witnesses_per_row()
-            {
+        let quadratic_test_row: Vec<_> = std::iter::from_fn(|| {
+            let next = if index < layout.num_requested_columns() || index >= layout.block_size() {
                 element_generator.next()
             } else {
                 Some(FE::ZERO)
@@ -150,9 +166,9 @@ impl LigeroCommitment {
             index += 1;
             next
         })
-        .take(tableau_layout.dblock())
+        .take(layout.dblock())
         .collect();
-        tableau.push(extend(zq.as_slice(), tableau_layout.num_columns()));
+        tableau.push(extend(quadratic_test_row.as_slice(), layout.num_columns()));
 
         // Padded witness rows: NREQ random elements, then witnesses_per_row elements of the witness
         // extended to NCOL
@@ -160,14 +176,14 @@ impl LigeroCommitment {
             tableau.push(extend(
                 element_generator
                     .by_ref()
-                    .take(tableau_layout.num_requested_columns())
+                    .take(layout.num_requested_columns())
                     .chain(witness.elements(
-                        witness_row * tableau_layout.witnesses_per_row(),
-                        tableau_layout.witnesses_per_row(),
+                        witness_row * layout.witnesses_per_row(),
+                        layout.witnesses_per_row(),
                     ))
                     .collect::<Vec<_>>()
                     .as_slice(),
-                tableau_layout.num_columns(),
+                layout.num_columns(),
             ));
         }
 
@@ -179,14 +195,14 @@ impl LigeroCommitment {
         let mut quad_constraint_z = quadratic_constraints.iter().map(|q| q.z);
 
         for quad_constraint_row in 0..num_quadratic_rows {
-            let mut row = Vec::with_capacity(tableau_layout.block_size());
+            let mut row = Vec::with_capacity(layout.block_size());
             row.extend(
                 element_generator
                     .by_ref()
-                    .take(tableau_layout.num_requested_columns()),
+                    .take(layout.num_requested_columns()),
             );
 
-            for _ in 0..tableau_layout.witnesses_per_row() {
+            for _ in 0..layout.witnesses_per_row() {
                 let witness = match quad_constraint_row % 3 {
                     0 => quad_constraint_x.next(),
                     1 => quad_constraint_y.next(),
@@ -198,43 +214,68 @@ impl LigeroCommitment {
                 row.push(witness);
             }
 
-            tableau.push(extend(row.as_slice(), tableau_layout.num_columns()));
+            tableau.push(extend(row.as_slice(), layout.num_columns()));
         }
 
         // Make sure we allocated the tableau correctly up front.
-        assert_eq!(tableau.len(), tableau_layout.num_rows());
+        assert_eq!(tableau.len(), layout.num_rows());
 
+        Tableau {
+            layout,
+            contents: tableau,
+        }
+    }
+
+    /// The layout of the tableau.
+    pub fn layout(&'_ self) -> &'_ TableauLayout<'_> {
+        &self.layout
+    }
+
+    /// Commit to the contents of the tableau, returning a Merkle tree whose leaves are hashes of
+    /// the columns. A nonce is hashed into each leaf.
+    pub fn commit(&self) -> Result<MerkleTree, anyhow::Error> {
+        self.commit_with_merkle_tree_nonce_generator(random::<[u8; 32]>)
+    }
+
+    /// Commit to the contents of the tableau, using nonces from the provided generator.
+    pub fn commit_with_merkle_tree_nonce_generator<MerkleTreeNonceGenerator>(
+        &self,
+        mut merkle_tree_nonce_generator: MerkleTreeNonceGenerator,
+    ) -> Result<MerkleTree, anyhow::Error>
+    where
+        MerkleTreeNonceGenerator: FnMut() -> [u8; 32],
+    {
         // Construct a Merkle tree from the tableau columns
         let mut field_element_buf = Vec::with_capacity(FE::num_bytes());
-        let tree_size = tableau_layout.num_columns() - tableau_layout.dblock();
+        let tree_size = self.layout.num_columns() - self.layout.dblock();
         let mut tree = MerkleTree::new(tree_size);
-        let mut merkle_tree_nonces = Vec::with_capacity(tree_size);
 
-        for leaf_index in tableau_layout.dblock()..(tableau_layout.num_columns()) {
+        for leaf_index in self.layout.dblock()..(self.layout.num_columns()) {
             let mut sha256 = Sha256::new();
 
             // longfellow-zk hashes a random nonce into each leaf before the tableau elements, which
             // is not discussed in the draft specification.
             let nonce = merkle_tree_nonce_generator();
-            merkle_tree_nonces.push(nonce);
             sha256.update(nonce);
-            for row in &tableau {
+            for row in &self.contents {
                 field_element_buf.truncate(0);
                 row[leaf_index].encode(&mut field_element_buf)?;
                 sha256.update(&field_element_buf);
             }
-            tree.set_leaf(leaf_index - tableau_layout.dblock(), Node::from(sha256));
+            tree.set_leaf(leaf_index - self.layout.dblock(), Node::from(sha256), nonce);
         }
         tree.build();
 
-        Ok((tree, tableau, merkle_tree_nonces))
+        Ok(tree)
+    }
+
+    pub fn contents(&self) -> &[Vec<FE>] {
+        &self.contents
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use wasm_bindgen_test::wasm_bindgen_test;
-
     use super::*;
     use crate::{
         circuit::Evaluation,
@@ -244,6 +285,7 @@ mod tests {
         test_vector::CircuitTestVector,
         witness::{Witness, WitnessLayout},
     };
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
@@ -267,24 +309,21 @@ mod tests {
         let mut merkle_tree_nonce = [0; 32];
         merkle_tree_nonce[0] = test_vector.pad.unwrap() as u8;
 
-        let tableau_layout = TableauLayout::new(
-            test_vector.ligero_parameters.as_ref().unwrap(),
-            witness.len(),
-            quadratic_constraints.len(),
-        );
-
-        let (tree, _, _) = LigeroCommitment::commit::<FieldP128, _, _>(
-            &tableau_layout,
+        let tree = Tableau::build_with_field_element_generator(
+            &test_vector.ligero_parameters(),
             &witness,
             &quadratic_constraints,
             || test_vector.pad().unwrap(),
-            || merkle_tree_nonce,
         )
+        .commit_with_merkle_tree_nonce_generator(|| merkle_tree_nonce)
         .unwrap();
 
         assert_eq!(
             LigeroCommitment::from(tree.root()),
             test_vector.ligero_commitment().unwrap()
         );
+        for nonce in tree.nonces() {
+            assert_eq!(nonce, &merkle_tree_nonce);
+        }
     }
 }

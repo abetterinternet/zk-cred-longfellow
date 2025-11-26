@@ -341,7 +341,7 @@ mod tests {
     use crate::{
         circuit::Evaluation,
         decode_test_vector,
-        fields::{FieldElement, fieldp128::FieldP128},
+        fields::{CodecFieldElement, FieldElement, fieldp128::FieldP128},
         sumcheck::prover::SumcheckProver,
         test_vector::CircuitTestVector,
         witness::Witness,

@@ -23,7 +23,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     transcript: &mut Transcript,
     linear_constraints: &LinearConstraints<FE>,
     quadratic_constraints: &[QuadraticConstraint],
-    tableau_layout: &TableauLayout,
+    layout: &TableauLayout,
 ) -> Result<(), anyhow::Error> {
     // Write 0xdeadbeef, padded to 32 bytes, to the transcript to match what longfellow-zk does
     transcript.write_byte_array(&[
@@ -35,12 +35,12 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     // The blind is also "u" in the specification. Generate one blind element for each witness
     // and quadratic witness row in the tableau.
     let low_degree_test_blind =
-        transcript.generate_challenge::<FE>(tableau_layout.num_constraint_rows())?;
+        transcript.generate_challenge::<FE>(layout.num_constraint_rows())?;
     let linear_constraint_alphas = transcript.generate_challenge::<FE>(linear_constraints.len())?;
     let quad_constraint_alphas =
         transcript.generate_challenge::<FE>(3 * quadratic_constraints.len())?;
     let quad_proof_blinding =
-        transcript.generate_challenge::<FE>(tableau_layout.num_quadratic_triples())?;
+        transcript.generate_challenge::<FE>(layout.num_quadratic_triples())?;
 
     transcript.write_field_element_array(&proof.low_degree_test_proof)?;
     transcript.write_field_element_array(&proof.dot_proof)?;
@@ -48,9 +48,33 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     transcript.write_field_element_array(&proof.quadratic_proof.1)?;
 
     let requested_column_indices = transcript.generate_naturals_without_replacement(
-        tableau_layout.num_columns() - tableau_layout.dblock(),
-        tableau_layout.num_requested_columns(),
+        layout.num_columns() - layout.dblock(),
+        layout.num_requested_columns(),
     );
+
+    // Check that low degree test proof matches
+    let mut want_low_degree_row =
+        proof.tableau_columns[TableauLayout::low_degree_test_row()].clone();
+
+    for (proof_row, challenge) in proof
+        .tableau_columns
+        .iter()
+        .skip(layout.first_witness_row())
+        .zip(low_degree_test_blind)
+    {
+        for (ldt_element, proof_element) in want_low_degree_row.iter_mut().zip(proof_row.iter()) {
+            *ldt_element += challenge * proof_element;
+        }
+    }
+
+    let proof_low_degree_test_row = layout.gather(
+        &extend(&proof.low_degree_test_proof, layout.num_columns()),
+        &requested_column_indices,
+    );
+
+    if want_low_degree_row != proof_low_degree_test_row {
+        return Err(anyhow!("low degree test proof mismatch"));
+    }
 
     // Check that dot product matches linear constraints
     let want_dot_product = linear_constraints
@@ -64,15 +88,15 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         // Skip the nreq random values at the start of the row. The proof only sums over the
         // witnesses.
         // Not documented in the specification.
-        .skip(tableau_layout.num_requested_columns())
-        .take(tableau_layout.witnesses_per_row())
+        .skip(layout.num_requested_columns())
+        .take(layout.witnesses_per_row())
         .fold(FE::ZERO, |sum, term| sum + term);
     if want_dot_product != proof_dot_product {
         return Err(anyhow!("dot product mismatch"));
     }
 
     let inner_product_vector = inner_product_vector(
-        tableau_layout,
+        layout,
         linear_constraints,
         &linear_constraint_alphas,
         quadratic_constraints,
@@ -81,28 +105,28 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
 
     // Check that dot proof matches requested columns
     let mut want_dot_row = proof.tableau_columns[TableauLayout::dot_proof_row()].clone();
-    let mut inner_product_vector_extended = Vec::with_capacity(tableau_layout.block_size());
+    let mut inner_product_vector_extended = Vec::with_capacity(layout.block_size());
     // inner_product_vector's length is divisible by witnesses_per_row
     for (products, tableau_row) in inner_product_vector
-        .chunks(tableau_layout.witnesses_per_row())
-        .zip(&proof.tableau_columns[tableau_layout.first_witness_row()..])
+        .chunks(layout.witnesses_per_row())
+        .zip(&proof.tableau_columns[layout.first_witness_row()..])
     {
         inner_product_vector_extended.truncate(0);
-        inner_product_vector_extended.resize(tableau_layout.num_requested_columns(), FE::ZERO);
+        inner_product_vector_extended.resize(layout.num_requested_columns(), FE::ZERO);
         inner_product_vector_extended.extend(products);
 
-        let extended = extend(&inner_product_vector_extended, tableau_layout.num_columns());
+        let extended = extend(&inner_product_vector_extended, layout.num_columns());
         for ((want_dot_row_element, inner_product_element), tableau_element) in want_dot_row
             .iter_mut()
-            .zip(tableau_layout.gather_iter(&extended, &requested_column_indices))
+            .zip(layout.gather_iter(&extended, &requested_column_indices))
             .zip(tableau_row)
         {
             *want_dot_row_element += inner_product_element * tableau_element;
         }
     }
 
-    let proof_dot_row = tableau_layout.gather(
-        &extend(&proof.dot_proof, tableau_layout.num_columns()),
+    let proof_dot_row = layout.gather(
+        &extend(&proof.dot_proof, layout.num_columns()),
         &requested_column_indices,
     );
 
@@ -110,37 +134,13 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         return Err(anyhow!("dot proof mismatch"));
     }
 
-    // Check that low degree test proof matches
-    let mut want_low_degree_row =
-        proof.tableau_columns[TableauLayout::low_degree_test_row()].clone();
-
-    for (proof_row, challenge) in proof
-        .tableau_columns
-        .iter()
-        .skip(tableau_layout.first_witness_row())
-        .zip(low_degree_test_blind)
-    {
-        for (ldt_element, proof_element) in want_low_degree_row.iter_mut().zip(proof_row.iter()) {
-            *ldt_element += challenge * proof_element;
-        }
-    }
-
-    let proof_low_degree_test_row = tableau_layout.gather(
-        &extend(&proof.low_degree_test_proof, tableau_layout.num_columns()),
-        &requested_column_indices,
-    );
-
-    if want_low_degree_row != proof_low_degree_test_row {
-        return Err(anyhow!("low degree test proof mismatch"));
-    }
-
     // Check that the quadratic proof matches
     let mut want_quadratic_test_row =
         proof.tableau_columns[TableauLayout::quadratic_test_row()].clone();
 
-    let first_x_row = tableau_layout.first_quadratic_constraint_row();
-    let first_y_row = first_x_row + tableau_layout.num_quadratic_triples();
-    let first_z_row = first_y_row + tableau_layout.num_quadratic_triples();
+    let first_x_row = layout.first_quadratic_constraint_row();
+    let first_y_row = first_x_row + layout.num_quadratic_triples();
+    let first_z_row = first_y_row + layout.num_quadratic_triples();
 
     for (index, uquad) in quad_proof_blinding.into_iter().enumerate() {
         let x_row = &proof.tableau_columns[first_x_row + index];
@@ -158,11 +158,8 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         }
     }
 
-    let proof_quadratic_test_row = tableau_layout.gather(
-        &extend(
-            &proof.quadratic_proof(tableau_layout),
-            tableau_layout.num_columns(),
-        ),
+    let proof_quadratic_test_row = layout.gather(
+        &extend(&proof.quadratic_proof(layout), layout.num_columns()),
         &requested_column_indices,
     );
 
@@ -171,7 +168,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     }
 
     // Check the Merkle tree inclusion proof
-    let mut included_nodes = Vec::with_capacity(tableau_layout.num_requested_columns());
+    let mut included_nodes = Vec::with_capacity(layout.num_requested_columns());
     let mut field_element_buf = vec![0u8; FE::num_bytes()];
     // The columns in the proof appear in the same order as the requested column indices.
     for index in 0..requested_column_indices.len() {
@@ -188,7 +185,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
 
     MerkleTree::verify(
         Node::from(commitment),
-        tableau_layout.num_columns() - tableau_layout.dblock(),
+        layout.num_columns() - layout.dblock(),
         &included_nodes,
         &requested_column_indices,
         &proof.inclusion_proof,
@@ -220,6 +217,7 @@ mod tests {
             "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
             proofs,
         );
+        let ligero_parameters = test_vector.ligero_parameters();
 
         // hack: prepend 1 to the inputs just like Circuit::evaluate does
         let mut public_inputs = vec![FieldP128::ONE];
@@ -246,7 +244,7 @@ mod tests {
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let tableau_layout = TableauLayout::new(
-            test_vector.ligero_parameters.as_ref().unwrap(),
+            &ligero_parameters,
             witness_layout.length(),
             quadratic_constraints.len(),
         );

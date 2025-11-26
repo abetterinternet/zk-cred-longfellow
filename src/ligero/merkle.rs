@@ -3,7 +3,7 @@
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.1
 
 use crate::{Codec, ligero::LigeroCommitment};
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use sha2::{Digest, Sha256};
 use std::fmt::Debug;
 
@@ -64,8 +64,14 @@ pub struct InclusionProof(Vec<Node>);
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
 impl Codec for InclusionProof {
     fn decode(bytes: &mut std::io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
-        let length = u32::decode(bytes)?;
-        Node::decode_fixed_array(bytes, length as usize).map(Self)
+        let length = usize::try_from(u32::decode(bytes)?)
+            .context("inclusion proof length too large for usize")?;
+        let remaining = bytes.get_ref().len()
+            - usize::try_from(bytes.position()).context("cursor position is beyond usize limit")?;
+        if length > remaining / 32 {
+            return Err(anyhow!("inclusion proof length prefix is too large"));
+        }
+        Node::decode_fixed_array(bytes, length).map(Self)
     }
 
     fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {

@@ -12,10 +12,10 @@ use crate::{
 
 /// Longfellow ZK verifier.
 pub struct Verifier<'a> {
-    circuit: &'a Circuit,
-    witness_length: usize,
-    quadratic_constraints: Vec<QuadraticConstraint>,
-    ligero_parameters: LigeroParameters,
+    pub(super) circuit: &'a Circuit,
+    pub(super) witness_length: usize,
+    pub(super) quadratic_constraints: Vec<QuadraticConstraint>,
+    pub(super) ligero_parameters: LigeroParameters,
 }
 
 impl<'a> Verifier<'a> {

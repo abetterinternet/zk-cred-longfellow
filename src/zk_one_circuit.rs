@@ -9,7 +9,7 @@ mod tests {
         decode_test_vector,
         fields::fieldp128::FieldP128,
         test_vector::CircuitTestVector,
-        zk_one_circuit::{prover::Prover, verifier::verify},
+        zk_one_circuit::{prover::Prover, verifier::Verifier},
     };
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -28,13 +28,7 @@ mod tests {
         let prover = Prover::new(&circuit, ligero_parameters.clone());
         let proof = prover.prove(session_id, &all_inputs).unwrap();
 
-        verify(
-            &circuit,
-            &ligero_parameters,
-            session_id,
-            public_inputs,
-            &proof,
-        )
-        .unwrap();
+        let verifier = Verifier::new(&circuit, ligero_parameters);
+        verifier.verify(session_id, public_inputs, &proof).unwrap();
     }
 }

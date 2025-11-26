@@ -1,6 +1,8 @@
 use crate::{
     circuit::Circuit,
-    constraints::proof_constraints::{LinearConstraints, quadratic_constraints},
+    constraints::proof_constraints::{
+        LinearConstraints, QuadraticConstraint, quadratic_constraints,
+    },
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     ligero::{LigeroParameters, TableauLayout, verifier::ligero_verify},
     transcript::Transcript,
@@ -8,52 +10,71 @@ use crate::{
     zk_one_circuit::prover::Proof,
 };
 
-/// Verify a Longfellow ZK proof.
-pub fn verify<FE>(
-    circuit: &Circuit,
-    ligero_parameters: &LigeroParameters,
-    session_id: &[u8],
-    statement: &[FE],
-    proof: &Proof<FE>,
-) -> Result<(), anyhow::Error>
-where
-    FE: CodecFieldElement + LagrangePolynomialFieldElement,
-{
-    // Prepend 1 to public inputs, just like Circuit::evaluate() does.
-    let mut inputs = Vec::with_capacity(statement.len() + 1);
-    inputs.push(FE::ONE);
-    inputs.extend(statement);
+/// Longfellow ZK verifier.
+pub struct Verifier<'a> {
+    circuit: &'a Circuit,
+    witness_length: usize,
+    quadratic_constraints: Vec<QuadraticConstraint>,
+    ligero_parameters: LigeroParameters,
+}
 
-    // Perform other pre-processing based on the circuit and Ligero parameters.
-    let quadratic_constraints = quadratic_constraints(circuit);
-    let witness_layout = WitnessLayout::from_circuit(circuit);
-    let tableau_layout = TableauLayout::new(
-        ligero_parameters,
-        witness_layout.length(),
-        quadratic_constraints.len(),
-    );
+impl<'a> Verifier<'a> {
+    /// Construct a new verifier from a circuit and a choice of Ligero parameters.
+    pub fn new(circuit: &'a Circuit, ligero_parameters: LigeroParameters) -> Self {
+        let witness_layout = WitnessLayout::from_circuit(circuit);
+        let quadratic_constraints = quadratic_constraints(circuit);
+        Self {
+            circuit,
+            witness_length: witness_layout.length(),
+            quadratic_constraints,
+            ligero_parameters,
+        }
+    }
 
-    // Start of Fiat-Shamir transcript.
-    let mut transcript = Transcript::new(session_id).unwrap();
+    /// Verify a Longfellow ZK proof.
+    pub fn verify<FE>(
+        &self,
+        session_id: &[u8],
+        statement: &[FE],
+        proof: &Proof<FE>,
+    ) -> Result<(), anyhow::Error>
+    where
+        FE: CodecFieldElement + LagrangePolynomialFieldElement,
+    {
+        // Prepend 1 to public inputs, just like Circuit::evaluate() does.
+        let mut inputs = Vec::with_capacity(statement.len() + 1);
+        inputs.push(FE::ONE);
+        inputs.extend(statement);
 
-    // Run sumcheck verifier, and produce deferred linear constraints.
-    let linear_constraints = LinearConstraints::from_proof(
-        circuit,
-        &inputs,
-        &mut transcript,
-        &proof.ligero_commitment(),
-        proof.sumcheck_proof(),
-    )?;
+        // Construct tableau layout struct.
+        let tableau_layout = TableauLayout::new(
+            &self.ligero_parameters,
+            self.witness_length,
+            self.quadratic_constraints.len(),
+        );
 
-    // Run Ligero verifier.
-    ligero_verify(
-        proof.ligero_commitment(),
-        proof.ligero_proof(),
-        &mut transcript,
-        &linear_constraints,
-        &quadratic_constraints,
-        &tableau_layout,
-    )?;
+        // Start of Fiat-Shamir transcript.
+        let mut transcript = Transcript::new(session_id).unwrap();
 
-    Ok(())
+        // Run sumcheck verifier, and produce deferred linear constraints.
+        let linear_constraints = LinearConstraints::from_proof(
+            self.circuit,
+            &inputs,
+            &mut transcript,
+            &proof.ligero_commitment(),
+            proof.sumcheck_proof(),
+        )?;
+
+        // Run Ligero verifier.
+        ligero_verify(
+            proof.ligero_commitment(),
+            proof.ligero_proof(),
+            &mut transcript,
+            &linear_constraints,
+            &self.quadratic_constraints,
+            &tableau_layout,
+        )?;
+
+        Ok(())
+    }
 }

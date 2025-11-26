@@ -67,30 +67,29 @@ impl<'a> Prover<'a> {
             &self.quadratic_constraints,
         );
         let merkle_tree = tableau.commit()?;
-        let commitment = LigeroCommitment::from(merkle_tree.root());
+        let ligero_commitment = LigeroCommitment::from(merkle_tree.root());
 
         // Start of Fiat-Shamir transcript.
-        let mut transcript = Transcript::new(session_id).unwrap();
-        let mut constraint_transcript = transcript.clone();
+        let transcript = Transcript::new(session_id).unwrap();
 
         // Sumcheck, first time through: generate proof.
         let sumcheck_proof = self
             .sumcheck_prover
-            .prove(&evaluation, &mut transcript, &commitment, &witness)?
+            .prove(&evaluation, &transcript, &ligero_commitment, &witness)?
             .proof;
 
         // Sumcheck, second time through: produce linear constraints.
-        let linear_constraints = LinearConstraints::from_proof(
+        let (linear_constraints, constraint_transcript) = LinearConstraints::from_proof(
             circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
-            &mut constraint_transcript,
-            &commitment,
+            transcript,
+            &ligero_commitment,
             &sumcheck_proof,
         )?;
 
         // Generate Ligero proof.
-        let ligero_proof = ligero_prove(
-            &mut transcript,
+        let (ligero_proof, _) = ligero_prove(
+            constraint_transcript,
             &tableau,
             &merkle_tree,
             &linear_constraints,
@@ -100,7 +99,7 @@ impl<'a> Prover<'a> {
         Ok(Proof {
             oracle: session_id.to_vec(),
             sumcheck_proof,
-            ligero_commitment: commitment,
+            ligero_commitment,
             ligero_proof,
         })
     }

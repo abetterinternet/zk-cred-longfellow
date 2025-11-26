@@ -6,7 +6,10 @@
 use std::fmt::Debug;
 
 use crate::{
-    circuit::Circuit, fields::CodecFieldElement, ligero::LigeroCommitment, sumcheck::Polynomial,
+    circuit::Circuit,
+    fields::CodecFieldElement,
+    ligero::{LigeroCommitment, tableau::TableauLayout},
+    sumcheck::Polynomial,
 };
 use aes::{
     Aes256,
@@ -372,6 +375,132 @@ impl Iterator for FiatShamirPseudoRandomFunction {
 
         Some(value)
     }
+}
+
+/// A transcript that has been used for a Sumcheck proof.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SumcheckTranscript(Transcript);
+
+impl From<Transcript> for SumcheckTranscript {
+    fn from(value: Transcript) -> Self {
+        Self(value)
+    }
+}
+
+impl PartialEq<Transcript> for SumcheckTranscript {
+    fn eq(&self, other: &Transcript) -> bool {
+        &self.0 == other
+    }
+}
+
+impl PartialEq<ConstraintsTranscript> for SumcheckTranscript {
+    fn eq(&self, other: &ConstraintsTranscript) -> bool {
+        self.0 == other.0
+    }
+}
+
+/// A transcript that has been used to compute linear constraints.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConstraintsTranscript(Transcript);
+
+impl PartialEq<Transcript> for ConstraintsTranscript {
+    fn eq(&self, other: &Transcript) -> bool {
+        &self.0 == other
+    }
+}
+
+impl From<Transcript> for ConstraintsTranscript {
+    fn from(value: Transcript) -> Self {
+        Self(value)
+    }
+}
+
+/// A transcript that was used for either Ligero proving or verifying.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LigeroTranscript(Transcript);
+
+impl From<ConstraintsTranscript> for LigeroTranscript {
+    fn from(value: ConstraintsTranscript) -> Self {
+        Self(value.0)
+    }
+}
+
+impl LigeroTranscript {
+    /// Write hash of A to the transcript.
+    pub fn write_hash_of_a(&mut self) -> Result<(), anyhow::Error> {
+        // Write 0xdeadbeef, padded to 32 bytes, to the transcript to match what longfellow-zk does.
+        // zk_prover.h claims that "[f]or FS soundness, it is ok for hash_of_A to be any string".
+        self.0.write_byte_array(&[
+            0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ])
+    }
+
+    /// Generate the challenges for the challenges for the simulated prover-verifier interaction.
+    pub fn generate_challenges<FE: CodecFieldElement>(
+        &mut self,
+        tableau_layout: &TableauLayout,
+        linear_constraints_len: usize,
+        quadratic_constraints_len: usize,
+    ) -> Result<LigeroChallenges<FE>, anyhow::Error> {
+        // The blind is also "u" in the specification. Generate one blind element for each witness
+        // and quadratic witness row in the tableau.
+        let low_degree_test_blind = self
+            .0
+            .generate_challenge::<FE>(tableau_layout.num_constraint_rows())?;
+        let linear_constraint_alphas = self.0.generate_challenge::<FE>(linear_constraints_len)?;
+        let quadratic_constraint_alphas = self
+            .0
+            .generate_challenge::<FE>(3 * quadratic_constraints_len)?;
+        // Also uquad, u_quad in the specification.
+        let quadratic_proof_blind = self
+            .0
+            .generate_challenge::<FE>(tableau_layout.num_quadratic_triples())?;
+
+        Ok(LigeroChallenges {
+            low_degree_test_blind,
+            linear_constraint_alphas,
+            quadratic_constraint_alphas,
+            quadratic_proof_blind,
+        })
+    }
+
+    /// Write the elements of a Ligero proof to the transcript.
+    pub fn write_proof<FE: CodecFieldElement>(
+        &mut self,
+        low_degree_test_proof: &[FE],
+        dot_proof: &[FE],
+        quadratic_proof_low: &[FE],
+        quadratic_proof_high: &[FE],
+    ) -> Result<(), anyhow::Error> {
+        for proof in [
+            low_degree_test_proof,
+            dot_proof,
+            quadratic_proof_low,
+            quadratic_proof_high,
+        ] {
+            self.0.write_field_element_array(proof)?;
+        }
+        Ok(())
+    }
+
+    /// Generate the column indices requested by the verifier.
+    pub fn requested_column_indices(&mut self, layout: &TableauLayout) -> Vec<usize> {
+        self.0.generate_naturals_without_replacement(
+            layout.num_columns() - layout.dblock(),
+            layout.num_requested_columns(),
+        )
+    }
+}
+
+/// Challenges used to compute or verify a Ligero proof.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LigeroChallenges<FieldElement> {
+    pub low_degree_test_blind: Vec<FieldElement>,
+    pub linear_constraint_alphas: Vec<FieldElement>,
+    pub quadratic_constraint_alphas: Vec<FieldElement>,
+    pub quadratic_proof_blind: Vec<FieldElement>,
 }
 
 #[cfg(test)]

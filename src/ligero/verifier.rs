@@ -11,7 +11,7 @@ use crate::{
         prover::{LigeroProof, inner_product_vector},
         tableau::TableauLayout,
     },
-    transcript::Transcript,
+    transcript::{ConstraintsTranscript, LigeroTranscript},
 };
 use anyhow::{Context, anyhow};
 use sha2::{Digest, Sha256};
@@ -19,37 +19,28 @@ use sha2::{Digest, Sha256};
 pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     commitment: LigeroCommitment,
     proof: &LigeroProof<FE>,
-    transcript: &mut Transcript,
+    transcript: ConstraintsTranscript,
     linear_constraints: &LinearConstraints<FE>,
     quadratic_constraints: &[QuadraticConstraint],
     layout: &TableauLayout,
-) -> Result<(), anyhow::Error> {
-    // Write 0xdeadbeef, padded to 32 bytes, to the transcript to match what longfellow-zk does
-    transcript.write_byte_array(&[
-        0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
-    ])?;
+) -> Result<LigeroTranscript, anyhow::Error> {
+    let mut transcript = LigeroTranscript::from(transcript);
+    transcript.write_hash_of_a()?;
 
-    // The blind is also "u" in the specification. Generate one blind element for each witness
-    // and quadratic witness row in the tableau.
-    let low_degree_test_blind =
-        transcript.generate_challenge::<FE>(layout.num_constraint_rows())?;
-    let linear_constraint_alphas = transcript.generate_challenge::<FE>(linear_constraints.len())?;
-    let quad_constraint_alphas =
-        transcript.generate_challenge::<FE>(3 * quadratic_constraints.len())?;
-    let quad_proof_blinding =
-        transcript.generate_challenge::<FE>(layout.num_quadratic_triples())?;
+    let challenges = transcript.generate_challenges(
+        layout,
+        linear_constraints.len(),
+        quadratic_constraints.len(),
+    )?;
 
-    transcript.write_field_element_array(&proof.low_degree_test_proof)?;
-    transcript.write_field_element_array(&proof.dot_proof)?;
-    transcript.write_field_element_array(&proof.quadratic_proof.0)?;
-    transcript.write_field_element_array(&proof.quadratic_proof.1)?;
+    transcript.write_proof(
+        &proof.low_degree_test_proof,
+        &proof.dot_proof,
+        &proof.quadratic_proof.0,
+        &proof.quadratic_proof.1,
+    )?;
 
-    let requested_column_indices = transcript.generate_naturals_without_replacement(
-        layout.num_columns() - layout.dblock(),
-        layout.num_requested_columns(),
-    );
+    let requested_column_indices = transcript.requested_column_indices(layout);
 
     // Check that low degree test proof matches
     let mut want_low_degree_row =
@@ -59,7 +50,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         .tableau_columns
         .iter()
         .skip(layout.first_witness_row())
-        .zip(low_degree_test_blind)
+        .zip(challenges.low_degree_test_blind)
     {
         for (ldt_element, proof_element) in want_low_degree_row.iter_mut().zip(proof_row.iter()) {
             *ldt_element += challenge * proof_element;
@@ -79,7 +70,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     let want_dot_product = linear_constraints
         .right_hand_side_terms()
         .iter()
-        .zip(&linear_constraint_alphas)
+        .zip(&challenges.linear_constraint_alphas)
         .fold(FE::ZERO, |sum, (rhs_term, alpha)| sum + *rhs_term * alpha);
     let proof_dot_product = proof
         .dot_proof
@@ -97,9 +88,9 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     let inner_product_vector = inner_product_vector(
         layout,
         linear_constraints,
-        &linear_constraint_alphas,
+        &challenges.linear_constraint_alphas,
         quadratic_constraints,
-        &quad_constraint_alphas,
+        &challenges.quadratic_constraint_alphas,
     )?;
 
     // Check that dot proof matches requested columns
@@ -141,7 +132,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     let first_y_row = first_x_row + layout.num_quadratic_triples();
     let first_z_row = first_y_row + layout.num_quadratic_triples();
 
-    for (index, uquad) in quad_proof_blinding.into_iter().enumerate() {
+    for (index, uquad) in challenges.quadratic_proof_blind.into_iter().enumerate() {
         let x_row = &proof.tableau_columns[first_x_row + index];
         let y_row = &proof.tableau_columns[first_y_row + index];
         let z_row = &proof.tableau_columns[first_z_row + index];
@@ -191,7 +182,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     )
     .context("Merkle tree inclusion proof failure")?;
 
-    Ok(())
+    Ok(transcript)
 }
 
 #[cfg(test)]
@@ -222,7 +213,7 @@ mod tests {
         let mut public_inputs = vec![FieldP128::ONE];
         public_inputs.extend(test_vector.valid_inputs::<FieldP128>());
 
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let transcript = Transcript::new(b"test").unwrap();
 
         let sumcheck_proof = SumcheckProof::<FieldP128>::decode(
             &circuit,
@@ -232,10 +223,10 @@ mod tests {
 
         let quadratic_constraints = quadratic_constraints(&circuit);
 
-        let linear_constraints = LinearConstraints::from_proof(
+        let (linear_constraints, constraints_transcript) = LinearConstraints::from_proof(
             &circuit,
             &public_inputs[0..circuit.num_public_inputs()],
-            &mut transcript,
+            transcript,
             &test_vector.ligero_commitment().unwrap(),
             &sumcheck_proof,
         )
@@ -256,7 +247,7 @@ mod tests {
         ligero_verify(
             test_vector.ligero_commitment().unwrap(),
             &ligero_proof,
-            &mut transcript,
+            constraints_transcript,
             &linear_constraints,
             &quadratic_constraints,
             &tableau_layout,

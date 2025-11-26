@@ -12,7 +12,7 @@ use crate::{
         bind::{ElementwiseSum, SumcheckArray, bindeq},
         prover::SumcheckProof,
     },
-    transcript::Transcript,
+    transcript::{ConstraintsTranscript, Transcript},
     witness::WitnessLayout,
 };
 use serde::Deserialize;
@@ -89,24 +89,22 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<F
     pub fn from_proof(
         circuit: &Circuit,
         public_inputs: &[FE],
-        transcript: &mut Transcript,
+        mut transcript: Transcript,
         ligero_commitment: &LigeroCommitment,
         proof: &SumcheckProof<FE>,
-    ) -> Result<Self, anyhow::Error> {
-        let mut constraints = Self {
-            lhs_terms: Vec::with_capacity(
-                // On each layer, 3 terms for vl, vr, vl * vr
-                3 * circuit.num_layers()
-                // On each layer past the first, 2 terms for the previous layer's vl, vr
-                + 2 * (circuit.num_layers() - 1)
-                    + circuit.logw_sum()
-                        * 2 // witness elements per polynomial
-                        * 2 // hands per round/logw
-                    + circuit.num_private_inputs()
-                    + 2, // sym_layer_pad.vl and sym_layer_pad.vr
-            ),
-            rhs: Vec::with_capacity(1 + circuit.num_layers()),
-        };
+    ) -> Result<(Self, ConstraintsTranscript), anyhow::Error> {
+        let mut lhs_terms = Vec::with_capacity(
+            // On each layer, 3 terms for vl, vr, vl * vr
+            3 * circuit.num_layers()
+            // On each layer past the first, 2 terms for the previous layer's vl, vr
+            + 2 * (circuit.num_layers() - 1)
+                + circuit.logw_sum()
+                    * 2 // witness elements per polynomial
+                    * 2 // hands per round/logw
+                + circuit.num_private_inputs()
+                + 2, // sym_layer_pad.vl and sym_layer_pad.vr
+        );
+        let mut rhs = Vec::with_capacity(1 + circuit.num_layers());
 
         let witness_layout = WitnessLayout::from_circuit(circuit);
 
@@ -248,12 +246,10 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<F
             layer_claim += Term::new(vl_vr_witness) * -bound_quad[0][0];
 
             // Output the LHS terms of the layer linear constraint
-            constraints.lhs_terms.extend(layer_claim.lhs_terms());
+            lhs_terms.extend(layer_claim.lhs_terms());
 
             // Output linear constraint RHS Q * layer_proof.vl * layer_proof.vr - known
-            constraints
-                .rhs
-                .push(bound_quad[0][0] * proof_layer.vl * proof_layer.vr - layer_claim.known());
+            rhs.push(bound_quad[0][0] * proof_layer.vl * proof_layer.vr - layer_claim.known());
 
             // Commit to the padded evaluations of l and r. The specification implies they are
             // written as individual field elements, but longfellow-zk writes them as an array.
@@ -298,19 +294,23 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<F
         // Linear constraint term for sym_layer_pad.vr
         final_claim += Term::new(vr_witness) * -gamma;
 
+        lhs_terms.extend(final_claim.lhs_terms());
+
         // Linear constraint RHS
-        let rhs = claims[0] + gamma * claims[1]
-            - public_inputs
-                .iter()
-                .zip(eq2.iter())
-                .fold(FE::ZERO, |sum, (public_input_i, eq2_i)| {
-                    sum + *public_input_i * eq2_i
-                });
+        rhs.push(
+            claims[0] + gamma * claims[1]
+                - public_inputs
+                    .iter()
+                    .zip(eq2.iter())
+                    .fold(FE::ZERO, |sum, (public_input_i, eq2_i)| {
+                        sum + *public_input_i * eq2_i
+                    }),
+        );
 
-        constraints.lhs_terms.extend(final_claim.lhs_terms());
-        constraints.rhs.push(rhs);
-
-        Ok(constraints)
+        Ok((
+            LinearConstraints { lhs_terms, rhs },
+            ConstraintsTranscript::from(transcript),
+        ))
     }
 
     /// The number of linear constraints.
@@ -364,31 +364,28 @@ mod tests {
             FieldP128::sample,
         );
 
-        let mut proof_transcript = Transcript::new(b"test").unwrap();
-
-        // Fork the transcript
-        let mut constraint_transcript = proof_transcript.clone();
+        let transcript = Transcript::new(b"test").unwrap();
 
         let proof = SumcheckProver::new(&circuit)
             .prove(
                 &evaluation,
-                &mut proof_transcript,
+                &transcript,
                 &LigeroCommitment::test_commitment(),
                 &witness,
             )
             .unwrap();
 
-        let linear_constraints = LinearConstraints::from_proof(
+        let (linear_constraints, constraints_transcript) = LinearConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
-            &mut constraint_transcript,
+            transcript,
             &LigeroCommitment::test_commitment(),
             &proof.proof,
         )
         .unwrap();
 
         // Transcripts should have received the same sequence of writes.
-        assert_eq!(proof_transcript, constraint_transcript);
+        assert_eq!(proof.transcript, constraints_transcript);
 
         // Check that we allocated appropriate size for LHS terms. Ideally we won't reallocate in
         // the constraint generator loop.
@@ -451,24 +448,21 @@ mod tests {
             || test_vector.pad().unwrap(),
         );
 
-        let mut proof_transcript = Transcript::new(b"test").unwrap();
-
-        // Fork the transcript
-        let mut constraint_transcript = proof_transcript.clone();
+        let transcript = Transcript::new(b"test").unwrap();
 
         let proof = SumcheckProver::new(&circuit)
             .prove(
                 &evaluation,
-                &mut proof_transcript,
+                &transcript,
                 &test_vector.ligero_commitment().unwrap(),
                 &witness,
             )
             .unwrap();
 
-        let linear_constraints = LinearConstraints::from_proof(
+        let (linear_constraints, _) = LinearConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
-            &mut constraint_transcript,
+            transcript,
             &test_vector.ligero_commitment().unwrap(),
             &proof.proof,
         )

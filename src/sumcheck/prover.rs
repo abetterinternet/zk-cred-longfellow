@@ -8,7 +8,7 @@ use crate::{
         Polynomial,
         bind::{ElementwiseSum, SumcheckArray},
     },
-    transcript::Transcript,
+    transcript::{SumcheckTranscript, Transcript},
     witness::Witness,
 };
 use std::mem::swap;
@@ -22,12 +22,11 @@ pub struct SumcheckProver<'a> {
 /// Sumcheck proof plus some extra data useful for validation.
 #[derive(Clone, Debug)]
 // We don't yet examine these outside of test code, so allow dead code for now.
-#[allow(dead_code)]
 pub struct ProverResult<FE> {
     /// The sumcheck proof from which Ligero constraints may be generated.
     pub proof: SumcheckProof<FE>,
     /// The transcript after all the proof messages have been written to it.
-    pub transcript: Transcript,
+    pub transcript: SumcheckTranscript,
 }
 
 impl<'a> SumcheckProver<'a> {
@@ -40,10 +39,11 @@ impl<'a> SumcheckProver<'a> {
     pub fn prove<FE: CodecFieldElement>(
         &self,
         evaluation: &Evaluation<FE>,
-        transcript: &mut Transcript,
+        transcript: &Transcript,
         ligero_commitment: &LigeroCommitment,
         witness: &Witness<FE>,
     ) -> Result<ProverResult<FE>, anyhow::Error> {
+        let mut transcript = transcript.clone();
         // Specification interpretation verification: all the outputs should be zero
         for output in evaluation.outputs() {
             assert_eq!(output, &FE::ZERO);
@@ -213,7 +213,7 @@ impl<'a> SumcheckProver<'a> {
 
         Ok(ProverResult {
             proof,
-            transcript: transcript.clone(),
+            transcript: SumcheckTranscript::from(transcript),
         })
     }
 
@@ -372,13 +372,11 @@ mod tests {
             || test_vector.pad().unwrap(),
         );
 
-        // Matches session used in longfellow-zk/lib/zk/zk_test.cc
-        let mut transcript = Transcript::new(b"test").unwrap();
-
         let proof = SumcheckProver::new(&circuit)
             .prove(
                 &evaluation,
-                &mut transcript,
+                // Matches session used in longfellow-zk/lib/zk/zk_test.cc
+                &Transcript::new(b"test").unwrap(),
                 &test_vector.ligero_commitment().unwrap(),
                 &witness,
             )

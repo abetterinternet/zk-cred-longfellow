@@ -485,6 +485,8 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(transcript, constraint_transcript);
+
         let ligero_proof = LigeroProver::ligero_prove(
             &mut constraint_transcript,
             &tableau,

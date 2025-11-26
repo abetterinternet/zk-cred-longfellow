@@ -38,7 +38,7 @@ impl<'a> SumcheckProver<'a> {
     /// Construct a padded proof of the transcript of the given evaluation of the circuit and return
     /// the prover messages needed for the verifier to reconstruct the transcript.
     pub fn prove<FE: CodecFieldElement>(
-        &mut self,
+        &self,
         evaluation: &Evaluation<FE>,
         transcript: &mut Transcript,
         ligero_commitment: &LigeroCommitment,
@@ -215,6 +215,11 @@ impl<'a> SumcheckProver<'a> {
             proof,
             transcript: transcript.clone(),
         })
+    }
+
+    /// Return the circuit used by the prover.
+    pub fn circuit(&self) -> &Circuit {
+        self.circuit
     }
 }
 

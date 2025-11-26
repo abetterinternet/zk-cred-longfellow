@@ -16,6 +16,7 @@ use crate::{
     witness::{Witness, WitnessLayout},
     zk_one_circuit::verifier::Verifier,
 };
+use anyhow::anyhow;
 
 /// Longfellow ZK prover.
 pub struct Prover<'a> {
@@ -97,6 +98,7 @@ impl<'a> Prover<'a> {
         )?;
 
         Ok(Proof {
+            oracle: session_id.to_vec(),
             sumcheck_proof,
             ligero_commitment: commitment,
             ligero_proof,
@@ -107,12 +109,18 @@ impl<'a> Prover<'a> {
 /// Longfellow ZK proof.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Proof<FE> {
+    oracle: Vec<u8>,
     sumcheck_proof: SumcheckProof<FE>,
     ligero_commitment: LigeroCommitment,
     ligero_proof: LigeroProof<FE>,
 }
 
 impl<FE> Proof<FE> {
+    /// Returns the byte string used to select a random oracle.
+    pub fn oracle(&self) -> &[u8] {
+        &self.oracle
+    }
+
     /// Returns the Sumcheck component of the proof.
     pub fn sumcheck_proof(&self) -> &SumcheckProof<FE> {
         &self.sumcheck_proof
@@ -141,24 +149,22 @@ where
     pub fn decode(
         verifier: &Verifier,
         bytes: &mut std::io::Cursor<&[u8]>,
-    ) -> Result<([u8; 32], Self), anyhow::Error> {
+    ) -> Result<Self, anyhow::Error> {
         let layout = TableauLayout::new(
             &verifier.ligero_parameters,
             verifier.witness_length,
             verifier.quadratic_constraints.len(),
         );
-        let oracle = <[u8; 32] as Codec>::decode(bytes)?;
+        let oracle = <[u8; 32] as Codec>::decode(bytes)?.to_vec();
         let ligero_commitment = LigeroCommitment::from(Node::decode(bytes)?);
         let sumcheck_proof = SumcheckProof::<F>::decode(verifier.circuit, bytes)?;
         let ligero_proof = LigeroProof::<F>::decode(&layout, bytes)?;
-        Ok((
+        Ok(Self {
             oracle,
-            Self {
-                sumcheck_proof,
-                ligero_commitment,
-                ligero_proof,
-            },
-        ))
+            sumcheck_proof,
+            ligero_commitment,
+            ligero_proof,
+        })
     }
 
     /// Encode a Longfellow ZK proof.
@@ -166,7 +172,12 @@ where
     /// See section [7.5][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.5
-    pub fn encode(&self, oracle: [u8; 32], bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        let oracle: &[u8; 32] = self
+            .oracle
+            .as_slice()
+            .try_into()
+            .map_err(|_| anyhow!("oracle is not 32 bytes long"))?;
         oracle.encode(bytes)?;
         Node::from(self.ligero_commitment.into_bytes()).encode(bytes)?;
         self.sumcheck_proof.encode(bytes)?;
@@ -200,14 +211,13 @@ mod tests {
 
         let prover = Prover::new(&circuit, ligero_parameters.clone());
         let proof = prover.prove(session_id, &all_inputs).unwrap();
+        assert_eq!(session_id, proof.oracle());
 
         let mut encoded = Vec::new();
-        proof.encode(*session_id, &mut encoded).unwrap();
+        proof.encode(&mut encoded).unwrap();
 
         let verifier = Verifier::new(&circuit, ligero_parameters);
-        let (oracle, decoded) =
-            Proof::<FieldP128>::decode(&verifier, &mut Cursor::new(&encoded)).unwrap();
-        assert_eq!(session_id, &oracle);
+        let decoded = Proof::<FieldP128>::decode(&verifier, &mut Cursor::new(&encoded)).unwrap();
         assert_eq!(proof, decoded);
     }
 }

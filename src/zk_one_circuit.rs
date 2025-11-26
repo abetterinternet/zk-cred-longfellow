@@ -29,6 +29,6 @@ mod tests {
         let proof = prover.prove(session_id, &all_inputs).unwrap();
 
         let verifier = Verifier::new(&circuit, ligero_parameters);
-        verifier.verify(session_id, public_inputs, &proof).unwrap();
+        verifier.verify(public_inputs, &proof).unwrap();
     }
 }

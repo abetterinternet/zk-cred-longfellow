@@ -3,7 +3,7 @@
 use crate::{
     circuit::{Circuit, CircuitLayer, Evaluation},
     fields::CodecFieldElement,
-    ligero::committer::LigeroCommitment,
+    ligero::LigeroCommitment,
     sumcheck::{
         Polynomial,
         bind::{ElementwiseSum, SumcheckArray},

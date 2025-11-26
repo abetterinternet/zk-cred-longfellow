@@ -2,7 +2,7 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.1
 
-use crate::{Codec, ligero::committer::LigeroCommitment};
+use crate::{Codec, ligero::LigeroCommitment};
 use anyhow::anyhow;
 use sha2::{Digest, Sha256};
 use std::fmt::Debug;

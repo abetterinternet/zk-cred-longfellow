@@ -4,7 +4,7 @@ use crate::{
         LinearConstraints, QuadraticConstraint, quadratic_constraints,
     },
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
-    ligero::{LigeroParameters, TableauLayout, verifier::ligero_verify},
+    ligero::{LigeroParameters, tableau::TableauLayout, verifier::ligero_verify},
     transcript::Transcript,
     witness::WitnessLayout,
     zk_one_circuit::prover::Proof,

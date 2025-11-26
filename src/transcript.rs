@@ -6,8 +6,7 @@
 use std::fmt::Debug;
 
 use crate::{
-    circuit::Circuit, fields::CodecFieldElement, ligero::committer::LigeroCommitment,
-    sumcheck::Polynomial,
+    circuit::Circuit, fields::CodecFieldElement, ligero::LigeroCommitment, sumcheck::Polynomial,
 };
 use aes::{
     Aes256,

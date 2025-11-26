@@ -5,7 +5,7 @@ use crate::{
     circuit::Circuit,
     constraints::proof_constraints::QuadraticConstraint,
     fields::{CodecFieldElement, FieldElement},
-    ligero::{LigeroParameters, committer::LigeroCommitment},
+    ligero::{LigeroCommitment, LigeroParameters},
 };
 use serde::Deserialize;
 use std::io::Cursor;

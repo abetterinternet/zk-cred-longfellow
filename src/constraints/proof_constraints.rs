@@ -7,7 +7,7 @@ use crate::{
     circuit::Circuit,
     constraints::symbolic::{SymbolicExpression, Term},
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
-    ligero::committer::LigeroCommitment,
+    ligero::LigeroCommitment,
     sumcheck::{
         bind::{ElementwiseSum, SumcheckArray, bindeq},
         prover::SumcheckProof,

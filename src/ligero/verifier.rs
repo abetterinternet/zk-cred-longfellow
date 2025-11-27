@@ -199,11 +199,10 @@ mod tests {
     use super::*;
     use crate::{
         constraints::proof_constraints::quadratic_constraints,
-        decode_test_vector,
         fields::{FieldElement, fieldp128::FieldP128},
         ligero::tableau::TableauLayout,
         sumcheck::prover::SumcheckProof,
-        test_vector::CircuitTestVector,
+        test_vector::load_rfc,
         transcript::Transcript,
         witness::WitnessLayout,
     };
@@ -212,10 +211,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
-        let (test_vector, circuit) = decode_test_vector!(
-            "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
-            proofs,
-        );
+        let (test_vector, circuit) = load_rfc();
         let ligero_parameters = test_vector.ligero_parameters();
 
         // hack: prepend 1 to the inputs just like Circuit::evaluate does

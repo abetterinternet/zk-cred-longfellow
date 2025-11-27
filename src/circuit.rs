@@ -519,12 +519,11 @@ pub(crate) mod tests {
     use crate::{
         Codec, Size,
         circuit::{Circuit, CircuitLayer, Evaluation, Quad},
-        decode_test_vector,
         fields::{
             CodecFieldElement, FieldElement, FieldId, SerializedFieldElement, fieldp128::FieldP128,
             fieldp256::FieldP256,
         },
-        test_vector::CircuitTestVector,
+        test_vector::{CircuitTestVector, load_mac, load_rfc},
     };
     use std::{collections::HashSet, io::Cursor};
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -619,25 +618,17 @@ pub(crate) mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn roundtrip_circuit_longfellow_rfc_1() {
-        roundtrip_circuit_test_vector::<FieldP128>(decode_test_vector!(
-            "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
-            proofs,
-        ));
+        roundtrip_circuit_test_vector::<FieldP128>(load_rfc());
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn roundtrip_circuit_test_vector_mac() {
-        roundtrip_circuit_test_vector::<FieldP256>(decode_test_vector!(
-            "longfellow-mac-circuit-902a955fbb22323123aac5b69bdf3442e6ea6f80-1",
-        ));
+        roundtrip_circuit_test_vector::<FieldP256>(load_mac());
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn evaluate_circuit_longfellow_rfc_1_true() {
-        let (test_vector, circuit) = decode_test_vector!(
-            "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
-            proofs,
-        );
+        let (test_vector, circuit) = load_rfc();
 
         let evaluation: Evaluation<FieldP128> =
             circuit.evaluate(&test_vector.valid_inputs()).unwrap();
@@ -658,10 +649,7 @@ pub(crate) mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn evaluate_circuit_longfellow_rfc_1_false() {
-        let (test_vector, circuit) = decode_test_vector!(
-            "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
-            proofs,
-        );
+        let (test_vector, circuit) = load_rfc();
 
         // Evaluate with other values. At least one output element should be nonzero.
         assert!(

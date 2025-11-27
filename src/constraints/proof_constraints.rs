@@ -340,19 +340,15 @@ mod tests {
     use super::*;
     use crate::{
         circuit::Evaluation,
-        decode_test_vector,
         fields::{CodecFieldElement, FieldElement, fieldp128::FieldP128},
         sumcheck::prover::SumcheckProver,
-        test_vector::CircuitTestVector,
+        test_vector::load_rfc,
         witness::Witness,
     };
 
     #[wasm_bindgen_test(unsupported = test)]
     fn self_consistent() {
-        let (test_vector, circuit) = decode_test_vector!(
-            "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
-            proofs,
-        );
+        let (test_vector, circuit) = load_rfc();
 
         let evaluation: Evaluation<FieldP128> =
             circuit.evaluate(&test_vector.valid_inputs()).unwrap();
@@ -434,10 +430,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
-        let (test_vector, circuit) = decode_test_vector!(
-            "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
-            proofs,
-        );
+        let (test_vector, circuit) = load_rfc();
 
         let test_vector_constraints = test_vector.constraints.as_ref().unwrap();
 

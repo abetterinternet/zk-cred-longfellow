@@ -2,7 +2,7 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4
 
-use crate::transcript::Transcript;
+use crate::{fields::CodecFieldElement, ligero::tableau::TableauLayout, transcript::Transcript};
 use anyhow::Context;
 use merkle::Node;
 use serde::Deserialize;
@@ -81,4 +81,42 @@ fn write_hash_of_a(transcript: &mut Transcript) -> Result<(), anyhow::Error> {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00,
     ])
+}
+
+/// Challenges used to produce or verify a Ligero proof.
+struct LigeroChallenges<FE> {
+    pub low_degree_test_blind: Vec<FE>,
+    pub linear_constraint_alphas: Vec<FE>,
+    pub quadratic_constraint_alphas: Vec<FE>,
+    pub quadratic_proof_blind: Vec<FE>,
+}
+
+impl<FE: CodecFieldElement> LigeroChallenges<FE> {
+    /// Generate the challenges for the simulated prover-verifier interaction.
+    fn generate(
+        transcript: &mut Transcript,
+        tableau_layout: &TableauLayout,
+        linear_constraints_len: usize,
+        quadratic_constraints_len: usize,
+    ) -> Result<Self, anyhow::Error> {
+        // This is "u" in the specification. Generate one element for each witness and quadratic witness
+        // row in the tableau.
+        let low_degree_test_blind =
+            transcript.generate_challenge(tableau_layout.num_constraint_rows())?;
+
+        let linear_constraint_alphas = transcript.generate_challenge(linear_constraints_len)?;
+        let quadratic_constraint_alphas =
+            transcript.generate_challenge(3 * quadratic_constraints_len)?;
+
+        // Also uquad, u_quad in the specification.
+        let quadratic_proof_blind =
+            transcript.generate_challenge(tableau_layout.num_quadratic_triples())?;
+
+        Ok(Self {
+            low_degree_test_blind,
+            linear_constraint_alphas,
+            quadratic_constraint_alphas,
+            quadratic_proof_blind,
+        })
+    }
 }

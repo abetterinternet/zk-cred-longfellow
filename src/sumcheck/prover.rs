@@ -6,7 +6,6 @@ use crate::{
     sumcheck::{
         Polynomial,
         bind::{ElementwiseSum, SumcheckArray},
-        initialize_transcript,
     },
     transcript::Transcript,
     witness::Witness,
@@ -47,15 +46,6 @@ impl<'a> SumcheckProver<'a> {
         for output in evaluation.outputs() {
             assert_eq!(output, &FE::ZERO);
         }
-
-        // Initialize the transcript per "special rules for the first message", with adjustments to
-        // match longfellow-zk.
-        // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
-        initialize_transcript(
-            transcript,
-            self.circuit,
-            evaluation.public_inputs(self.circuit.num_public_inputs()),
-        )?;
 
         // Choose the bindings for the output layer.
         let output_wire_bindings = transcript.generate_output_wire_bindings(self.circuit)?;
@@ -350,7 +340,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        Size, fields::fieldp128::FieldP128, test_vector::load_rfc, witness::WitnessLayout,
+        Size, fields::fieldp128::FieldP128, sumcheck::initialize_transcript, test_vector::load_rfc,
+        witness::WitnessLayout,
     };
     use std::io::Cursor;
 
@@ -376,6 +367,12 @@ mod tests {
         transcript
             .write_byte_array(test_vector.ligero_commitment().unwrap().as_bytes())
             .unwrap();
+        initialize_transcript(
+            &mut transcript,
+            &circuit,
+            evaluation.public_inputs(circuit.num_public_inputs()),
+        )
+        .unwrap();
         let proof = SumcheckProver::new(&circuit)
             .prove(&evaluation, &mut transcript, &witness)
             .unwrap();

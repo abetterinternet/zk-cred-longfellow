@@ -5,6 +5,7 @@ use crate::{
     },
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     ligero::{LigeroParameters, tableau::TableauLayout, verifier::ligero_verify},
+    sumcheck::initialize_transcript,
     transcript::Transcript,
     witness::WitnessLayout,
     zk_one_circuit::prover::Proof,
@@ -52,6 +53,7 @@ impl<'a> Verifier<'a> {
         let mut transcript = Transcript::new(proof.oracle()).unwrap();
 
         transcript.write_byte_array(proof.ligero_commitment().as_bytes())?;
+        initialize_transcript(&mut transcript, self.circuit, &inputs)?;
 
         // Run sumcheck verifier, and produce deferred linear constraints.
         let linear_constraints = LinearConstraints::from_proof(

@@ -395,7 +395,7 @@ mod tests {
         constraints::proof_constraints::quadratic_constraints,
         fields::fieldp128::FieldP128,
         ligero::LigeroCommitment,
-        sumcheck,
+        sumcheck::{self, initialize_transcript},
         test_vector::load_rfc,
         transcript::Transcript,
         witness::{Witness, WitnessLayout},
@@ -441,6 +441,13 @@ mod tests {
         transcript
             .write_byte_array(ligero_commitment.as_bytes())
             .unwrap();
+        initialize_transcript(
+            &mut transcript,
+            &circuit,
+            evaluation.public_inputs(circuit.num_public_inputs()),
+        )
+        .unwrap();
+
         // Fork the transcript for constraint generation
         let mut constraint_transcript = transcript.clone();
 

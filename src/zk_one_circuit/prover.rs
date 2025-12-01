@@ -11,7 +11,10 @@ use crate::{
         prover::{LigeroProof, ligero_prove},
         tableau::{Tableau, TableauLayout},
     },
-    sumcheck::prover::{SumcheckProof, SumcheckProver},
+    sumcheck::{
+        initialize_transcript,
+        prover::{SumcheckProof, SumcheckProver},
+    },
     transcript::Transcript,
     witness::{Witness, WitnessLayout},
     zk_one_circuit::verifier::Verifier,
@@ -72,6 +75,11 @@ impl<'a> Prover<'a> {
         // Start of Fiat-Shamir transcript.
         let mut transcript = Transcript::new(session_id).unwrap();
         transcript.write_byte_array(commitment.as_bytes())?;
+        initialize_transcript(
+            &mut transcript,
+            circuit,
+            evaluation.public_inputs(circuit.num_public_inputs()),
+        )?;
         let mut constraint_transcript = transcript.clone();
 
         // Sumcheck, first time through: generate proof.

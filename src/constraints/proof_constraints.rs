@@ -9,7 +9,6 @@ use crate::{
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     sumcheck::{
         bind::{ElementwiseSum, SumcheckArray, bindeq},
-        initialize_transcript,
         prover::SumcheckProof,
     },
     transcript::Transcript,
@@ -104,11 +103,6 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<F
         };
 
         let witness_layout = WitnessLayout::from_circuit(circuit);
-
-        // Initialize the transcript per "special rules for the first message", with adjustments to
-        // match longfellow-zk.
-        // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
-        initialize_transcript(transcript, circuit, public_inputs)?;
 
         // Choose the bindings for the output layer.
         let output_wire_bindings = transcript.generate_output_wire_bindings::<FE>(circuit)?;
@@ -340,7 +334,7 @@ mod tests {
         circuit::Evaluation,
         fields::{CodecFieldElement, FieldElement, fieldp128::FieldP128},
         ligero::LigeroCommitment,
-        sumcheck::prover::SumcheckProver,
+        sumcheck::{initialize_transcript, prover::SumcheckProver},
         test_vector::load_rfc,
         witness::Witness,
     };
@@ -363,6 +357,12 @@ mod tests {
         proof_transcript
             .write_byte_array(LigeroCommitment::test_commitment().as_bytes())
             .unwrap();
+        initialize_transcript(
+            &mut proof_transcript,
+            &circuit,
+            evaluation.public_inputs(circuit.num_public_inputs()),
+        )
+        .unwrap();
 
         // Fork the transcript
         let mut constraint_transcript = proof_transcript.clone();
@@ -444,6 +444,12 @@ mod tests {
         proof_transcript
             .write_byte_array(test_vector.ligero_commitment().unwrap().as_bytes())
             .unwrap();
+        initialize_transcript(
+            &mut proof_transcript,
+            &circuit,
+            evaluation.public_inputs(circuit.num_public_inputs()),
+        )
+        .unwrap();
 
         // Fork the transcript
         let mut constraint_transcript = proof_transcript.clone();

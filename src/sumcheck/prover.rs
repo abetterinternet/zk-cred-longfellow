@@ -3,7 +3,6 @@
 use crate::{
     circuit::{Circuit, CircuitLayer, Evaluation},
     fields::CodecFieldElement,
-    ligero::LigeroCommitment,
     sumcheck::{
         Polynomial,
         bind::{ElementwiseSum, SumcheckArray},
@@ -42,7 +41,6 @@ impl<'a> SumcheckProver<'a> {
         &self,
         evaluation: &Evaluation<FE>,
         transcript: &mut Transcript,
-        ligero_commitment: &LigeroCommitment,
         witness: &Witness<FE>,
     ) -> Result<ProverResult<FE>, anyhow::Error> {
         // Specification interpretation verification: all the outputs should be zero
@@ -53,7 +51,6 @@ impl<'a> SumcheckProver<'a> {
         // Initialize the transcript per "special rules for the first message", with adjustments to
         // match longfellow-zk.
         // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
-        transcript.write_byte_array(ligero_commitment.as_bytes())?;
         initialize_transcript(
             transcript,
             self.circuit,
@@ -376,13 +373,11 @@ mod tests {
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
         let mut transcript = Transcript::new(b"test").unwrap();
 
+        transcript
+            .write_byte_array(test_vector.ligero_commitment().unwrap().as_bytes())
+            .unwrap();
         let proof = SumcheckProver::new(&circuit)
-            .prove(
-                &evaluation,
-                &mut transcript,
-                &test_vector.ligero_commitment().unwrap(),
-                &witness,
-            )
+            .prove(&evaluation, &mut transcript, &witness)
             .unwrap();
 
         let test_vector_decoded = SumcheckProof::decode(

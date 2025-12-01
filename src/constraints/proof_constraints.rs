@@ -7,7 +7,6 @@ use crate::{
     circuit::Circuit,
     constraints::symbolic::{SymbolicExpression, Term},
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
-    ligero::LigeroCommitment,
     sumcheck::{
         bind::{ElementwiseSum, SumcheckArray, bindeq},
         initialize_transcript,
@@ -82,16 +81,11 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<F
     /// `sym_private_inputs`, but since the whole point is that we don't know what those values are,
     /// it doesn't make sense to represent them as arguments.
     ///
-    /// `ligero_commitment` is the commitment computed per [4.3][2], which is needed to initialize
-    /// the transcript.
-    ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
-    /// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
     pub fn from_proof(
         circuit: &Circuit,
         public_inputs: &[FE],
         transcript: &mut Transcript,
-        ligero_commitment: &LigeroCommitment,
         proof: &SumcheckProof<FE>,
     ) -> Result<Self, anyhow::Error> {
         let mut constraints = Self {
@@ -114,7 +108,6 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<F
         // Initialize the transcript per "special rules for the first message", with adjustments to
         // match longfellow-zk.
         // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
-        transcript.write_byte_array(ligero_commitment.as_bytes())?;
         initialize_transcript(transcript, circuit, public_inputs)?;
 
         // Choose the bindings for the output layer.
@@ -346,6 +339,7 @@ mod tests {
     use crate::{
         circuit::Evaluation,
         fields::{CodecFieldElement, FieldElement, fieldp128::FieldP128},
+        ligero::LigeroCommitment,
         sumcheck::prover::SumcheckProver,
         test_vector::load_rfc,
         witness::Witness,
@@ -366,24 +360,21 @@ mod tests {
         );
 
         let mut proof_transcript = Transcript::new(b"test").unwrap();
+        proof_transcript
+            .write_byte_array(LigeroCommitment::test_commitment().as_bytes())
+            .unwrap();
 
         // Fork the transcript
         let mut constraint_transcript = proof_transcript.clone();
 
         let proof = SumcheckProver::new(&circuit)
-            .prove(
-                &evaluation,
-                &mut proof_transcript,
-                &LigeroCommitment::test_commitment(),
-                &witness,
-            )
+            .prove(&evaluation, &mut proof_transcript, &witness)
             .unwrap();
 
         let linear_constraints = LinearConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
             &mut constraint_transcript,
-            &LigeroCommitment::test_commitment(),
             &proof.proof,
         )
         .unwrap();
@@ -450,24 +441,21 @@ mod tests {
         );
 
         let mut proof_transcript = Transcript::new(b"test").unwrap();
+        proof_transcript
+            .write_byte_array(test_vector.ligero_commitment().unwrap().as_bytes())
+            .unwrap();
 
         // Fork the transcript
         let mut constraint_transcript = proof_transcript.clone();
 
         let proof = SumcheckProver::new(&circuit)
-            .prove(
-                &evaluation,
-                &mut proof_transcript,
-                &test_vector.ligero_commitment().unwrap(),
-                &witness,
-            )
+            .prove(&evaluation, &mut proof_transcript, &witness)
             .unwrap();
 
         let linear_constraints = LinearConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
             &mut constraint_transcript,
-            &test_vector.ligero_commitment().unwrap(),
             &proof.proof,
         )
         .unwrap();

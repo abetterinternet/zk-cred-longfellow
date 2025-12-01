@@ -51,12 +51,13 @@ impl<'a> Verifier<'a> {
         // Start of Fiat-Shamir transcript.
         let mut transcript = Transcript::new(proof.oracle()).unwrap();
 
+        transcript.write_byte_array(proof.ligero_commitment().as_bytes())?;
+
         // Run sumcheck verifier, and produce deferred linear constraints.
         let linear_constraints = LinearConstraints::from_proof(
             self.circuit,
             &inputs,
             &mut transcript,
-            &proof.ligero_commitment(),
             proof.sumcheck_proof(),
         )?;
 

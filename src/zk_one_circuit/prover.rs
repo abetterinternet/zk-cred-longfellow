@@ -71,12 +71,13 @@ impl<'a> Prover<'a> {
 
         // Start of Fiat-Shamir transcript.
         let mut transcript = Transcript::new(session_id).unwrap();
+        transcript.write_byte_array(commitment.as_bytes())?;
         let mut constraint_transcript = transcript.clone();
 
         // Sumcheck, first time through: generate proof.
         let sumcheck_proof = self
             .sumcheck_prover
-            .prove(&evaluation, &mut transcript, &commitment, &witness)?
+            .prove(&evaluation, &mut transcript, &witness)?
             .proof;
 
         // Sumcheck, second time through: produce linear constraints.
@@ -84,7 +85,6 @@ impl<'a> Prover<'a> {
             circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
             &mut constraint_transcript,
-            &commitment,
             &sumcheck_proof,
         )?;
 

@@ -224,11 +224,13 @@ mod tests {
 
         let quadratic_constraints = quadratic_constraints(&circuit);
 
+        transcript
+            .write_byte_array(test_vector.ligero_commitment().unwrap().as_bytes())
+            .unwrap();
         let linear_constraints = LinearConstraints::from_proof(
             &circuit,
             &public_inputs[0..circuit.num_public_inputs()],
             &mut transcript,
-            &test_vector.ligero_commitment().unwrap(),
             &sumcheck_proof,
         )
         .unwrap();

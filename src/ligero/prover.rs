@@ -438,23 +438,20 @@ mod tests {
 
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
         let mut transcript = Transcript::new(b"test").unwrap();
+        transcript
+            .write_byte_array(ligero_commitment.as_bytes())
+            .unwrap();
         // Fork the transcript for constraint generation
         let mut constraint_transcript = transcript.clone();
 
         let sumcheck_proof = sumcheck::prover::SumcheckProver::new(&circuit)
-            .prove(
-                &evaluation,
-                &mut transcript,
-                &test_vector.ligero_commitment().unwrap(),
-                &witness,
-            )
+            .prove(&evaluation, &mut transcript, &witness)
             .unwrap();
 
         let linear_constraints = LinearConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
             &mut constraint_transcript,
-            &ligero_commitment,
             &sumcheck_proof.proof,
         )
         .unwrap();

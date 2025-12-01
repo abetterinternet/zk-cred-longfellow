@@ -7,6 +7,7 @@ use crate::{
     sumcheck::{
         Polynomial,
         bind::{ElementwiseSum, SumcheckArray},
+        initialize_transcript,
     },
     transcript::Transcript,
     witness::Witness,
@@ -49,8 +50,12 @@ impl<'a> SumcheckProver<'a> {
             assert_eq!(output, &FE::ZERO);
         }
 
-        transcript.initialize(
-            ligero_commitment,
+        // Initialize the transcript per "special rules for the first message", with adjustments to
+        // match longfellow-zk.
+        // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
+        transcript.write_byte_array(ligero_commitment.as_bytes())?;
+        initialize_transcript(
+            transcript,
             self.circuit,
             evaluation.public_inputs(self.circuit.num_public_inputs()),
         )?;

@@ -10,6 +10,7 @@ use crate::{
     ligero::LigeroCommitment,
     sumcheck::{
         bind::{ElementwiseSum, SumcheckArray, bindeq},
+        initialize_transcript,
         prover::SumcheckProof,
     },
     transcript::Transcript,
@@ -110,7 +111,11 @@ impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<F
 
         let witness_layout = WitnessLayout::from_circuit(circuit);
 
-        transcript.initialize(ligero_commitment, circuit, public_inputs)?;
+        // Initialize the transcript per "special rules for the first message", with adjustments to
+        // match longfellow-zk.
+        // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
+        transcript.write_byte_array(ligero_commitment.as_bytes())?;
+        initialize_transcript(transcript, circuit, public_inputs)?;
 
         // Choose the bindings for the output layer.
         let output_wire_bindings = transcript.generate_output_wire_bindings::<FE>(circuit)?;

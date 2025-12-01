@@ -5,9 +5,7 @@
 
 use std::fmt::Debug;
 
-use crate::{
-    circuit::Circuit, fields::CodecFieldElement, ligero::LigeroCommitment, sumcheck::Polynomial,
-};
+use crate::{circuit::Circuit, fields::CodecFieldElement, sumcheck::Polynomial};
 use aes::{
     Aes256,
     cipher::{BlockEncrypt, KeyInit},
@@ -72,44 +70,6 @@ impl Transcript {
         transcript.write_byte_array(session_id)?;
 
         Ok(transcript)
-    }
-
-    /// Initialize the transcript per "special rules for the first message", with adjustments to
-    /// match longfellow-zk.
-    pub fn initialize<FE: CodecFieldElement>(
-        &mut self,
-        ligero_commitment: &LigeroCommitment,
-        circuit: &Circuit,
-        public_inputs: &[FE],
-    ) -> Result<(), anyhow::Error> {
-        // Initialize the transcript per "special rules for the first message", with adjustments to
-        // match longfellow-zk.
-        // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
-        // 3.1.3 item 1 says to append the "Prover message", "which is usually a commitment". In
-        // particular, a Ligero commitment.
-        self.write_byte_array(ligero_commitment.as_bytes())?;
-
-        // 3.1.3 item 2: write circuit ID
-        self.write_byte_array(&circuit.id)?;
-        // 3.1.3 item 2: write inputs. Per the specification, this should be an array of field
-        // elements, but longfellow-zk writes each input as an individual field element. Also,
-        // longfellow-zk only appends the *public* inputs, but the specification isn't clear about
-        // that.
-        for input in public_inputs {
-            self.write_field_element(input)?;
-        }
-
-        // 3.1.3 item 2: write outputs. We should look at the output layer of `evaluation` here and
-        // write an array of field elements. But longfellow-zk writes a single zero, regardless of
-        // how many outputs the actual circuit has.
-        self.write_field_element(&FE::ZERO)?;
-
-        // 3.1.3 item 3: write an array of zero bytes. The spec implies that its length should be
-        // the number of arithmetic gates in the circuit, but longfellow-zk uses the number of quads
-        // aka the number of terms.
-        self.write_byte_array(vec![0u8; circuit.num_quads()].as_slice())?;
-
-        Ok(())
     }
 
     /// Generate bindings for the output wires of a circuit.

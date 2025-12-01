@@ -9,8 +9,10 @@ use crate::{
     },
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     ligero::{
+        LigeroChallenges,
         merkle::{InclusionProof, MerkleTree},
         tableau::{Tableau, TableauLayout},
+        write_hash_of_a, write_proof,
     },
     transcript::Transcript,
 };
@@ -32,17 +34,14 @@ pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     linear_constraints: &LinearConstraints<FE>,
     quadratic_constraints: &[QuadraticConstraint],
 ) -> Result<LigeroProof<FE>, anyhow::Error> {
-    // Write 0xdeadbeef, padded to 32 bytes, to the transcript to match what longfellow-zk does
-    transcript.write_byte_array(&[
-        0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
-    ])?;
+    write_hash_of_a(transcript)?;
 
-    // The blind is also "u" in the specification. Generate one blind element for each witness
-    // and quadratic witness row in the tableau.
-    let low_degree_test_blind =
-        transcript.generate_challenge::<FE>(tableau.layout().num_constraint_rows())?;
+    let challenges = LigeroChallenges::generate(
+        transcript,
+        tableau.layout(),
+        linear_constraints.len(),
+        quadratic_constraints.len(),
+    )?;
 
     // Sum blinded witness rows into the low degree test
     let mut low_degree_test_proof = tableau.contents()[TableauLayout::low_degree_test_row()]
@@ -52,7 +51,7 @@ pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         .contents()
         .iter()
         .skip(tableau.layout().first_witness_row())
-        .zip(low_degree_test_blind)
+        .zip(challenges.low_degree_test_blind)
     {
         for (ldt_column, witness_column) in low_degree_test_proof.iter_mut().zip(witness_row.iter())
         {
@@ -60,17 +59,13 @@ pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         }
     }
 
-    let linear_constraint_alphas = transcript.generate_challenge::<FE>(linear_constraints.len())?;
-    let quad_constraint_alphas =
-        transcript.generate_challenge::<FE>(3 * quadratic_constraints.len())?;
-
     // Sum random linear combinations of linear constraints into the dot proof
     let inner_product_vector = inner_product_vector(
         tableau.layout(),
         linear_constraints,
-        &linear_constraint_alphas,
+        &challenges.linear_constraint_alphas,
         quadratic_constraints,
-        &quad_constraint_alphas,
+        &challenges.quadratic_constraint_alphas,
     )?;
 
     let mut dot_proof =
@@ -109,10 +104,6 @@ pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     // Check that nothing grew the dot proof behind our back
     assert_eq!(dot_proof.len(), tableau.layout().dblock());
 
-    // Also uquad, u_quad in the specification.
-    let quad_proof_blinding =
-        transcript.generate_challenge::<FE>(tableau.layout().num_quadratic_triples())?;
-
     let mut quadratic_proof = tableau.contents()[TableauLayout::quadratic_test_row()]
         [0..tableau.layout().dblock()]
         .to_vec();
@@ -121,7 +112,7 @@ pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     let first_y_row = first_x_row + tableau.layout().num_quadratic_triples();
     let first_z_row = first_y_row + tableau.layout().num_quadratic_triples();
 
-    for (index, challenge) in quad_proof_blinding.into_iter().enumerate() {
+    for (index, challenge) in challenges.quadratic_proof_blind.into_iter().enumerate() {
         let x_row = &tableau.contents()[first_x_row + index];
         let y_row = &tableau.contents()[first_y_row + index];
         let z_row = &tableau.contents()[first_z_row + index];
@@ -147,10 +138,13 @@ pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     let quadratic_proof_high = &quadratic_proof[tableau.layout().block_size()..];
 
     // Write proofs to the transcript
-    transcript.write_field_element_array(&low_degree_test_proof)?;
-    transcript.write_field_element_array(&dot_proof)?;
-    transcript.write_field_element_array(quadratic_proof_low)?;
-    transcript.write_field_element_array(quadratic_proof_high)?;
+    write_proof(
+        transcript,
+        &low_degree_test_proof,
+        &dot_proof,
+        quadratic_proof_low,
+        quadratic_proof_high,
+    )?;
 
     let requested_column_indices = transcript.generate_naturals_without_replacement(
         tableau.layout().num_columns() - tableau.layout().dblock(),

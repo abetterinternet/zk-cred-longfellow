@@ -6,10 +6,11 @@ use crate::{
     constraints::proof_constraints::{LinearConstraints, QuadraticConstraint},
     fields::{CodecFieldElement, LagrangePolynomialFieldElement},
     ligero::{
-        LigeroCommitment,
+        LigeroChallenges, LigeroCommitment,
         merkle::{MerkleTree, Node},
         prover::{LigeroProof, inner_product_vector},
         tableau::TableauLayout,
+        write_hash_of_a, write_proof,
     },
     transcript::Transcript,
 };
@@ -24,27 +25,22 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     quadratic_constraints: &[QuadraticConstraint],
     layout: &TableauLayout,
 ) -> Result<(), anyhow::Error> {
-    // Write 0xdeadbeef, padded to 32 bytes, to the transcript to match what longfellow-zk does
-    transcript.write_byte_array(&[
-        0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
-    ])?;
+    write_hash_of_a(transcript)?;
 
-    // The blind is also "u" in the specification. Generate one blind element for each witness
-    // and quadratic witness row in the tableau.
-    let low_degree_test_blind =
-        transcript.generate_challenge::<FE>(layout.num_constraint_rows())?;
-    let linear_constraint_alphas = transcript.generate_challenge::<FE>(linear_constraints.len())?;
-    let quad_constraint_alphas =
-        transcript.generate_challenge::<FE>(3 * quadratic_constraints.len())?;
-    let quad_proof_blinding =
-        transcript.generate_challenge::<FE>(layout.num_quadratic_triples())?;
+    let challenges = LigeroChallenges::generate(
+        transcript,
+        layout,
+        linear_constraints.len(),
+        quadratic_constraints.len(),
+    )?;
 
-    transcript.write_field_element_array(&proof.low_degree_test_proof)?;
-    transcript.write_field_element_array(&proof.dot_proof)?;
-    transcript.write_field_element_array(&proof.quadratic_proof.0)?;
-    transcript.write_field_element_array(&proof.quadratic_proof.1)?;
+    write_proof(
+        transcript,
+        &proof.low_degree_test_proof,
+        &proof.dot_proof,
+        &proof.quadratic_proof.0,
+        &proof.quadratic_proof.1,
+    )?;
 
     let requested_column_indices = transcript.generate_naturals_without_replacement(
         layout.num_columns() - layout.dblock(),
@@ -59,7 +55,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         .tableau_columns
         .iter()
         .skip(layout.first_witness_row())
-        .zip(low_degree_test_blind)
+        .zip(challenges.low_degree_test_blind)
     {
         for (ldt_element, proof_element) in want_low_degree_row.iter_mut().zip(proof_row.iter()) {
             *ldt_element += challenge * proof_element;
@@ -79,7 +75,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     let want_dot_product = linear_constraints
         .right_hand_side_terms()
         .iter()
-        .zip(&linear_constraint_alphas)
+        .zip(&challenges.linear_constraint_alphas)
         .fold(FE::ZERO, |sum, (rhs_term, alpha)| sum + *rhs_term * alpha);
     let proof_dot_product = proof
         .dot_proof
@@ -97,9 +93,9 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     let inner_product_vector = inner_product_vector(
         layout,
         linear_constraints,
-        &linear_constraint_alphas,
+        &challenges.linear_constraint_alphas,
         quadratic_constraints,
-        &quad_constraint_alphas,
+        &challenges.quadratic_constraint_alphas,
     )?;
 
     // Check that dot proof matches requested columns
@@ -141,7 +137,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     let first_y_row = first_x_row + layout.num_quadratic_triples();
     let first_z_row = first_y_row + layout.num_quadratic_triples();
 
-    for (index, uquad) in quad_proof_blinding.into_iter().enumerate() {
+    for (index, uquad) in challenges.quadratic_proof_blind.into_iter().enumerate() {
         let x_row = &proof.tableau_columns[first_x_row + index];
         let y_row = &proof.tableau_columns[first_y_row + index];
         let z_row = &proof.tableau_columns[first_z_row + index];

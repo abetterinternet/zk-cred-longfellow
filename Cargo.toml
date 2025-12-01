@@ -21,8 +21,21 @@ subtle = "2.6.1"
 zstd = "0.13.3"
 
 [dev-dependencies]
+criterion = { version = "0.8.0", features = ["html_reports"] }
 num-traits = "0.2.19"
 wasm-bindgen-test = "0.3"
+
+[[bench]]
+name = "field"
+harness = false
+
+[[bench]]
+name = "extend"
+harness = false
+
+[[bench]]
+name = "longfellow_one_field"
+harness = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]

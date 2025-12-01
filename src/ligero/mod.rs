@@ -83,6 +83,25 @@ fn write_hash_of_a(transcript: &mut Transcript) -> Result<(), anyhow::Error> {
     ])
 }
 
+/// Write a Ligero proof to the transcript.
+pub fn write_proof<FE: CodecFieldElement>(
+    transcript: &mut Transcript,
+    low_degree_test_proof: &[FE],
+    dot_proof: &[FE],
+    quadratic_proof_low: &[FE],
+    quadratic_proof_high: &[FE],
+) -> Result<(), anyhow::Error> {
+    for proof in [
+        low_degree_test_proof,
+        dot_proof,
+        quadratic_proof_low,
+        quadratic_proof_high,
+    ] {
+        transcript.write_field_element_array(proof)?;
+    }
+    Ok(())
+}
+
 /// Challenges used to produce or verify a Ligero proof.
 struct LigeroChallenges<FE> {
     pub low_degree_test_blind: Vec<FE>,

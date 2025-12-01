@@ -10,7 +10,7 @@ use crate::{
         merkle::{MerkleTree, Node},
         prover::{LigeroProof, inner_product_vector},
         tableau::TableauLayout,
-        write_hash_of_a,
+        write_hash_of_a, write_proof,
     },
     transcript::Transcript,
 };
@@ -34,10 +34,13 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         quadratic_constraints.len(),
     )?;
 
-    transcript.write_field_element_array(&proof.low_degree_test_proof)?;
-    transcript.write_field_element_array(&proof.dot_proof)?;
-    transcript.write_field_element_array(&proof.quadratic_proof.0)?;
-    transcript.write_field_element_array(&proof.quadratic_proof.1)?;
+    write_proof(
+        transcript,
+        &proof.low_degree_test_proof,
+        &proof.dot_proof,
+        &proof.quadratic_proof.0,
+        &proof.quadratic_proof.1,
+    )?;
 
     let requested_column_indices = transcript.generate_naturals_without_replacement(
         layout.num_columns() - layout.dblock(),

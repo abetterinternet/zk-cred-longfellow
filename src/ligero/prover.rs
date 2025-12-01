@@ -12,7 +12,7 @@ use crate::{
         LigeroChallenges,
         merkle::{InclusionProof, MerkleTree},
         tableau::{Tableau, TableauLayout},
-        write_hash_of_a,
+        write_hash_of_a, write_proof,
     },
     transcript::Transcript,
 };
@@ -138,10 +138,13 @@ pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     let quadratic_proof_high = &quadratic_proof[tableau.layout().block_size()..];
 
     // Write proofs to the transcript
-    transcript.write_field_element_array(&low_degree_test_proof)?;
-    transcript.write_field_element_array(&dot_proof)?;
-    transcript.write_field_element_array(quadratic_proof_low)?;
-    transcript.write_field_element_array(quadratic_proof_high)?;
+    write_proof(
+        transcript,
+        &low_degree_test_proof,
+        &dot_proof,
+        quadratic_proof_low,
+        quadratic_proof_high,
+    )?;
 
     let requested_column_indices = transcript.generate_naturals_without_replacement(
         tableau.layout().num_columns() - tableau.layout().dblock(),

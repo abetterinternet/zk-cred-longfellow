@@ -2,6 +2,7 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4
 
+use crate::transcript::Transcript;
 use anyhow::Context;
 use merkle::Node;
 use serde::Deserialize;
@@ -69,4 +70,15 @@ impl LigeroCommitment {
     pub fn test_commitment() -> Self {
         Self::try_from([1u8; 32].as_slice()).unwrap()
     }
+}
+
+/// Write hash of A to the transcript.
+fn write_hash_of_a(transcript: &mut Transcript) -> Result<(), anyhow::Error> {
+    // Write 0xdeadbeef, padded to 32 bytes, to the transcript to match what longfellow-zk does.
+    // zk_prover.h claims that "[f]or FS soundness, it is ok for hash_of_A to be any string".
+    transcript.write_byte_array(&[
+        0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00,
+    ])
 }

@@ -10,6 +10,7 @@ use crate::{
         merkle::{MerkleTree, Node},
         prover::{LigeroProof, inner_product_vector},
         tableau::TableauLayout,
+        write_hash_of_a,
     },
     transcript::Transcript,
 };
@@ -24,12 +25,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     quadratic_constraints: &[QuadraticConstraint],
     layout: &TableauLayout,
 ) -> Result<(), anyhow::Error> {
-    // Write 0xdeadbeef, padded to 32 bytes, to the transcript to match what longfellow-zk does
-    transcript.write_byte_array(&[
-        0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
-    ])?;
+    write_hash_of_a(transcript)?;
 
     // The blind is also "u" in the specification. Generate one blind element for each witness
     // and quadratic witness row in the tableau.

@@ -3,7 +3,6 @@
 use crate::{
     circuit::{Circuit, CircuitLayer, Evaluation},
     fields::CodecFieldElement,
-    ligero::LigeroCommitment,
     sumcheck::{
         Polynomial,
         bind::{ElementwiseSum, SumcheckArray},
@@ -41,19 +40,12 @@ impl<'a> SumcheckProver<'a> {
         &self,
         evaluation: &Evaluation<FE>,
         transcript: &mut Transcript,
-        ligero_commitment: &LigeroCommitment,
         witness: &Witness<FE>,
     ) -> Result<ProverResult<FE>, anyhow::Error> {
         // Specification interpretation verification: all the outputs should be zero
         for output in evaluation.outputs() {
             assert_eq!(output, &FE::ZERO);
         }
-
-        transcript.initialize(
-            ligero_commitment,
-            self.circuit,
-            evaluation.public_inputs(self.circuit.num_public_inputs()),
-        )?;
 
         // Choose the bindings for the output layer.
         let output_wire_bindings = transcript.generate_output_wire_bindings(self.circuit)?;
@@ -348,7 +340,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        Size, fields::fieldp128::FieldP128, test_vector::load_rfc, witness::WitnessLayout,
+        Size, fields::fieldp128::FieldP128, sumcheck::initialize_transcript, test_vector::load_rfc,
+        witness::WitnessLayout,
     };
     use std::io::Cursor;
 
@@ -371,13 +364,17 @@ mod tests {
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
         let mut transcript = Transcript::new(b"test").unwrap();
 
+        transcript
+            .write_byte_array(test_vector.ligero_commitment().unwrap().as_bytes())
+            .unwrap();
+        initialize_transcript(
+            &mut transcript,
+            &circuit,
+            evaluation.public_inputs(circuit.num_public_inputs()),
+        )
+        .unwrap();
         let proof = SumcheckProver::new(&circuit)
-            .prove(
-                &evaluation,
-                &mut transcript,
-                &test_vector.ligero_commitment().unwrap(),
-                &witness,
-            )
+            .prove(&evaluation, &mut transcript, &witness)
             .unwrap();
 
         let test_vector_decoded = SumcheckProof::decode(

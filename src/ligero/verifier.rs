@@ -197,7 +197,7 @@ mod tests {
         constraints::proof_constraints::quadratic_constraints,
         fields::{FieldElement, fieldp128::FieldP128},
         ligero::tableau::TableauLayout,
-        sumcheck::prover::SumcheckProof,
+        sumcheck::{initialize_transcript, prover::SumcheckProof},
         test_vector::load_rfc,
         transcript::Transcript,
         witness::WitnessLayout,
@@ -224,11 +224,19 @@ mod tests {
 
         let quadratic_constraints = quadratic_constraints(&circuit);
 
+        transcript
+            .write_byte_array(test_vector.ligero_commitment().unwrap().as_bytes())
+            .unwrap();
+        initialize_transcript(
+            &mut transcript,
+            &circuit,
+            &public_inputs[0..circuit.num_public_inputs()],
+        )
+        .unwrap();
         let linear_constraints = LinearConstraints::from_proof(
             &circuit,
             &public_inputs[0..circuit.num_public_inputs()],
             &mut transcript,
-            &test_vector.ligero_commitment().unwrap(),
             &sumcheck_proof,
         )
         .unwrap();

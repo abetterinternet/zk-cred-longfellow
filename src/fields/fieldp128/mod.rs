@@ -128,7 +128,7 @@ impl LagrangePolynomialFieldElement for FieldP128 {
         //
         // GF(2^128-2^108+1)(2).inverse().to_bytes(byteorder='little')
         //
-        // Unwrap safety: this constant is a valid field element.
+        // Panic safety: this constant is a valid field element.
         let bytes = b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f";
         match Self::try_from_bytes_const(bytes) {
             Ok(value) => value,
@@ -141,7 +141,7 @@ impl LagrangePolynomialFieldElement for FieldP128 {
         //
         // GF(2^128-2^108+1)(1 - 2).inverse().to_bytes(byteorder='little')
         //
-        // Unwrap safety: this constant is a valid field element.
+        // Panic safety: this constant is a valid field element.
         let bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\xff\xff";
         match Self::try_from_bytes_const(bytes) {
             Ok(value) => value,
@@ -154,7 +154,7 @@ impl LagrangePolynomialFieldElement for FieldP128 {
         //
         // GF(2^128-2^108+1)(2^2 - 2).inverse().to_bytes(byteorder='little')
         //
-        // Unwrap safety: this constant is a valid field element.
+        // Panic safety: this constant is a valid field element.
         let bytes = b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f";
         match Self::try_from_bytes_const(bytes) {
             Ok(value) => value,

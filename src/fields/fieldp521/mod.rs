@@ -114,7 +114,7 @@ impl LagrangePolynomialFieldElement for FieldP521 {
         //
         // GF(2^521 - 1)(2).inverse().to_bytes(byteorder='little')
         //
-        // Unwrap safety: this constant is a valid field element.
+        // Panic safety: this constant is a valid field element.
         let bytes =
             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
             \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
@@ -131,7 +131,7 @@ impl LagrangePolynomialFieldElement for FieldP521 {
         //
         // GF(2^521 - 1)(1 - 2).inverse().to_bytes(byteorder='little')
         //
-        // Unwrap safety: this constant is a valid field element.
+        // Panic safety: this constant is a valid field element.
         let bytes =
             b"\xfe\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
             \xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
@@ -148,7 +148,7 @@ impl LagrangePolynomialFieldElement for FieldP521 {
         //
         // GF(2^521 - 1)(2^2 - 2).inverse().to_bytes(byteorder='little')
         //
-        // Unwrap safety: this constant is a valid field element.
+        // Panic safety: this constant is a valid field element.
         let bytes =
             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
             \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\

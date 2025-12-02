@@ -24,6 +24,16 @@ use subtle::ConstantTimeEq;
 #[derive(Clone, Copy)]
 pub struct Field2_128(u128);
 
+impl Field2_128 {
+    /// Project a u128 integer into a field element.
+    ///
+    /// This duplicates `FieldElement::from_u128()` in order to provide a const function with the
+    /// same functionality, since trait methods cannot be used in const contexts yet.
+    const fn from_u128_const(value: u128) -> Self {
+        Self(value)
+    }
+}
+
 impl FieldElement for Field2_128 {
     const ZERO: Self = Self(0);
     const ONE: Self = Self(0b1);
@@ -43,35 +53,35 @@ impl CodecFieldElement for Field2_128 {
 }
 
 impl LagrangePolynomialFieldElement for Field2_128 {
-    fn sumcheck_p2_mul_inv() -> Self {
+    const SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //
         // GF2 = GF(2)
         // x = polygen(GF2)
         // GF2_128.<x> = GF2.extension(x^128 + x^7 + x^2 + x + 1)
         // GF2_128(x).inverse().to_integer()
-        Self::from_u128(170141183460469231731687303715884105795)
-    }
+        Self::from_u128_const(170141183460469231731687303715884105795)
+    };
 
-    fn one_minus_sumcheck_p2_mul_inv() -> Self {
+    const ONE_MINUS_SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //
         // GF2 = GF(2)
         // x = polygen(GF2)
         // GF2_128.<x> = GF2.extension(x^128 + x^7 + x^2 + x + 1)
         // GF2_128(1 - x).inverse().to_integer()
-        Self::from_u128(340282366920938463463374607431768211330)
-    }
+        Self::from_u128_const(340282366920938463463374607431768211330)
+    };
 
-    fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self {
+    const SUMCHECK_P2_SQUARED_MINUS_SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //
         // GF2 = GF(2)
         // x = polygen(GF2)
         // GF2_128.<x> = GF2.extension(x^128 + x^7 + x^2 + x + 1)
         // GF2_128(x^2 - x).inverse().to_integer()
-        Self::from_u128(170141183460469231731687303715884105665)
-    }
+        Self::from_u128_const(170141183460469231731687303715884105665)
+    };
 
     fn mul_inv(&self) -> Self {
         // Compute the multiplicative inverse by exponentiating to the power (2^128 - 2). See

@@ -57,6 +57,33 @@ impl FieldP521 {
         fiat_p521_from_bytes(&mut out, &bytes);
         Self(out)
     }
+
+    /// Decode a serialized field element.
+    ///
+    /// This is equivalent to the implementations of `TryFrom<&[u8; 66]>`, but it can be called from
+    /// const contexts.
+    const fn try_from_bytes_const(value: &[u8; 66]) -> Result<Self, &'static str> {
+        // We have to use an open-coded for loop instead of iterator combinators due to the present
+        // limitations of const functions.
+        let mut i = 65;
+        loop {
+            if value[i] > Self::MODULUS_BYTES[i] {
+                return Err("serialized FieldP521 element is not less than the modulus");
+            } else if value[i] < Self::MODULUS_BYTES[i] {
+                break;
+            }
+
+            if i == 0 {
+                return Err("serialized FieldP521 element is not less than the modulus");
+            } else {
+                i -= 1;
+            }
+        }
+
+        let mut out = fiat_p521_tight_field_element([0; 9]);
+        fiat_p521_from_bytes(&mut out, value);
+        Ok(Self(out))
+    }
 }
 
 impl FieldElement for FieldP521 {
@@ -82,50 +109,56 @@ impl CodecFieldElement for FieldP521 {
 }
 
 impl LagrangePolynomialFieldElement for FieldP521 {
-    fn sumcheck_p2_mul_inv() -> Self {
+    const SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //
         // GF(2^521 - 1)(2).inverse().to_bytes(byteorder='little')
         //
         // Unwrap safety: this constant is a valid field element.
-        Self::try_from(
+        let bytes =
             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
             \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
             \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
-            \x00\x00\x01",
-        )
-        .unwrap()
-    }
+            \x00\x00\x01";
+        match Self::try_from_bytes_const(bytes) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        }
+    };
 
-    fn one_minus_sumcheck_p2_mul_inv() -> Self {
+    const ONE_MINUS_SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //
         // GF(2^521 - 1)(1 - 2).inverse().to_bytes(byteorder='little')
         //
         // Unwrap safety: this constant is a valid field element.
-        Self::try_from(
+        let bytes =
             b"\xfe\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
             \xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
             \xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
-            \xff\xff\x01",
-        )
-        .unwrap()
-    }
+            \xff\xff\x01";
+        match Self::try_from_bytes_const(bytes) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        }
+    };
 
-    fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self {
+    const SUMCHECK_P2_SQUARED_MINUS_SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //
         // GF(2^521 - 1)(2^2 - 2).inverse().to_bytes(byteorder='little')
         //
         // Unwrap safety: this constant is a valid field element.
-        Self::try_from(
+        let bytes =
             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
             \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
             \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
-            \x00\x00\x01",
-        )
-        .unwrap()
-    }
+            \x00\x00\x01";
+        match Self::try_from_bytes_const(bytes) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        }
+    };
 
     fn mul_inv(&self) -> Self {
         // Compute the multiplicative inverse by exponentiating to the power (p - 2). See
@@ -339,5 +372,21 @@ mod tests {
         p_minus_one_bytes[0] -= 1;
         let p_minus_one = FieldP521::decode(&mut Cursor::new(&p_minus_one_bytes)).unwrap();
         assert_eq!(p_minus_one + FieldP521::ONE, FieldP521::ZERO);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn try_from_bytes_const_equivalent() {
+        let mut p_minus_one_bytes = FieldP521::MODULUS_BYTES;
+        p_minus_one_bytes[0] -= 1;
+        for bytes in [
+            [0; 66],
+            p_minus_one_bytes,
+            FieldP521::MODULUS_BYTES,
+            [0xff; 66],
+        ] {
+            let res1 = FieldP521::try_from_bytes_const(&bytes).map_err(|e| e.to_owned());
+            let res2 = FieldP521::try_from(&bytes).map_err(|e| e.to_string());
+            assert_eq!(res1, res2);
+        }
     }
 }

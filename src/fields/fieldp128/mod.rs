@@ -71,6 +71,35 @@ impl FieldP128 {
         );
         Self(out)
     }
+
+    /// Decode a serialized field element.
+    ///
+    /// This is equivalent to the implementation of `TryFrom<&[u8; 16]>`, but it can be called from
+    /// const contexts.
+    const fn try_from_bytes_const(value: &[u8; 16]) -> Result<Self, &'static str> {
+        // We have to use an open-coded for loop instead of iterator combinators due to the present
+        // limitations of const functions.
+        let mut i = 15;
+        loop {
+            if value[i] > Self::MODULUS_BYTES[i] {
+                return Err("serialized FieldP128 element is not less than the modulus");
+            } else if value[i] < Self::MODULUS_BYTES[i] {
+                break;
+            }
+
+            if i == 0 {
+                return Err("serialized FieldP128 element is not less than the modulus");
+            } else {
+                i -= 1;
+            }
+        }
+
+        let mut temp = fiat_p128_non_montgomery_domain_field_element([0; 2]);
+        fiat_p128_from_bytes(&mut temp.0, value);
+        let mut out = fiat_p128_montgomery_domain_field_element([0; 2]);
+        fiat_p128_to_montgomery(&mut out, &temp);
+        Ok(Self(out))
+    }
 }
 
 impl FieldElement for FieldP128 {
@@ -94,32 +123,44 @@ impl CodecFieldElement for FieldP128 {
 }
 
 impl LagrangePolynomialFieldElement for FieldP128 {
-    fn sumcheck_p2_mul_inv() -> Self {
+    const SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //
         // GF(2^128-2^108+1)(2).inverse().to_bytes(byteorder='little')
         //
-        // Unwrap safety: this constant is a valid field element.
-        Self::try_from(b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f").unwrap()
-    }
+        // Panic safety: this constant is a valid field element.
+        let bytes = b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f";
+        match Self::try_from_bytes_const(bytes) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        }
+    };
 
-    fn one_minus_sumcheck_p2_mul_inv() -> Self {
+    const ONE_MINUS_SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //
         // GF(2^128-2^108+1)(1 - 2).inverse().to_bytes(byteorder='little')
         //
-        // Unwrap safety: this constant is a valid field element.
-        Self::try_from(b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\xff\xff").unwrap()
-    }
+        // Panic safety: this constant is a valid field element.
+        let bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\xff\xff";
+        match Self::try_from_bytes_const(bytes) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        }
+    };
 
-    fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self {
+    const SUMCHECK_P2_SQUARED_MINUS_SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //
         // GF(2^128-2^108+1)(2^2 - 2).inverse().to_bytes(byteorder='little')
         //
-        // Unwrap safety: this constant is a valid field element.
-        Self::try_from(b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f").unwrap()
-    }
+        // Panic safety: this constant is a valid field element.
+        let bytes = b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f";
+        match Self::try_from_bytes_const(bytes) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        }
+    };
 
     fn mul_inv(&self) -> Self {
         // Compute the multiplicative inverse by exponentiating to the power (p - 2). See
@@ -324,5 +365,21 @@ mod tests {
         p_minus_one_bytes[0] -= 1;
         let p_minus_one = FieldP128::decode(&mut Cursor::new(&p_minus_one_bytes)).unwrap();
         assert_eq!(p_minus_one + FieldP128::ONE, FieldP128::ZERO);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn try_from_bytes_const_equivalent() {
+        let mut p_minus_one_bytes = FieldP128::MODULUS_BYTES;
+        p_minus_one_bytes[0] -= 1;
+        for bytes in [
+            [0; 16],
+            p_minus_one_bytes,
+            FieldP128::MODULUS_BYTES,
+            [0xff; 16],
+        ] {
+            let res1 = FieldP128::try_from_bytes_const(&bytes).map_err(|e| e.to_owned());
+            let res2 = FieldP128::try_from(&bytes).map_err(|e| e.to_string());
+            assert_eq!(res1, res2);
+        }
     }
 }

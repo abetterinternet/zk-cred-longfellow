@@ -161,7 +161,7 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
         // (x - x_1) * (x - x_2)
         (x - Self::ONE) * (x - Self::SUMCHECK_P2)
             // (x_0 - x_1) * (x_0 - x_2) = (0 - 1) * (0 - SUMCHECK_P2) = SUMCHECK_P2
-            * Self::sumcheck_p2_mul_inv()
+            * Self::SUMCHECK_P2_MUL_INV
     }
 
     /// Evaluate the 1st Lagrange basis polynomial at x.
@@ -169,7 +169,7 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
         // (x - x_0) * (x - x_2)
         (x - Self::ZERO) * (x - Self::SUMCHECK_P2)
             // (x_1 - x_0) * (x_1 - x_2) = (1 - 0) * (1 - SUMCHECK_P2) = 1 - SUMCHECK_P2
-            * Self::one_minus_sumcheck_p2_mul_inv()
+            * Self::ONE_MINUS_SUMCHECK_P2_MUL_INV
     }
 
     /// Evaluate the 2nd Lagrange basis polynomial at x.
@@ -178,23 +178,20 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
         (x - Self::ZERO) * (x - Self::ONE)
             // (x_2 - x_0) * (x_2 - x_1) = (SUMCHECK_P2 - 0) * (SUMCHECK_P2 - 1)
             //   = SUMCHECK_P2^2 - SUMCHECK_P2
-            * Self::sumcheck_p2_squared_minus_sumcheck_p2_mul_inv()
+            * Self::SUMCHECK_P2_SQUARED_MINUS_SUMCHECK_P2_MUL_INV
     }
 
     /// The multiplicative inverse of `SUMCHECK_P2`. Denominator of the 0th Lagrange basis
     /// polynomial.
-    // TODO: This could probably be a constant.
-    fn sumcheck_p2_mul_inv() -> Self;
+    const SUMCHECK_P2_MUL_INV: Self;
 
     /// The multiplicative inverse of `1 - SUMCHECK_P2`. Denominator of the 1st Lagrange basis
     /// polynomial.
-    // TODO: This could probably be a constant.
-    fn one_minus_sumcheck_p2_mul_inv() -> Self;
+    const ONE_MINUS_SUMCHECK_P2_MUL_INV: Self;
 
     /// The multiplicative inverse of `SUMCHECK_P2^2 - SUMCHECK_P2`. Denominator of the 2nd Lagrange
     /// basis polynomial.
-    // TODO: This could probably be a constant.
-    fn sumcheck_p2_squared_minus_sumcheck_p2_mul_inv() -> Self;
+    const SUMCHECK_P2_SQUARED_MINUS_SUMCHECK_P2_MUL_INV: Self;
 
     /// The multiplicative inverse of this value.
     fn mul_inv(&self) -> Self;
@@ -661,13 +658,13 @@ mod tests {
     }
 
     fn field_element_test_mul_inv_lagrange_nodes<F: LagrangePolynomialFieldElement>() {
-        assert_eq!(F::sumcheck_p2_mul_inv() * F::SUMCHECK_P2, F::ONE);
+        assert_eq!(F::SUMCHECK_P2_MUL_INV * F::SUMCHECK_P2, F::ONE);
         assert_eq!(
-            F::one_minus_sumcheck_p2_mul_inv() * (F::ONE - F::SUMCHECK_P2),
+            F::ONE_MINUS_SUMCHECK_P2_MUL_INV * (F::ONE - F::SUMCHECK_P2),
             F::ONE
         );
         assert_eq!(
-            F::sumcheck_p2_squared_minus_sumcheck_p2_mul_inv()
+            F::SUMCHECK_P2_SQUARED_MINUS_SUMCHECK_P2_MUL_INV
                 * ((F::SUMCHECK_P2 * F::SUMCHECK_P2) - F::SUMCHECK_P2),
             F::ONE
         );

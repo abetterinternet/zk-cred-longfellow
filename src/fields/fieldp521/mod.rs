@@ -1,12 +1,14 @@
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, addition_chains,
+        CodecFieldElement, FieldElement, LagrangeExtendContext, LagrangePolynomialFieldElement,
+        addition_chains,
         fieldp521::ops::{
             fiat_p521_carry_add, fiat_p521_carry_mul, fiat_p521_carry_opp, fiat_p521_carry_square,
             fiat_p521_carry_sub, fiat_p521_from_bytes, fiat_p521_loose_field_element,
             fiat_p521_relax, fiat_p521_tight_field_element, fiat_p521_to_bytes,
         },
+        lagrange_extend, lagrange_extend_precompute,
     },
 };
 use anyhow::{Context, anyhow};
@@ -164,6 +166,16 @@ impl LagrangePolynomialFieldElement for FieldP521 {
         // Compute the multiplicative inverse by exponentiating to the power (p - 2). See
         // FieldP256::mul_inv() for an explanation of this technique.
         addition_chains::p521m2::exp(*self)
+    }
+
+    type ExtendContext = LagrangeExtendContext<Self>;
+
+    fn extend_precompute(nodes_len: usize, evaluations: usize) -> Self::ExtendContext {
+        lagrange_extend_precompute(nodes_len, evaluations)
+    }
+
+    fn extend(nodes: &[Self], context: &Self::ExtendContext) -> Vec<Self> {
+        lagrange_extend(nodes, context)
     }
 }
 

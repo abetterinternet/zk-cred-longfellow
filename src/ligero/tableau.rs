@@ -199,11 +199,12 @@ impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE>
 
         // Construct the tableau from the witness and the constraints.
         // Fill the low degree test row: extend(RANDOM[BLOCK], BLOCK, NCOL)
+        let context_block = FE::extend_precompute(layout.block_size(), layout.num_columns());
         let low_degree_test_row: Vec<_> = element_generator
             .by_ref()
             .take(layout.block_size())
             .collect();
-        tableau.push(FE::extend(&low_degree_test_row, layout.num_columns()));
+        tableau.push(FE::extend(&low_degree_test_row, &context_block));
 
         // Fill the linear test row ("IDOT"): random field elements where elements [nreq..nreq+wr)
         // sum to 0, extended to NCOL
@@ -246,7 +247,8 @@ impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE>
                 .take(layout.witnesses_per_row())
                 .fold(FE::ZERO, |acc, elem| acc + elem)
         );
-        tableau.push(FE::extend(&linear_test_row, layout.num_columns()));
+        let context_dblock = FE::extend_precompute(layout.dblock(), layout.num_columns());
+        tableau.push(FE::extend(&linear_test_row, &context_dblock));
 
         // Quadratic test row: NREQ random elements then zeroes for each witness, then more random
         // elements to fill to DBLOCK, then extended to NCOL
@@ -263,10 +265,7 @@ impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE>
         })
         .take(layout.dblock())
         .collect();
-        tableau.push(FE::extend(
-            quadratic_test_row.as_slice(),
-            layout.num_columns(),
-        ));
+        tableau.push(FE::extend(quadratic_test_row.as_slice(), &context_dblock));
 
         // Padded witness rows: NREQ random elements, then witnesses_per_row elements of the witness
         // extended to NCOL
@@ -281,7 +280,7 @@ impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE>
                     ))
                     .collect::<Vec<_>>()
                     .as_slice(),
-                layout.num_columns(),
+                &context_block,
             ));
         }
 
@@ -312,7 +311,7 @@ impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE>
                 row.push(witness);
             }
 
-            tableau.push(FE::extend(row.as_slice(), layout.num_columns()));
+            tableau.push(FE::extend(row.as_slice(), &context_block));
         }
 
         // Make sure we allocated the tableau correctly up front.

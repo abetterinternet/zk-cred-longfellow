@@ -62,8 +62,9 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         }
     }
 
+    let context_block = FE::extend_precompute(layout.block_size(), layout.num_columns());
     let proof_low_degree_test_row = layout.gather(
-        &FE::extend(&proof.low_degree_test_proof, layout.num_columns()),
+        &FE::extend(&proof.low_degree_test_proof, &context_block),
         &requested_column_indices,
     );
 
@@ -110,7 +111,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         inner_product_vector_extended.resize(layout.num_requested_columns(), FE::ZERO);
         inner_product_vector_extended.extend(products);
 
-        let extended = FE::extend(&inner_product_vector_extended, layout.num_columns());
+        let extended = FE::extend(&inner_product_vector_extended, &context_block);
         for ((want_dot_row_element, inner_product_element), tableau_element) in want_dot_row
             .iter_mut()
             .zip(layout.gather_iter(&extended, &requested_column_indices))
@@ -120,8 +121,9 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
         }
     }
 
+    let context_dblock = FE::extend_precompute(layout.dblock(), layout.num_columns());
     let proof_dot_row = layout.gather(
-        &FE::extend(&proof.dot_proof, layout.num_columns()),
+        &FE::extend(&proof.dot_proof, &context_dblock),
         &requested_column_indices,
     );
 
@@ -154,7 +156,7 @@ pub fn ligero_verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     }
 
     let proof_quadratic_test_row = layout.gather(
-        &FE::extend(&proof.quadratic_proof(layout), layout.num_columns()),
+        &FE::extend(&proof.quadratic_proof(layout), &context_dblock),
         &requested_column_indices,
     );
 

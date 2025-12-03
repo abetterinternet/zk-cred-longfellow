@@ -89,12 +89,13 @@ pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
             tableau.layout().block_size()
         );
 
+        let ctx = FE::extend_precompute(
+            inner_product_vector_extended.len(),
+            tableau.layout().dblock(),
+        );
         for ((dot_proof_element, inner_product_element), tableau_element) in dot_proof
             .iter_mut()
-            .zip(FE::extend(
-                &inner_product_vector_extended,
-                tableau.layout().dblock(),
-            ))
+            .zip(FE::extend(&inner_product_vector_extended, &ctx))
             .zip(tableau_row.iter().take(tableau.layout().dblock()))
         {
             *dot_proof_element += inner_product_element * tableau_element;

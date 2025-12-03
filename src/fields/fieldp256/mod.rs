@@ -1,13 +1,15 @@
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, addition_chains,
+        CodecFieldElement, FieldElement, LagrangeExtendContext, LagrangePolynomialFieldElement,
+        addition_chains,
         fieldp256::ops::{
             fiat_p256_add, fiat_p256_from_bytes, fiat_p256_from_montgomery,
             fiat_p256_montgomery_domain_field_element, fiat_p256_mul,
             fiat_p256_non_montgomery_domain_field_element, fiat_p256_opp, fiat_p256_square,
             fiat_p256_sub, fiat_p256_to_bytes, fiat_p256_to_montgomery,
         },
+        lagrange_extend, lagrange_extend_precompute,
     },
 };
 use anyhow::{Context, anyhow};
@@ -187,6 +189,16 @@ impl LagrangePolynomialFieldElement for FieldP256 {
         // Therefore, we can compute inverses by exponentiating elements, g ^ -1 = g ^ (|F| - 2).
         // We do so with an optimized addition chain exponentiation routine.
         addition_chains::p256m2::exp(*self)
+    }
+
+    type ExtendContext = LagrangeExtendContext<Self>;
+
+    fn extend_precompute(nodes_len: usize, evaluations: usize) -> Self::ExtendContext {
+        lagrange_extend_precompute(nodes_len, evaluations)
+    }
+
+    fn extend(nodes: &[Self], context: &Self::ExtendContext) -> Vec<Self> {
+        lagrange_extend(nodes, context)
     }
 }
 

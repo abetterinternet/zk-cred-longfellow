@@ -377,7 +377,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
 
     /// Stitch the quadratic proof parts back together with the middle span of zeroes.
     pub fn quadratic_proof(&self, layout: &TableauLayout) -> Vec<FE> {
-        let mut proof = Vec::with_capacity(layout.num_columns());
+        let mut proof = Vec::with_capacity(layout.dblock());
         proof.extend(&self.quadratic_proof.0);
         proof.resize(layout.block_size(), FE::ZERO);
         proof.extend(&self.quadratic_proof.1);

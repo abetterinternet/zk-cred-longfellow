@@ -230,10 +230,19 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
         // for each provided point.
         //
         // https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
+        debug_assert!(
+            evaluations > nodes.len(),
+            "extend was given more evaluation points than were requested"
+        );
+        if evaluations <= nodes.len() {
+            return nodes[..evaluations].to_vec();
+        }
+
         let mut output = Vec::with_capacity(evaluations);
+        output.extend_from_slice(nodes);
         let mut denominators = vec![None; nodes.len()];
 
-        for input in (0..evaluations).map(|e| Self::from_u128(e as u128)) {
+        for input in (nodes.len()..evaluations).map(|e| Self::from_u128(e as u128)) {
             let mut eval = Self::ZERO;
 
             // Evaluate each basis polynomial

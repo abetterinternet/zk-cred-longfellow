@@ -271,7 +271,14 @@ where
 /// degree at most `nodes.len() - 1` from the provided evaluations at points `[0..nodes.len())`
 /// and then evaluate that polynomial at `[0, evaluations)`.
 ///
+/// The returned vector has length `context.evaluations`. The first `nodes.len()` elements are
+/// copies of the input `nodes` slice. Additional elements are computed by interpolation.
+///
 /// This implementation only works for large characteristic fields.
+///
+/// # Panics
+///
+/// Panics if `nodes.len() != context.nodes_len`.
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.1
 /// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2

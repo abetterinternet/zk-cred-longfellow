@@ -287,7 +287,7 @@ where
     let evaluations = context.evaluations;
     debug_assert!(
         evaluations > nodes.len(),
-        "extend was given more evaluation points than were requested"
+        "extend was called with an output length less than or equal to the input length"
     );
     if evaluations <= nodes.len() {
         return nodes[..evaluations].to_vec();

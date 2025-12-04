@@ -40,10 +40,11 @@ fn benchmark_extend<FE: LagrangePolynomialFieldElement>(g: &mut BenchmarkGroup<W
         g.sample_size(sample_size);
         g.measurement_time(measurement_time);
         let input = vec![FE::ZERO; input_size];
+        let context = FE::extend_precompute(input_size, output_size);
         g.bench_function(
             BenchmarkId::from_parameter(format_args!("{input_size}_to_{output_size}")),
             |b| {
-                b.iter(|| FE::extend(black_box(&input), black_box(output_size)));
+                b.iter(|| FE::extend(black_box(&input), black_box(&context)));
             },
         );
     }

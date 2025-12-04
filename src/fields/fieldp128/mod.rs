@@ -1,13 +1,15 @@
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, addition_chains,
+        CodecFieldElement, FieldElement, LagrangeExtendContext, LagrangePolynomialFieldElement,
+        addition_chains,
         fieldp128::ops::{
             fiat_p128_add, fiat_p128_from_bytes, fiat_p128_from_montgomery,
             fiat_p128_montgomery_domain_field_element, fiat_p128_mul,
             fiat_p128_non_montgomery_domain_field_element, fiat_p128_opp, fiat_p128_square,
             fiat_p128_sub, fiat_p128_to_bytes, fiat_p128_to_montgomery,
         },
+        lagrange_extend, lagrange_extend_precompute,
     },
 };
 use anyhow::{Context, anyhow};
@@ -166,6 +168,16 @@ impl LagrangePolynomialFieldElement for FieldP128 {
         // Compute the multiplicative inverse by exponentiating to the power (p - 2). See
         // FieldP256::mul_inv() for an explanation of this technique.
         addition_chains::p128m2::exp(*self)
+    }
+
+    type ExtendContext = LagrangeExtendContext<Self>;
+
+    fn extend_precompute(nodes_len: usize, evaluations: usize) -> Self::ExtendContext {
+        lagrange_extend_precompute(nodes_len, evaluations)
+    }
+
+    fn extend(nodes: &[Self], context: &Self::ExtendContext) -> Vec<Self> {
+        lagrange_extend(nodes, context)
     }
 }
 

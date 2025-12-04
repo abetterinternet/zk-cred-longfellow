@@ -89,12 +89,13 @@ pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
             tableau.layout().block_size()
         );
 
+        let ctx = FE::extend_precompute(
+            inner_product_vector_extended.len(),
+            tableau.layout().dblock(),
+        );
         for ((dot_proof_element, inner_product_element), tableau_element) in dot_proof
             .iter_mut()
-            .zip(FE::extend(
-                &inner_product_vector_extended,
-                tableau.layout().dblock(),
-            ))
+            .zip(FE::extend(&inner_product_vector_extended, &ctx))
             .zip(tableau_row.iter().take(tableau.layout().dblock()))
         {
             *dot_proof_element += inner_product_element * tableau_element;
@@ -377,7 +378,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
 
     /// Stitch the quadratic proof parts back together with the middle span of zeroes.
     pub fn quadratic_proof(&self, layout: &TableauLayout) -> Vec<FE> {
-        let mut proof = Vec::with_capacity(layout.num_columns());
+        let mut proof = Vec::with_capacity(layout.dblock());
         proof.extend(&self.quadratic_proof.0);
         proof.resize(layout.block_size(), FE::ZERO);
         proof.extend(&self.quadratic_proof.1);

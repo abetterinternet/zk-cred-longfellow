@@ -89,8 +89,12 @@ impl LagrangePolynomialFieldElement for Field2_128 {
         addition_chains::gf_2_128_m2::exp(*self)
     }
 
-    fn extend(_: &[Self], _: usize) -> Vec<Self> {
-        // Opt out of the default implementation which does not work for this field.
+    type ExtendContext = ();
+
+    fn extend_precompute(_nodes_len: usize, _evaluations: usize) -> Self::ExtendContext {}
+
+    fn extend(_: &[Self], _: &Self::ExtendContext) -> Vec<Self> {
+        // The extend() operation for this field has not been implemented yet.
         // https://github.com/abetterinternet/zk-cred-longfellow/issues/56
         unimplemented!()
     }

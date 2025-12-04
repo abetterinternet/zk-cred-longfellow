@@ -13,6 +13,7 @@ use rand::RngCore;
 use std::{
     fmt::Debug,
     io::Cursor,
+    marker::PhantomData,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 use subtle::{Choice, ConstantTimeEq};
@@ -217,68 +218,23 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
         out
     }
 
-    /// The extend method, as defined in [2.2.1][1] and [2.2.2][2]. We interpolate a polynomial of
-    /// degree at most `nodes.len() - 1` from the provided evaluations at points `[0..nodes.len())`
-    /// and then evaluate that polynomial at `[0, evaluations)`.
+    /// Precomputed values produced by `extend_precompute()`. This should be passed to `extend()`.
+    type ExtendContext;
+
+    /// Precompute values needed by `extend()`.
     ///
-    /// The default implementation only works for large characteristic fields.
+    /// This precomputes intermediate values needed by `extend()`, based on the input and output
+    /// lengths. When `extend()` is called, the length of the input vector must match the
+    /// corresponding `nodes_len` value used to construct the context.
+    fn extend_precompute(nodes_len: usize, evaluations: usize) -> Self::ExtendContext;
+
+    /// The extend method, as defined in [2.2.1][1] and [2.2.2][2]. We interpolate a polynomial of
+    /// degree at most `nodes.len() - 1` from the provided evaluations and then evaluate that
+    /// polynomial at additional points.
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.1
     /// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
-    fn extend(nodes: &[Self], evaluations: usize) -> Vec<Self> {
-        // For now we use the relatively straightforward method of computing Lagrange basis polynomials
-        // for each provided point.
-        //
-        // https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
-        let mut output = Vec::with_capacity(evaluations);
-        let mut denominators = vec![None; nodes.len()];
-
-        for input in (0..evaluations).map(|e| Self::from_u128(e as u128)) {
-            let mut eval = Self::ZERO;
-
-            // Evaluate each basis polynomial
-            for (node_x_coordinate, node_y_coordinate) in nodes.iter().enumerate() {
-                // Compute and cache denominators
-                let denominator = match denominators[node_x_coordinate] {
-                    Some(denominator) => denominator,
-                    None => {
-                        let denominator = nodes
-                            .iter()
-                            .enumerate()
-                            .filter(|(other_node_x_coordinate, _)| {
-                                *other_node_x_coordinate != node_x_coordinate
-                            })
-                            .fold(Self::ONE, |product, (other_node_x_coordinate, _)| {
-                                product
-                                    * (Self::from_u128(node_x_coordinate as u128)
-                                        - Self::from_u128(other_node_x_coordinate as u128))
-                            })
-                            .mul_inv();
-                        denominators[node_x_coordinate] = Some(denominator);
-                        denominator
-                    }
-                };
-
-                // Compute each term of the basis polynomial
-                let basis_poly_eval = nodes
-                    .iter()
-                    .enumerate()
-                    .filter(|(other_node_x_coordinate, _)| {
-                        *other_node_x_coordinate != node_x_coordinate
-                    })
-                    .fold(Self::ONE, |product, (other_node_x_coordinate, _)| {
-                        product * (input - Self::from_u128(other_node_x_coordinate as u128))
-                    })
-                    * *node_y_coordinate
-                    * denominator;
-                eval += basis_poly_eval;
-            }
-
-            output.push(eval);
-        }
-
-        output
-    }
+    fn extend(nodes: &[Self], context: &Self::ExtendContext) -> Vec<Self>;
 }
 
 pub fn field_element_iter<FE: CodecFieldElement>() -> impl Iterator<Item = FE> {
@@ -291,6 +247,108 @@ where
     F: FnMut() -> FE,
 {
     std::iter::from_fn(move || Some(source()))
+}
+
+/// Precomputed values for the Lagrange basis polynomial-based implementation of `extend()`.
+pub struct LagrangeExtendContext<FE> {
+    nodes_len: usize,
+    evaluations: usize,
+    _phantom: PhantomData<FE>,
+}
+
+fn lagrange_extend_precompute<FE>(nodes_len: usize, evaluations: usize) -> LagrangeExtendContext<FE>
+where
+    FE: LagrangePolynomialFieldElement,
+{
+    LagrangeExtendContext {
+        nodes_len,
+        evaluations,
+        _phantom: PhantomData,
+    }
+}
+
+/// The extend method, as defined in [2.2.1][1] and [2.2.2][2]. We interpolate a polynomial of
+/// degree at most `nodes.len() - 1` from the provided evaluations at points `[0..nodes.len())`
+/// and then evaluate that polynomial at `[0, evaluations)`.
+///
+/// The returned vector has length `context.evaluations`. The first `nodes.len()` elements are
+/// copies of the input `nodes` slice. Additional elements are computed by interpolation.
+///
+/// This implementation only works for large characteristic fields.
+///
+/// # Panics
+///
+/// Panics if `nodes.len() != context.nodes_len`.
+///
+/// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.1
+/// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
+fn lagrange_extend<FE>(nodes: &[FE], context: &LagrangeExtendContext<FE>) -> Vec<FE>
+where
+    FE: LagrangePolynomialFieldElement,
+{
+    // For now we use the relatively straightforward method of computing Lagrange basis polynomials
+    // for each provided point.
+    //
+    // https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
+    assert_eq!(nodes.len(), context.nodes_len);
+    let evaluations = context.evaluations;
+    debug_assert!(
+        evaluations > nodes.len(),
+        "extend was called with an output length less than or equal to the input length"
+    );
+    if evaluations <= nodes.len() {
+        return nodes[..evaluations].to_vec();
+    }
+
+    let mut output = Vec::with_capacity(evaluations);
+    output.extend_from_slice(nodes);
+    let mut denominators = vec![None; nodes.len()];
+
+    for input in (nodes.len()..evaluations).map(|e| FE::from_u128(e as u128)) {
+        let mut eval = FE::ZERO;
+
+        // Evaluate each basis polynomial
+        for (node_x_coordinate, node_y_coordinate) in nodes.iter().enumerate() {
+            // Compute and cache denominators
+            let denominator = match denominators[node_x_coordinate] {
+                Some(denominator) => denominator,
+                None => {
+                    let denominator = nodes
+                        .iter()
+                        .enumerate()
+                        .filter(|(other_node_x_coordinate, _)| {
+                            *other_node_x_coordinate != node_x_coordinate
+                        })
+                        .fold(FE::ONE, |product, (other_node_x_coordinate, _)| {
+                            product
+                                * (FE::from_u128(node_x_coordinate as u128)
+                                    - FE::from_u128(other_node_x_coordinate as u128))
+                        })
+                        .mul_inv();
+                    denominators[node_x_coordinate] = Some(denominator);
+                    denominator
+                }
+            };
+
+            // Compute each term of the basis polynomial
+            let basis_poly_eval = nodes
+                .iter()
+                .enumerate()
+                .filter(|(other_node_x_coordinate, _)| {
+                    *other_node_x_coordinate != node_x_coordinate
+                })
+                .fold(FE::ONE, |product, (other_node_x_coordinate, _)| {
+                    product * (input - FE::from_u128(other_node_x_coordinate as u128))
+                })
+                * *node_y_coordinate
+                * denominator;
+            eval += basis_poly_eval;
+        }
+
+        output.push(eval);
+    }
+
+    output
 }
 
 /// Field identifier. According to the draft specification, the encoding is of variable length ([1])
@@ -857,7 +915,7 @@ mod tests {
         let output = FE::extend(
             // x^2 evaluated at 0, 1, 2 => 0, 1, 4
             &[FE::ZERO, FE::ONE, FE::from_u128(4)],
-            6,
+            &FE::extend_precompute(3, 6),
         );
 
         assert_eq!(

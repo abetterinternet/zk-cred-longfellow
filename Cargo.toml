@@ -20,8 +20,13 @@ sha2 = "0.10.9"
 subtle = "2.6.1"
 zstd = "0.13.3"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+criterion = { version = "0.8.0", features = ["html_reports"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+criterion = { version = "0.8.0", default-features = false }
+
 [dev-dependencies]
-criterion = { version = "0.8.0", default-features = false, features = ["html_reports", "plotters"] }
 num-traits = "0.2.19"
 wasm-bindgen-test = "0.3"
 

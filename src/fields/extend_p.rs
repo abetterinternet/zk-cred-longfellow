@@ -102,11 +102,11 @@ where
         let k_minus_d_times_k_choose_d = FE::from_u128(k.try_into().unwrap()) * binomial_k_d;
         // Update k choose d for k in this iteration, by dividing by (k - d).
         binomial_k_d = k_minus_d_times_k_choose_d * context.reciprocals[k - d];
-
-        let sum = convolution_right_terms
+        let sum = context.reciprocals[k - nodes.len() + 1..=k]
             .iter()
-            .enumerate()
-            .map(|(i, right)| context.reciprocals[k - i] * right)
+            .rev()
+            .zip(convolution_right_terms.iter())
+            .map(|(left, right)| *left * right)
             .fold(FE::ZERO, |accumulator, value| accumulator + value);
         let mut evaluation = k_minus_d_times_k_choose_d * sum;
         // Multiply by (-1)^d. Note that it is safe to branch on d, since it is public knowledge.

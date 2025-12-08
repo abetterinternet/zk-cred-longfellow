@@ -16,6 +16,16 @@ pub struct ExtendContext<FE> {
     binomial_coefficients: Vec<FE>,
 }
 
+/// Precompute values for the convolution-based implementation of `extend()`.
+///
+/// This function precomputes reciprocals and binomial coefficients needed by `extend()`.
+/// The returned context can be reused for multiple calls to `extend()` with the same
+/// dimensions, amortizing the O(evaluations) precomputation cost.
+///
+/// # Parameters
+///
+/// * `nodes_len` - The number of input nodes (degree + 1 of the polynomial)
+/// * `evaluations` - The desired output length
 pub(super) fn extend_precompute<FE>(nodes_len: usize, evaluations: usize) -> ExtendContext<FE>
 where
     FE: LagrangePolynomialFieldElement,

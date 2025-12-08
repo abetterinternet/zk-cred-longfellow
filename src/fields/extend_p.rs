@@ -10,6 +10,10 @@ pub struct ExtendContext<FE> {
     ///
     /// The element at index zero is zero, then every other element is the reciprocal of its index.
     reciprocals: Vec<FE>,
+    /// Binomial coefficients.
+    ///
+    /// binomial_coefficients[i] is d choose i.
+    binomial_coefficients: Vec<FE>,
 }
 
 pub(super) fn extend_precompute<FE>(nodes_len: usize, evaluations: usize) -> ExtendContext<FE>
@@ -19,10 +23,17 @@ where
     let mut reciprocals = Vec::with_capacity(evaluations + 1);
     reciprocals.push(FE::ZERO);
     reciprocals.extend((1..=evaluations).map(|i| FE::from_u128(i.try_into().unwrap()).mul_inv()));
+
+    let d = nodes_len - 1;
+    let binomial_coefficients = (0..nodes_len)
+        .map(|i| FE::from_u128(binomial_coefficient(d, i).try_into().unwrap()))
+        .collect();
+
     ExtendContext {
         nodes_len,
         evaluations,
         reciprocals,
+        binomial_coefficients,
     }
 }
 
@@ -77,7 +88,7 @@ where
             .enumerate()
             .map(|(i, p_i)| {
                 let left = context.reciprocals[k - i];
-                let mut right = FE::from_u128(binomial_coefficient(d, i).try_into().unwrap()) * p_i;
+                let mut right = context.binomial_coefficients[i] * p_i;
                 // Multiply by (-1)^i. Note that it is safe to branch on i, since it doesn't depend on
                 // any secret.
                 if i & 1 != 0 {

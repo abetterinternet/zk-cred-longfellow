@@ -80,6 +80,22 @@ where
     let mut binomial_k_d = FE::ONE;
     let d = nodes.len() - 1;
 
+    // Precompute (-1)^i * (d choose i) * p(i).
+    let convolution_right_terms = nodes
+        .iter()
+        .enumerate()
+        .zip(context.binomial_coefficients.iter())
+        .map(|((i, p_i), binomial_coefficient)| {
+            let mut right = *binomial_coefficient * p_i;
+            // Multiply by (-1)^i. Note that it is safe to branch on i, since it doesn't depend on
+            // any secret.
+            if i & 1 != 0 {
+                right = -right;
+            }
+            right
+        })
+        .collect::<Vec<FE>>();
+
     for k in nodes.len()..evaluations {
         // Calculate (k - d) * (k choose d) from k from this iteration, and (k-1) choose d from the last iteration,
         // using Remark A.3.
@@ -87,19 +103,10 @@ where
         // Update k choose d for k in this iteration, by dividing by (k - d).
         binomial_k_d = k_minus_d_times_k_choose_d * context.reciprocals[k - d];
 
-        let sum = nodes
+        let sum = convolution_right_terms
             .iter()
             .enumerate()
-            .map(|(i, p_i)| {
-                let left = context.reciprocals[k - i];
-                let mut right = context.binomial_coefficients[i] * p_i;
-                // Multiply by (-1)^i. Note that it is safe to branch on i, since it doesn't depend on
-                // any secret.
-                if i & 1 != 0 {
-                    right = -right;
-                }
-                left * right
-            })
+            .map(|(i, right)| context.reciprocals[k - i] * right)
             .fold(FE::ZERO, |accumulator, value| accumulator + value);
         let mut evaluation = k_minus_d_times_k_choose_d * sum;
         // Multiply by (-1)^d. Note that it is safe to branch on d, since it is public knowledge.

@@ -1,24 +1,28 @@
 use crate::fields::LagrangePolynomialFieldElement;
-use std::marker::PhantomData;
 
-/// Precomputed values for the Lagrange basis polynomial-based implementation of `extend()`.
-pub struct LagrangeExtendContext<FE> {
+/// Precomputed values for the convolution-based implementation of `extend()`.
+pub struct ExtendContext<FE> {
+    /// Length of the input vector.
     nodes_len: usize,
+    /// Length of the output vector.
     evaluations: usize,
-    _phantom: PhantomData<FE>,
+    /// Reciprocals, used for the terms 1 / (k - i) or 1 / (k - d).
+    ///
+    /// The element at index zero is zero, then every other element is the reciprocal of its index.
+    reciprocals: Vec<FE>,
 }
 
-pub(super) fn lagrange_extend_precompute<FE>(
-    nodes_len: usize,
-    evaluations: usize,
-) -> LagrangeExtendContext<FE>
+pub(super) fn extend_precompute<FE>(nodes_len: usize, evaluations: usize) -> ExtendContext<FE>
 where
     FE: LagrangePolynomialFieldElement,
 {
-    LagrangeExtendContext {
+    let mut reciprocals = Vec::with_capacity(evaluations + 1);
+    reciprocals.push(FE::ZERO);
+    reciprocals.extend((1..=evaluations).map(|i| FE::from_u128(i.try_into().unwrap()).mul_inv()));
+    ExtendContext {
         nodes_len,
         evaluations,
-        _phantom: PhantomData,
+        reciprocals,
     }
 }
 
@@ -37,14 +41,11 @@ where
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.1
 /// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
-pub(super) fn lagrange_extend<FE>(nodes: &[FE], context: &LagrangeExtendContext<FE>) -> Vec<FE>
+pub(super) fn extend<FE>(nodes: &[FE], context: &ExtendContext<FE>) -> Vec<FE>
 where
     FE: LagrangePolynomialFieldElement,
 {
-    // For now we use the relatively straightforward method of computing Lagrange basis polynomials
-    // for each provided point.
-    //
-    // https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
+    // For now we use equation (2) from "Anonymous Credentials from ECDSA", as-is.
     assert_eq!(nodes.len(), context.nodes_len);
     let evaluations = context.evaluations;
     debug_assert!(
@@ -57,51 +58,74 @@ where
 
     let mut output = Vec::with_capacity(evaluations);
     output.extend_from_slice(nodes);
-    let mut denominators = vec![None; nodes.len()];
 
-    for input in (nodes.len()..evaluations).map(|e| FE::from_u128(e as u128)) {
-        let mut eval = FE::ZERO;
+    // This variable is set to k choose d throughout the algorithm (where d is `nodes.len() - 1`).
+    // We initialize it to d choose d, which is 1. Remark A.3 from the paper gives the recurrence
+    // rule used to update this variable.
+    let mut binomial_k_d = FE::ONE;
+    let d = nodes.len() - 1;
 
-        // Evaluate each basis polynomial
-        for (node_x_coordinate, node_y_coordinate) in nodes.iter().enumerate() {
-            // Compute and cache denominators
-            let denominator = match denominators[node_x_coordinate] {
-                Some(denominator) => denominator,
-                None => {
-                    let denominator = nodes
-                        .iter()
-                        .enumerate()
-                        .filter(|(other_node_x_coordinate, _)| {
-                            *other_node_x_coordinate != node_x_coordinate
-                        })
-                        .fold(FE::ONE, |product, (other_node_x_coordinate, _)| {
-                            product
-                                * (FE::from_u128(node_x_coordinate as u128)
-                                    - FE::from_u128(other_node_x_coordinate as u128))
-                        })
-                        .mul_inv();
-                    denominators[node_x_coordinate] = Some(denominator);
-                    denominator
+    for k in nodes.len()..evaluations {
+        // Calculate (k - d) * (k choose d) from k from this iteration, and (k-1) choose d from the last iteration,
+        // using Remark A.3.
+        let k_minus_d_times_k_choose_d = FE::from_u128(k.try_into().unwrap()) * binomial_k_d;
+        // Update k choose d for k in this iteration, by dividing by (k - d).
+        binomial_k_d = k_minus_d_times_k_choose_d * context.reciprocals[k - d];
+
+        let sum = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, p_i)| {
+                let left = context.reciprocals[k - i];
+                let mut right = FE::from_u128(binomial_coefficient(d, i).try_into().unwrap()) * p_i;
+                // Multiply by (-1)^i. Note that it is safe to branch on i, since it doesn't depend on
+                // any secret.
+                if i & 1 != 0 {
+                    right = -right;
                 }
-            };
-
-            // Compute each term of the basis polynomial
-            let basis_poly_eval = nodes
-                .iter()
-                .enumerate()
-                .filter(|(other_node_x_coordinate, _)| {
-                    *other_node_x_coordinate != node_x_coordinate
-                })
-                .fold(FE::ONE, |product, (other_node_x_coordinate, _)| {
-                    product * (input - FE::from_u128(other_node_x_coordinate as u128))
-                })
-                * *node_y_coordinate
-                * denominator;
-            eval += basis_poly_eval;
+                left * right
+            })
+            .fold(FE::ZERO, |accumulator, value| accumulator + value);
+        let mut evaluation = k_minus_d_times_k_choose_d * sum;
+        // Multiply by (-1)^d. Note that it is safe to branch on d, since it is public knowledge.
+        if d & 1 != 0 {
+            evaluation = -evaluation;
         }
-
-        output.push(eval);
+        output.push(evaluation);
     }
 
     output
+}
+
+/// Compute a binomial coefficient.
+///
+/// This is n! / (k! * (n - k)!), or the number of subsets of size k that can be drawn from a set of
+/// size n (ignoring order).
+fn binomial_coefficient(n: usize, k: usize) -> usize {
+    if k > n {
+        return 0;
+    }
+    if k > n / 2 {
+        return binomial_coefficient(n, n - k);
+    }
+    (1..=k).fold(1, |accumulator, i| accumulator * (n - i + 1) / i)
+}
+
+#[cfg(test)]
+mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    use crate::fields::extend_p::binomial_coefficient;
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_binomial_coefficient() {
+        assert_eq!(binomial_coefficient(52, 5), 2598960);
+        assert_eq!(binomial_coefficient(52, 47), 2598960);
+        assert_eq!(binomial_coefficient(3, 0), 1);
+        assert_eq!(binomial_coefficient(3, 1), 3);
+        assert_eq!(binomial_coefficient(3, 2), 3);
+        assert_eq!(binomial_coefficient(3, 3), 1);
+        assert_eq!(binomial_coefficient(3, 4), 0);
+        assert_eq!(binomial_coefficient(4, 2), 6);
+    }
 }

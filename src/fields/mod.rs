@@ -372,7 +372,7 @@ use quadratic_extension::QuadraticExtension;
 mod addition_chains;
 
 mod extend_p;
-use extend_p::{LagrangeExtendContext, lagrange_extend, lagrange_extend_precompute};
+use extend_p::{ExtendContext, extend, extend_precompute};
 
 #[cfg(test)]
 mod tests {

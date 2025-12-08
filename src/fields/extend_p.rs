@@ -25,9 +25,13 @@ where
     reciprocals.extend((1..=evaluations).map(|i| FE::from_u128(i.try_into().unwrap()).mul_inv()));
 
     let d = nodes_len - 1;
-    let binomial_coefficients = (0..nodes_len)
-        .map(|i| FE::from_u128(binomial_coefficient(d, i).try_into().unwrap()))
-        .collect();
+    let mut binomial_coefficients = Vec::with_capacity(nodes_len);
+    let mut binomial = FE::ONE;
+    binomial_coefficients.push(binomial);
+    for (i, reciprocal) in reciprocals.iter().enumerate().take(nodes_len).skip(1) {
+        binomial = binomial * FE::from_u128((d - i + 1).try_into().unwrap()) * reciprocal;
+        binomial_coefficients.push(binomial);
+    }
 
     ExtendContext {
         nodes_len,
@@ -106,37 +110,4 @@ where
     }
 
     output
-}
-
-/// Compute a binomial coefficient.
-///
-/// This is n! / (k! * (n - k)!), or the number of subsets of size k that can be drawn from a set of
-/// size n (ignoring order).
-fn binomial_coefficient(n: usize, k: usize) -> usize {
-    if k > n {
-        return 0;
-    }
-    if k > n / 2 {
-        return binomial_coefficient(n, n - k);
-    }
-    (1..=k).fold(1, |accumulator, i| accumulator * (n - i + 1) / i)
-}
-
-#[cfg(test)]
-mod tests {
-    use wasm_bindgen_test::wasm_bindgen_test;
-
-    use crate::fields::extend_p::binomial_coefficient;
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn test_binomial_coefficient() {
-        assert_eq!(binomial_coefficient(52, 5), 2598960);
-        assert_eq!(binomial_coefficient(52, 47), 2598960);
-        assert_eq!(binomial_coefficient(3, 0), 1);
-        assert_eq!(binomial_coefficient(3, 1), 3);
-        assert_eq!(binomial_coefficient(3, 2), 3);
-        assert_eq!(binomial_coefficient(3, 3), 1);
-        assert_eq!(binomial_coefficient(3, 4), 0);
-        assert_eq!(binomial_coefficient(4, 2), 6);
-    }
 }

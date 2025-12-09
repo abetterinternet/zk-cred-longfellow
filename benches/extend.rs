@@ -4,7 +4,6 @@ use criterion::{
 use std::{hint::black_box, time::Duration};
 use zk_cred_longfellow::fields::{
     LagrangePolynomialFieldElement, fieldp128::FieldP128, fieldp256::FieldP256,
-    fieldp521::FieldP521,
 };
 
 fn benchmark_extend<FE: LagrangePolynomialFieldElement>(g: &mut BenchmarkGroup<WallTime>) {
@@ -57,10 +56,6 @@ fn benchmark_all(c: &mut Criterion) {
 
     let mut g = c.benchmark_group("extend_fieldp256");
     benchmark_extend::<FieldP256>(&mut g);
-    g.finish();
-
-    let mut g = c.benchmark_group("extend_fieldp521");
-    benchmark_extend::<FieldP521>(&mut g);
     g.finish();
 
     // TODO(#56): Add benchmark for GF(2^128) as well.

@@ -699,9 +699,6 @@ mod tests {
     fn test_field_p521() {
         field_element_test_large_characteristic::<FieldP521>();
         field_element_test_codec::<FieldP521>(true);
-        field_element_test_mul_inv_lagrange_nodes::<FieldP521>();
-        field_element_test_pow::<FieldP521>();
-        field_element_test_mul_inv::<FieldP521>();
     }
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -802,11 +799,6 @@ mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
-    fn lagrange_basis_polynomial_field_p521() {
-        lagrange_basis_polynomial_test::<FieldP521>();
-    }
-
-    #[wasm_bindgen_test(unsupported = test)]
     fn lagrange_basis_polynomial_field_2_128() {
         lagrange_basis_polynomial_test::<Field2_128>();
     }
@@ -840,10 +832,5 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn extend_x_2_p256() {
         extend_x_2::<FieldP256>();
-    }
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn extend_x_2_p521() {
-        extend_x_2::<FieldP521>();
     }
 }

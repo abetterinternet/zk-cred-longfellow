@@ -60,10 +60,6 @@ fn benchmark_all_lagrange_fields(c: &mut Criterion) {
     benchmark_lagrange_field::<FieldP256>(&mut g);
     g.finish();
 
-    let mut g = c.benchmark_group("fieldp521");
-    benchmark_lagrange_field::<FieldP521>(&mut g);
-    g.finish();
-
     let mut g = c.benchmark_group("field2_128");
     benchmark_lagrange_field::<Field2_128>(&mut g);
     g.finish();

@@ -11,5 +11,4 @@ cd "$(dirname "$0")"/addition_chains
 
 addchain search '0xfffff000000000000000000000000001 - 2' > p128m2.acc
 addchain search '0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff - 2' > p256m2.acc
-addchain search '2^521 - 1 - 2' > p521m2.acc
 addchain search '2^128 - 2' > gf_2_128_m2.acc

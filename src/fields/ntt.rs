@@ -36,3 +36,32 @@ pub trait NttFieldElement: FieldElement {
         todo!()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::fields::{NttFieldElement, fieldp128::FieldP128, fieldp256_2::FieldP256_2};
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    fn test_ntt<FE: NttFieldElement>() {
+        // Check constants.
+        let two = FE::from_u128(2);
+        assert_eq!(two * FE::HALF, FE::ONE);
+
+        let mut temp = FE::ROOT_OF_UNITY;
+        for _ in 0..FE::LOG2_ROOT_ORDER {
+            assert_ne!(temp, FE::ONE);
+            temp = temp.square();
+        }
+        assert_eq!(temp, FE::ONE);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_p128() {
+        test_ntt::<FieldP128>();
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_p256_quadratic_extension() {
+        test_ntt::<FieldP256_2>();
+    }
+}

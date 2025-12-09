@@ -18,6 +18,13 @@ pub(super) struct QuadraticExtension<B> {
     imag: B,
 }
 
+impl<B> QuadraticExtension<B> {
+    /// Construct an element of the quadratic extension field from two base field elements.
+    pub(super) const fn new(real: B, imag: B) -> Self {
+        Self { real, imag }
+    }
+}
+
 impl<B: FieldElement> FieldElement for QuadraticExtension<B> {
     const ZERO: Self = Self {
         real: B::ZERO,

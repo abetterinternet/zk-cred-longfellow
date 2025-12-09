@@ -72,7 +72,7 @@ impl FieldP256 {
     ///
     /// This is equivalent to the implementation of `TryFrom<&[u8; 32]>`, but it can be called from
     /// const contexts.
-    const fn try_from_bytes_const(value: &[u8; 32]) -> Result<Self, &'static str> {
+    pub(super) const fn try_from_bytes_const(value: &[u8; 32]) -> Result<Self, &'static str> {
         // We have to use an open-coded for loop instead of iterator combinators due to the present
         // limitations of const functions.
         let mut i = 31;

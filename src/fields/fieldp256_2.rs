@@ -5,7 +5,7 @@ use std::{
 
 use subtle::ConstantTimeEq;
 
-use crate::fields::{FieldElement, QuadraticExtension, fieldp256::FieldP256};
+use crate::fields::{FieldElement, NttFieldElement, QuadraticExtension, fieldp256::FieldP256};
 
 /// The quadratic extension of the P-256 base field.
 ///
@@ -27,6 +27,48 @@ impl FieldElement for FieldP256_2 {
     fn square(&self) -> Self {
         Self(QuadraticExtension::square(&self.0))
     }
+}
+
+impl NttFieldElement for FieldP256_2 {
+    const ROOT_OF_UNITY: Self = {
+        // Computed in SageMath:
+        //
+        // gen = Fp256_2.multiplicative_generator() ^ ((Fp256_2.order() - 1) / 2^97)
+        // [coeff.to_bytes(byteorder='little') for coeff in gen.polynomial().coefficients()]
+        //
+        // Panic safety: these constants are valid base field elements.
+        let bytes_real =
+            b"`}\xd7iv\x10\x1f\xefV\xb8\x14\xa8p!Q9s4iR1\xde -\xd3\x80\xa6\x00\xe8\xe1U<";
+        let real = match FieldP256::try_from_bytes_const(bytes_real) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        };
+
+        let bytes_imag = b"5\xa0\x95\xc4\x8a?\x08\x82\xae\xc4\x15\xf5v\xfb\xef\xdat\xbcG#I\x10\xb7\xb2\x8dH\xdcB\x88\x8cx\xdf";
+        let imag = match FieldP256::try_from_bytes_const(bytes_imag) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        };
+
+        Self(QuadraticExtension::new(real, imag))
+    };
+
+    const LOG2_ROOT_ORDER: usize = 97;
+
+    const HALF: Self = {
+        // Computed in SageMath:
+        //
+        // half = Fp256_2(2).inverse()
+        // [coeff.to_bytes(byteorder='little') for coeff in half.polynomial().coefficients()]
+        //
+        // Panic safety: this constant is a valid field element.
+        let bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x00\x00\x00\x80\xff\xff\xff\x7f";
+        let base = match FieldP256::try_from_bytes_const(bytes) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        };
+        Self(QuadraticExtension::new(base, FieldP256::ZERO))
+    };
 }
 
 impl Debug for FieldP256_2 {

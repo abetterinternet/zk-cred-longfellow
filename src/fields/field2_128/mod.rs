@@ -424,20 +424,23 @@ impl Field2_128 {
         ]
     }
 
+    fn twiddle_array_at(x: u32, y: u32) -> Self {
+        // unwrap safety: u32 will fit into a usize anywhere we are deploying
+        Self::twiddle_array()[usize::try_from(x).expect("u32 too big for usize?")]
+            [usize::try_from(y).expect("u32 too big for usize?")]
+    }
+
     /// Twiddle the bits of alpha by the normalized subspace vanishing polynomials.
     ///
     /// Implements procedure TWIDDLE from Algorithm 1 in section 3.2 of [the paper][1].
     ///
     /// [1]: https://eprint.iacr.org/2024/2010.pdf
     fn twiddle(power: u32, mut coset: usize) -> Self {
-        // unwrap safety: u32 will fit into a usize anywhere we are deploying
-        let power: usize = power.try_into().expect("u32 too big for usize?");
-
         let mut accumulator = Self::ZERO;
         let mut position = 0;
         while coset > 0 {
             if coset & 1 == 1 {
-                accumulator += Self::twiddle_array()[power][position];
+                accumulator += Self::twiddle_array_at(power, position);
             }
             coset >>= 1;
             position += 1;
@@ -487,21 +490,71 @@ impl Field2_128 {
         fft_array[index + recursive_len] += prev_at_index;
     }
 
+    /// Compute all the twiddles needed for `curr_power` in linear time.
+    fn twiddles(curr_power: u32, power: u32, coset: usize, twiddled: &mut [Self]) {
+        // We need every (2 * recursive_len)th twiddle of curr_power, starting at coset. We
+        // first straightforwardly compute TWIDDLE(curr_power, coset):
+        twiddled[0] = Self::twiddle(curr_power, coset);
+
+        // Section 3.2 gives us the recurrence TWIDDLE(i, u + 2^k) = W_hat[i][k] + TWIDDLE(i, u).
+        // Recall that 2 * recursive_len = 2 * 2 ^ curr_power.
+        //
+        // The next value we need is TWIDDLE(curr_power, coset + 2 * recursive_len)
+        // = TWIDDLE(curr_power, coset + 2 * 2 ^ curr_power)
+        // = TWIDDLE(curr_power, coset + 2^(curr_power + 1))
+        //
+        // Then by the recurrence:
+        //
+        // = TWIDDLE(curr_power, coset) + W_hat[curr_power][curr_power + 1]
+        //
+        // The next value we need is TWIDDLE(curr_power, coset + 2 * 2 * recursive_len)
+        // = TWIDDLE(curr_power, coset) + W_hat[curr_power][curr_power + 2]
+        //
+        // The next value is TWIDDLE(curr_power, coset + 3 * 2 * recursive_len)
+        //
+        // This is trickier because we can't express 6 * recursive_len as a power of 2. Instead:
+        //
+        // = TWIDDLE(curr_power, coset + 2 * recursive_len + 2 * 2 * recursive_len)
+        // = TWIDDLE(curr_power, coset + 2 * recursive_len) + W_hat[curr_power][curr_power + 2]
+        //
+        // ... and we did previously compute TWIDDLE(curr_power, coset + 2 * recursive_len).
+        // Using that as TWIDDLE(i, u) in the recurrence lets us compute the next 4 values
+        // before we need a bigger base twiddle again.
+        //
+        // So the 0th power increment lets us compute 1 twiddle element, then the 1st gets us 2,
+        // and the nth computes 1 << n + 1.
+        for power_increment in 0..(power - curr_power - 1) {
+            for twiddle_base in 0..1 << power_increment {
+                twiddled[twiddle_base + (1 << power_increment)] = twiddled[twiddle_base]
+                    + Self::twiddle_array_at(curr_power, curr_power + 1 + power_increment);
+            }
+        }
+    }
+
     /// Implements procedure FFT and IFFT (depending on direction) from Algorithm 1 in section 3.2
     /// of [the paper][1].
     ///
     /// [1]: https://eprint.iacr.org/2024/2010.pdf
     fn fft(direction: Direction, power: u32, coset: usize, fft_array: &mut [Self]) {
+        if power == 0 {
+            return;
+        }
+        let mut twiddled = vec![Self::ZERO; 1 << power - 1];
         for mut curr_power in 0..power {
             // Forward FFT iterates over power..0
             if direction == Direction::Forward {
                 curr_power = power - curr_power - 1;
             }
             let recursive_len = 2usize.pow(curr_power);
-            // In the paper this loop is "for all u : 0 ≤ 2s · u < 2ℓ", but we only ever work with
-            // increments of 2s so no need to keep track of u.
-            for start in (0..2usize.pow(power)).step_by(2 * recursive_len) {
-                let twiddle = Self::twiddle(curr_power, start + coset);
+
+            Self::twiddles(curr_power, power, coset, &mut twiddled);
+
+            // for all u : 0 ≤ 2s · u < 2ℓ
+            for (index, start) in (0..2usize.pow(power))
+                .step_by(2 * recursive_len)
+                .enumerate()
+            {
+                let twiddle = twiddled[index];
                 for v in 0..recursive_len {
                     match direction {
                         Direction::Forward => Self::fft_butterfly_forward(
@@ -1237,6 +1290,24 @@ mod tests {
     }
 
     #[test]
+    fn twiddles_equivalency() {
+        let power = 16;
+        let mut twiddled = vec![Field2_128::ZERO; 1 << power - 1];
+        for curr_power in 0..power {
+            Field2_128::twiddles(curr_power, power, 0, &mut twiddled);
+
+            for (index, start) in (0..2usize.pow(power))
+                .step_by(2 * 2usize.pow(curr_power))
+                .enumerate()
+            {
+                let slow_twiddle = Field2_128::twiddle(curr_power, start);
+                let twiddle = twiddled[index];
+                assert_eq!(slow_twiddle, twiddle);
+            }
+        }
+    }
+
+    #[test]
     fn extend_gf_2_128() {
         fn eval_horners_method(polynomial: &[Field2_128], eval_at: Range<u16>) -> Vec<Field2_128> {
             eval_at
@@ -1257,9 +1328,6 @@ mod tests {
         // powers of two
         for requested_evaluations in [1, 63, 64, 65, 99, 128] {
             for polynomial_degree in 1..requested_evaluations {
-                println!(
-                    "degree {polynomial_degree} and requested evaluations {requested_evaluations}"
-                );
                 // Generate a random polynomial and evaluate nodes
                 let polynomial: Vec<_> = repeat_with(|| Field2_128::inject(random()))
                     .take(polynomial_degree)

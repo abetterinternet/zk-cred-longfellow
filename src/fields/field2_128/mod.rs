@@ -539,7 +539,7 @@ impl Field2_128 {
         if power == 0 {
             return;
         }
-        let mut twiddled = vec![Self::ZERO; 1 << power - 1];
+        let mut twiddled = vec![Self::ZERO; 1 << (power - 1)];
         for mut curr_power in 0..power {
             // Forward FFT iterates over power..0
             if direction == Direction::Forward {
@@ -1292,7 +1292,7 @@ mod tests {
     #[test]
     fn twiddles_equivalency() {
         let power = 16;
-        let mut twiddled = vec![Field2_128::ZERO; 1 << power - 1];
+        let mut twiddled = vec![Field2_128::ZERO; 1 << (power - 1)];
         for curr_power in 0..power {
             Field2_128::twiddles(curr_power, power, 0, &mut twiddled);
 

@@ -10,6 +10,9 @@ pub trait NttFieldElement: FieldElement {
     /// with order 2^k. Thus, it satisfies omega^(2^k) = 1, and omega^i != 1 for 0 < i < 2^k.
     const ROOT_OF_UNITY: Self;
 
+    /// A 2^k-th root of unity in the field, and the inverse of [`Self::ROOT_OF_UNITY`].
+    const ROOT_OF_UNITY_INVERSE: Self;
+
     /// The base-2 logarithm of the order of `ROOT_OF_UNITY` in the multiplicative group.
     const LOG2_ROOT_ORDER: usize;
 
@@ -75,10 +78,11 @@ pub trait NttFieldElement: FieldElement {
     /// Computes the inverse Number Theoretic Transform of a sequence. The input must be in
     /// bit-reversed order. The result is returned in-place in the natural order.
     ///
-    /// The `omegas` argument must be a list of power-of-two roots of unity, such that element i is
-    /// the 2^i-th root of unity. It should start with 1 itself, and contain at least enough values
-    /// to include the `values.len()`-th root of unity. Note that for each element in the array, its
-    /// predecessor is its square.
+    /// The `omega_inverses` argument must be a list of power-of-two roots of unity, such that
+    /// element i is the 2^i-th root of unity. It should start with 1 itself, and contain at least
+    /// enough values to include the `values.len()`-th root of unity. Note that for each element in
+    /// the array, its predecessor is its square. These values should be the multiplicative inverses
+    /// of the roots of unity used during the forwards NTT transformation.
     ///
     /// The `size_inv` argument must be the multiplicative inverse of the length of the input array.
     ///
@@ -87,24 +91,61 @@ pub trait NttFieldElement: FieldElement {
     /// This panics if the length of the input is not a power of two.
     ///
     /// This panics if there are not enough roots of unity in `omegas`.
-    fn inverse_ntt_bit_reversed(values: &mut [Self], _omegas: &[Self], _size_inv: Self) {
-        let log_n = values.len().ilog2();
+    fn inverse_ntt_bit_reversed(values: &mut [Self], omega_inverses: &[Self], size_inv: Self) {
+        let log_n = usize::try_from(values.len().ilog2()).unwrap();
         if 1 << log_n != values.len() {
             panic!(
-                "length of input to NTT was {}, which is not a power of two",
+                "length of input to inverse NTT was {}, which is not a power of two",
                 values.len()
             );
         }
-        todo!()
+
+        // Evaluate the inverse NTT.
+        let mut stride = 1;
+        for omega_inv in omega_inverses[1..=log_n].iter() {
+            let mut omega_power = Self::ONE;
+            for i in 0..stride {
+                let mut j = i;
+                while j < values.len() {
+                    let product = values[j + stride] * omega_power;
+                    (values[j], values[j + stride]) = (values[j] + product, values[j] - product);
+
+                    j += stride * 2;
+                }
+                omega_power *= *omega_inv;
+            }
+
+            stride *= 2;
+        }
+
+        // Rescale each element of the output by 1/n to take care of deferred divisions by two.
+        for element in values.iter_mut() {
+            *element *= size_inv;
+        }
     }
 
-    /// Precomputes roots of unity of different degrees, for use in NTT and inverse NTT operations.
+    /// Precomputes roots of unity of different degrees, for use in NTT operations.
     ///
     /// This returns a vector of elements where the element at index i is the 2^i-th root of unity,
     /// and the element at index 0 is 1 itself.
     fn omegas() -> Vec<Self> {
         let mut output = vec![Self::ZERO; Self::LOG2_ROOT_ORDER + 1];
         let mut root = Self::ROOT_OF_UNITY;
+        for output_elem in output.iter_mut().rev() {
+            *output_elem = root;
+            root = root.square();
+        }
+        output
+    }
+
+    /// Precomputes roots of unity of different degrees, for use in inverse NTT operations.
+    ///
+    /// This returns a vector of elements where the element at index i is the 2^i-th root of unity,
+    /// and the element at index 0 is 1 itself. The values are each inverses of the corresponding
+    /// output from [`NttFieldElement::omegas()`].
+    fn omega_inverses() -> Vec<Self> {
+        let mut output = vec![Self::ZERO; Self::LOG2_ROOT_ORDER + 1];
+        let mut root = Self::ROOT_OF_UNITY_INVERSE;
         for output_elem in output.iter_mut().rev() {
             *output_elem = root;
             root = root.square();
@@ -134,6 +175,9 @@ mod tests {
         }
         assert_eq!(temp, FE::ONE);
 
+        assert_eq!(FE::ROOT_OF_UNITY * FE::ROOT_OF_UNITY_INVERSE, FE::ONE);
+
+        // Run on various input sizes.
         test_ntt_with_size(&random, 2);
         test_ntt_with_size(&random, 4);
         test_ntt_with_size(&random, 8);
@@ -172,9 +216,16 @@ mod tests {
         }
         assert_eq!(output, expected);
 
-        // TODO: Test inverse NTT.
-        // FE::inverse_ntt_bit_reversed(&mut inout);
-        // assert_eq!(input, inout);
+        // Test inverse NTT.
+        let omega_inverses = FE::omega_inverses();
+        assert_eq!(
+            *omegas.last().unwrap() * *omega_inverses.last().unwrap(),
+            FE::ONE
+        );
+        assert_eq!(omega_inverses[0], FE::ONE);
+        assert_eq!(omega_inverses[1], -FE::ONE);
+        FE::inverse_ntt_bit_reversed(&mut inout, &omega_inverses, pow(FE::HALF, log2_size.into()));
+        assert_eq!(input, inout);
     }
 
     /// Field element exponentiation. See also [`crate::fields::LagrangePolynomialFieldElement::pow()`].

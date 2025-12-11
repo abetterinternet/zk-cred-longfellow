@@ -195,6 +195,20 @@ impl NttFieldElement for FieldP128 {
         }
     };
 
+    const ROOT_OF_UNITY_INVERSE: Self = const {
+        // Computed in SageMath:
+        //
+        // gen = Fp128.multiplicative_generator() ^ ((Fp128.order() - 1) / 2^108)
+        // gen.inverse().to_bytes(byteorder='little')
+        //
+        // Panic safety: this constant is a valid field element.
+        let bytes = b"\rW\x87\xfe\xcbb\xb6~\xfc\xdc\x03t\x858\xc8\x0f";
+        match Self::try_from_bytes_const(bytes) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        }
+    };
+
     const LOG2_ROOT_ORDER: usize = 108;
 
     const HALF: Self = const {

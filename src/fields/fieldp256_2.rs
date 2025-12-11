@@ -60,6 +60,28 @@ impl NttFieldElement for FieldP256_2 {
         Self(QuadraticExtension::new(real, imag))
     };
 
+    const ROOT_OF_UNITY_INVERSE: Self = {
+        // Computed in SageMath:
+        //
+        // gen = Fp256_2.multiplicative_generator() ^ ((Fp256_2.order() - 1) / 2^97)
+        // [coeff.to_bytes(byteorder='little') for coeff in gen.inverse().polynomial().coefficients()]
+        //
+        // Panic safety: these constants are valid base field elements.
+        let bytes_real = b"\x9f\x82(\x96\x89\xef\xe0\x10\xa9G\xebW\x90\xde\xae\xc6\x8c\xcb\x96\xad\xce!\xdf\xd2-\x7fY\xff\x16\x1e\xaa\xc3";
+        let real = match FieldP256::try_from_bytes_const(bytes_real) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        };
+
+        let bytes_imag = b"5\xa0\x95\xc4\x8a?\x08\x82\xae\xc4\x15\xf5v\xfb\xef\xdat\xbcG#I\x10\xb7\xb2\x8dH\xdcB\x88\x8cx\xdf";
+        let imag = match FieldP256::try_from_bytes_const(bytes_imag) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        };
+
+        Self(QuadraticExtension::new(real, imag))
+    };
+
     const LOG2_ROOT_ORDER: usize = 97;
 
     const HALF: Self = {

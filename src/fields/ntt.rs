@@ -63,7 +63,9 @@ pub trait NttFieldElement: FieldElement {
 
                     j += stride * 2;
                 }
-                omega_power *= *omega;
+                if i < stride - 1 {
+                    omega_power *= *omega;
+                }
             }
 
             stride /= 2;

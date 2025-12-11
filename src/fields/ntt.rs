@@ -41,10 +41,19 @@ pub trait NttFieldElement: FieldElement {
         // Evaluate the NTT with the decimation-in-frequency radix-2 FFT algorithm.
         let mut stride = 1 << (log_n - 1);
         for omega in omegas[1..=log_n].iter().rev() {
-            let mut omega_power = Self::ONE;
+            // The i=0 iteration of the below loop is unrolled separately to save some multiplications.
+            let mut j = 0;
+            while j < values.len() {
+                (values[j], values[j + stride]) = (
+                    values[j] + values[j + stride],
+                    (values[j] - values[j + stride]),
+                );
 
-            // TODO: unroll the first iteration of this loop, to save some multiplications.
-            for i in 0..stride {
+                j += stride * 2;
+            }
+
+            let mut omega_power = *omega;
+            for i in 1..stride {
                 let mut j = i;
                 while j < values.len() {
                     (values[j], values[j + stride]) = (

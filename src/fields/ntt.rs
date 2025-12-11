@@ -78,8 +78,8 @@ pub trait NttFieldElement: FieldElement {
         }
     }
 
-    /// Computes the inverse Number Theoretic Transform of a sequence. The input must be in
-    /// bit-reversed order. The result is returned in-place in the natural order.
+    /// Computes the inverse Number Theoretic Transform of a sequence, scaled by a constant. The
+    /// input must be in bit-reversed order. The result is returned in-place in the natural order.
     ///
     /// The `omega_inverses` argument must be a list of power-of-two roots of unity, such that
     /// element i is the 2^i-th root of unity. It should start with 1 itself, and contain at least
@@ -87,14 +87,15 @@ pub trait NttFieldElement: FieldElement {
     /// the array, its predecessor is its square. These values should be the multiplicative inverses
     /// of the roots of unity used during the forwards NTT transformation.
     ///
-    /// The `size_inv` argument must be the multiplicative inverse of the length of the input array.
+    /// The output is scaled by a factor of `values.len()`. This factor's inverse needs to be
+    /// multiplied separately to get the inverse NTT result.
     ///
     /// # Panics
     ///
     /// This panics if the length of the input is not a power of two.
     ///
     /// This panics if there are not enough roots of unity in `omegas`.
-    fn inverse_ntt_bit_reversed(values: &mut [Self], omega_inverses: &[Self], size_inv: Self) {
+    fn scaled_inverse_ntt_bit_reversed(values: &mut [Self], omega_inverses: &[Self]) {
         let log_n = usize::try_from(values.len().ilog2()).unwrap();
         if 1 << log_n != values.len() {
             panic!(
@@ -135,11 +136,6 @@ pub trait NttFieldElement: FieldElement {
             }
 
             stride *= 2;
-        }
-
-        // Rescale each element of the output by 1/n to take care of deferred divisions by two.
-        for element in values.iter_mut() {
-            *element *= size_inv;
         }
     }
 
@@ -250,7 +246,11 @@ mod tests {
         );
         assert_eq!(omega_inverses[0], FE::ONE);
         assert_eq!(omega_inverses[1], -FE::ONE);
-        FE::inverse_ntt_bit_reversed(&mut inout, &omega_inverses, pow(FE::HALF, log2_size.into()));
+        FE::scaled_inverse_ntt_bit_reversed(&mut inout, &omega_inverses);
+        let size_inv = pow(FE::HALF, log2_size.into());
+        for elem in inout.iter_mut() {
+            *elem *= size_inv;
+        }
         assert_eq!(input, inout);
     }
 

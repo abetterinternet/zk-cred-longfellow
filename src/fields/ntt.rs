@@ -112,31 +112,38 @@ mod tests {
         }
         assert_eq!(temp, FE::ONE);
 
+        test_ntt_with_size(&random, 2);
+        test_ntt_with_size(&random, 4);
+        test_ntt_with_size(&random, 8);
+        test_ntt_with_size(&random, 16);
+        test_ntt_with_size(&random, 32);
+    }
+
+    fn test_ntt_with_size<FE: NttFieldElement>(random: &impl Fn() -> FE, size: usize) {
         // Test NTT.
-        const SIZE: usize = 32;
-        const LOG2_SIZE: u32 = SIZE.ilog2();
-        let omegas = (0..=LOG2_SIZE.try_into().unwrap())
+        let log2_size = size.ilog2();
+        let omegas = (0..=log2_size.try_into().unwrap())
             .map(|i| pow(FE::ROOT_OF_UNITY, 1 << (FE::LOG2_ROOT_ORDER - i)))
             .collect::<Vec<_>>();
         assert_eq!(omegas[0], FE::ONE);
         assert_eq!(omegas[1], -FE::ONE);
-        let input = iter::repeat_with(random).take(SIZE).collect::<Vec<_>>();
+        let input = iter::repeat_with(random).take(size).collect::<Vec<_>>();
         let mut inout = input.clone();
         FE::ntt_bit_reversed(&mut inout, &omegas);
-        let mut output = vec![FE::ZERO; SIZE];
+        let mut output = vec![FE::ZERO; size];
         for (i, output_elem) in output.iter_mut().enumerate() {
-            let bit_reversed_index = i.reverse_bits() >> (usize::BITS - LOG2_SIZE);
+            let bit_reversed_index = i.reverse_bits() >> (usize::BITS - log2_size);
             *output_elem = inout[bit_reversed_index];
         }
         // Compare with NTT definition.
-        let mut expected = Vec::with_capacity(SIZE);
+        let mut expected = Vec::with_capacity(size);
         let omega_n = pow(
             FE::ROOT_OF_UNITY,
-            1 << (FE::LOG2_ROOT_ORDER - usize::try_from(LOG2_SIZE).unwrap()),
+            1 << (FE::LOG2_ROOT_ORDER - usize::try_from(log2_size).unwrap()),
         );
-        assert_eq!(pow(omega_n, SIZE.try_into().unwrap()), FE::ONE);
-        assert_ne!(pow(omega_n, u128::try_from(SIZE).unwrap() / 2), FE::ONE);
-        for j in 0..SIZE {
+        assert_eq!(pow(omega_n, size.try_into().unwrap()), FE::ONE);
+        assert_ne!(pow(omega_n, u128::try_from(size).unwrap() / 2), FE::ONE);
+        for j in 0..size {
             let mut expected_elem = FE::ZERO;
             for (i, a_i) in input.iter().enumerate() {
                 expected_elem += pow(omega_n, u128::try_from(i * j).unwrap()) * a_i;

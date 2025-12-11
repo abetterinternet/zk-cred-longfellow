@@ -103,8 +103,19 @@ pub trait NttFieldElement: FieldElement {
         // Evaluate the inverse NTT.
         let mut stride = 1;
         for omega_inv in omega_inverses[1..=log_n].iter() {
-            let mut omega_power = Self::ONE;
-            for i in 0..stride {
+            // The i=0 iteration of the below loop is unrolled separately to save some multiplications.
+            let mut j = 0;
+            while j < values.len() {
+                (values[j], values[j + stride]) = (
+                    values[j] + values[j + stride],
+                    values[j] - values[j + stride],
+                );
+
+                j += stride * 2;
+            }
+
+            let mut omega_power = *omega_inv;
+            for i in 1..stride {
                 let mut j = i;
                 while j < values.len() {
                     let product = values[j + stride] * omega_power;

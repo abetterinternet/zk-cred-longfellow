@@ -38,29 +38,26 @@ pub trait NttFieldElement: FieldElement {
             );
         }
 
-        let mut log_stride = log_n - 1;
-        let mut stride = 1 << log_stride;
-        for omega in omegas[1..=log_n].iter() {
-            let mut start = 0;
+        // Evaluate the NTT with the decimation-in-frequency radix-2 FFT algorithm.
+        let mut stride = 1 << (log_n - 1);
+        for omega in omegas[1..=log_n].iter().rev() {
             let mut omega_power = Self::ONE;
+
             // TODO: unroll the first iteration of this loop, to save some multiplications.
-            while start < values.len() {
-                // TODO: This needs to iterate in bit-reversed order in order to make use of twiddle
-                // factors with ascending exponents of omega. Switching from decimation-in-time to
-                // decimation-in-frequency should resolve this issue.
-                let start_bit_reversed = (start >> log_stride).reverse_bits()
-                    >> (usize::try_from(usize::BITS).unwrap() - log_n - 1);
-                for i in start_bit_reversed..start_bit_reversed + stride {
-                    let product = omega_power * values[i + stride];
-                    (values[i], values[i + stride]) = (values[i] + product, values[i] - product);
+            for i in 0..stride {
+                let mut j = i;
+                while j < values.len() {
+                    (values[j], values[j + stride]) = (
+                        values[j] + values[j + stride],
+                        (values[j] - values[j + stride]) * omega_power,
+                    );
+
+                    j += stride * 2;
                 }
                 omega_power *= *omega;
-                start += stride * 2;
             }
 
             stride /= 2;
-            // This subtraction will overflow just before exiting the loop, so we use wrapping arithmetic instead.
-            log_stride = log_stride.wrapping_sub(1);
         }
     }
 

@@ -97,6 +97,20 @@ pub trait NttFieldElement: FieldElement {
         }
         todo!()
     }
+
+    /// Precomputes roots of unity of different degrees, for use in NTT and inverse NTT operations.
+    ///
+    /// This returns a vector of elements where the element at index i is the 2^i-th root of unity,
+    /// and the element at index 0 is 1 itself.
+    fn omegas() -> Vec<Self> {
+        let mut output = vec![Self::ZERO; Self::LOG2_ROOT_ORDER + 1];
+        let mut root = Self::ROOT_OF_UNITY;
+        for output_elem in output.iter_mut().rev() {
+            *output_elem = root;
+            root = root.square();
+        }
+        output
+    }
 }
 
 #[cfg(test)]
@@ -130,9 +144,7 @@ mod tests {
     fn test_ntt_with_size<FE: NttFieldElement>(random: &impl Fn() -> FE, size: usize) {
         // Test NTT.
         let log2_size = size.ilog2();
-        let omegas = (0..=log2_size.try_into().unwrap())
-            .map(|i| pow(FE::ROOT_OF_UNITY, 1 << (FE::LOG2_ROOT_ORDER - i)))
-            .collect::<Vec<_>>();
+        let omegas = FE::omegas();
         assert_eq!(omegas[0], FE::ONE);
         assert_eq!(omegas[1], -FE::ONE);
         let input = iter::repeat_with(random).take(size).collect::<Vec<_>>();

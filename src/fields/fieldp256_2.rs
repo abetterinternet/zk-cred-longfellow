@@ -13,6 +13,13 @@ use crate::fields::{FieldElement, NttFieldElement, QuadraticExtension, fieldp256
 #[derive(Clone, Copy, Default)]
 pub struct FieldP256_2(pub(super) QuadraticExtension<FieldP256>);
 
+impl FieldP256_2 {
+    /// Construct an element of the quadratic extension field from two base field elements.
+    pub fn new(real: FieldP256, imag: FieldP256) -> Self {
+        Self(QuadraticExtension::new(real, imag))
+    }
+}
+
 impl FieldElement for FieldP256_2 {
     const ZERO: Self = Self(QuadraticExtension::<FieldP256>::ZERO);
 

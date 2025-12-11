@@ -19,30 +19,88 @@ pub trait NttFieldElement: FieldElement {
     /// Computes the Number Theoretic Transform of a sequence. The result is returned in-place in
     /// bit-reversed order.
     ///
+    /// The `omegas` argument must be a list of power-of-two roots of unity, such that element i is
+    /// the 2^i-th root of unity. It should start with 1 itself, and contain at least enough values
+    /// to include the `values.len()`-th root of unity. Note that for each element in the array, its
+    /// predecessor is its square.
+    ///
     /// # Panics
     ///
     /// This panics if the length of the input is not a power of two.
-    fn ntt_bit_reversed(_input: &mut [Self]) {
-        todo!()
+    ///
+    /// This panics if there are not enough roots of unity in `omegas`.
+    fn ntt_bit_reversed(values: &mut [Self], omegas: &[Self]) {
+        let log_n = usize::try_from(values.len().ilog2()).unwrap();
+        if 1 << log_n != values.len() {
+            panic!(
+                "length of input to NTT was {}, which is not a power of two",
+                values.len()
+            );
+        }
+
+        let mut log_stride = log_n - 1;
+        let mut stride = 1 << log_stride;
+        for omega in omegas[1..=log_n].iter() {
+            let mut start = 0;
+            let mut omega_power = Self::ONE;
+            // TODO: unroll the first iteration of this loop, to save some multiplications.
+            while start < values.len() {
+                // TODO: This needs to iterate in bit-reversed order in order to make use of twiddle
+                // factors with ascending exponents of omega. Switching from decimation-in-time to
+                // decimation-in-frequency should resolve this issue.
+                let start_bit_reversed = (start >> log_stride).reverse_bits()
+                    >> (usize::try_from(usize::BITS).unwrap() - log_n - 1);
+                for i in start_bit_reversed..start_bit_reversed + stride {
+                    let product = omega_power * values[i + stride];
+                    (values[i], values[i + stride]) = (values[i] + product, values[i] - product);
+                }
+                omega_power *= *omega;
+                start += stride * 2;
+            }
+
+            stride /= 2;
+            // This subtraction will overflow just before exiting the loop, so we use wrapping arithmetic instead.
+            log_stride = log_stride.wrapping_sub(1);
+        }
     }
 
     /// Computes the inverse Number Theoretic Transform of a sequence. The input must be in
     /// bit-reversed order. The result is returned in-place in the natural order.
     ///
+    /// The `omegas` argument must be a list of power-of-two roots of unity, such that element i is
+    /// the 2^i-th root of unity. It should start with 1 itself, and contain at least enough values
+    /// to include the `values.len()`-th root of unity. Note that for each element in the array, its
+    /// predecessor is its square.
+    ///
+    /// The `size_inv` argument must be the multiplicative inverse of the length of the input array.
+    ///
     /// # Panics
     ///
     /// This panics if the length of the input is not a power of two.
-    fn inverse_ntt_bit_reversed(_input: &mut [Self]) {
+    ///
+    /// This panics if there are not enough roots of unity in `omegas`.
+    fn inverse_ntt_bit_reversed(values: &mut [Self], _omegas: &[Self], _size_inv: Self) {
+        let log_n = values.len().ilog2();
+        if 1 << log_n != values.len() {
+            panic!(
+                "length of input to NTT was {}, which is not a power of two",
+                values.len()
+            );
+        }
         todo!()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::fields::{NttFieldElement, fieldp128::FieldP128, fieldp256_2::FieldP256_2};
+    use crate::fields::{
+        CodecFieldElement, NttFieldElement, fieldp128::FieldP128, fieldp256::FieldP256,
+        fieldp256_2::FieldP256_2,
+    };
+    use std::iter;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn test_ntt<FE: NttFieldElement>() {
+    fn test_ntt<FE: NttFieldElement>(random: impl Fn() -> FE) {
         // Check constants.
         let two = FE::from_u128(2);
         assert_eq!(two * FE::HALF, FE::ONE);
@@ -53,15 +111,67 @@ mod tests {
             temp = temp.square();
         }
         assert_eq!(temp, FE::ONE);
+
+        // Test NTT.
+        const SIZE: usize = 32;
+        const LOG2_SIZE: u32 = SIZE.ilog2();
+        let omegas = (0..=LOG2_SIZE.try_into().unwrap())
+            .map(|i| pow(FE::ROOT_OF_UNITY, 1 << (FE::LOG2_ROOT_ORDER - i)))
+            .collect::<Vec<_>>();
+        assert_eq!(omegas[0], FE::ONE);
+        assert_eq!(omegas[1], -FE::ONE);
+        let input = iter::repeat_with(random).take(SIZE).collect::<Vec<_>>();
+        let mut inout = input.clone();
+        FE::ntt_bit_reversed(&mut inout, &omegas);
+        let mut output = vec![FE::ZERO; SIZE];
+        for (i, output_elem) in output.iter_mut().enumerate() {
+            let bit_reversed_index = i.reverse_bits() >> (usize::BITS - LOG2_SIZE);
+            *output_elem = inout[bit_reversed_index];
+        }
+        // Compare with NTT definition.
+        let mut expected = Vec::with_capacity(SIZE);
+        let omega_n = pow(
+            FE::ROOT_OF_UNITY,
+            1 << (FE::LOG2_ROOT_ORDER - usize::try_from(LOG2_SIZE).unwrap()),
+        );
+        assert_eq!(pow(omega_n, SIZE.try_into().unwrap()), FE::ONE);
+        assert_ne!(pow(omega_n, u128::try_from(SIZE).unwrap() / 2), FE::ONE);
+        for j in 0..SIZE {
+            let mut expected_elem = FE::ZERO;
+            for (i, a_i) in input.iter().enumerate() {
+                expected_elem += pow(omega_n, u128::try_from(i * j).unwrap()) * a_i;
+            }
+            expected.push(expected_elem);
+        }
+        assert_eq!(output, expected);
+
+        // TODO: Test inverse NTT.
+        // FE::inverse_ntt_bit_reversed(&mut inout);
+        // assert_eq!(input, inout);
+    }
+
+    /// Field element exponentiation. See also [`crate::fields::LagrangePolynomialFieldElement::pow()`].
+    fn pow<FE: NttFieldElement>(mut base: FE, mut exponent: u128) -> FE {
+        let mut out = FE::ONE;
+
+        while exponent > 0 {
+            if exponent & 1 != 0 {
+                out *= base;
+            }
+            exponent >>= 1;
+            base = base.square();
+        }
+
+        out
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_p128() {
-        test_ntt::<FieldP128>();
+        test_ntt::<FieldP128>(FieldP128::sample);
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_p256_quadratic_extension() {
-        test_ntt::<FieldP256_2>();
+        test_ntt::<FieldP256_2>(|| FieldP256_2::new(FieldP256::sample(), FieldP256::sample()));
     }
 }

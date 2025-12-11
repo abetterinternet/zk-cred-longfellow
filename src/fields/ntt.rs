@@ -40,6 +40,9 @@ pub trait NttFieldElement: FieldElement {
                 values.len()
             );
         }
+        if values.len() == 1 {
+            return;
+        }
 
         // Evaluate the NTT with the decimation-in-frequency radix-2 FFT algorithm.
         let mut stride = 1 << (log_n - 1);
@@ -98,6 +101,9 @@ pub trait NttFieldElement: FieldElement {
                 "length of input to inverse NTT was {}, which is not a power of two",
                 values.len()
             );
+        }
+        if values.len() == 1 {
+            return;
         }
 
         // Evaluate the inverse NTT.
@@ -191,6 +197,7 @@ mod tests {
         assert_eq!(FE::ROOT_OF_UNITY * FE::ROOT_OF_UNITY_INVERSE, FE::ONE);
 
         // Run on various input sizes.
+        test_ntt_with_size(&random, 1);
         test_ntt_with_size(&random, 2);
         test_ntt_with_size(&random, 4);
         test_ntt_with_size(&random, 8);
@@ -208,9 +215,13 @@ mod tests {
         let mut inout = input.clone();
         FE::ntt_bit_reversed(&mut inout, &omegas);
         let mut output = vec![FE::ZERO; size];
-        for (i, output_elem) in output.iter_mut().enumerate() {
-            let bit_reversed_index = i.reverse_bits() >> (usize::BITS - log2_size);
-            *output_elem = inout[bit_reversed_index];
+        if size == 1 {
+            output[0] = inout[0];
+        } else {
+            for (i, output_elem) in output.iter_mut().enumerate() {
+                let bit_reversed_index = i.reverse_bits() >> (usize::BITS - log2_size);
+                *output_elem = inout[bit_reversed_index];
+            }
         }
         // Compare with NTT definition.
         let mut expected = Vec::with_capacity(size);
@@ -219,7 +230,9 @@ mod tests {
             1 << (FE::LOG2_ROOT_ORDER - usize::try_from(log2_size).unwrap()),
         );
         assert_eq!(pow(omega_n, size.try_into().unwrap()), FE::ONE);
-        assert_ne!(pow(omega_n, u128::try_from(size).unwrap() / 2), FE::ONE);
+        if size > 1 {
+            assert_ne!(pow(omega_n, u128::try_from(size).unwrap() / 2), FE::ONE);
+        }
         for j in 0..size {
             let mut expected_elem = FE::ZERO;
             for (i, a_i) in input.iter().enumerate() {

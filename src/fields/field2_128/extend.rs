@@ -35,41 +35,33 @@ fn twiddle(power: u32, mut coset: usize) -> Field2_128 {
 
 /// Compute all the twiddles needed for `curr_power` in linear time.
 fn twiddles(curr_power: u32, power: u32, coset: usize, twiddled: &mut [Field2_128]) {
-    // We need every (2 * recursive_len)th twiddle of curr_power, starting at coset. We
-    // first straightforwardly compute TWIDDLE(curr_power, coset):
+    // Section 3.2 gives us the recurrence TWIDDLE(i, u + 2^k) = W_hat[i][k] + TWIDDLE(i, u) [*]
+    // that lets us cheaply double the size of an array of twiddles (though in fact this applies to
+    // any bitwise dot-product-like function, not just TWIDDLE).
+    //
+    // If we know TWIDDLE(i, p) for 0 <= p < 2^k, then for 2^k <= q < 2^(k+1), we can compute
+    // TWIDDLE(i, q) = TWIDDLE(i, q - 2^k) + W_hat[i][k], which is cheaper than evaluating TWIDDLE
+    // 2^(k+1) - 2^k times.
+    //
+    // But we're not computing twiddles for each p in [0, 2^k), but rather every (2*recursive_len)th
+    // one. So the nth element of twiddled is:
+    //
+    // twiddled[n] = TWIDDLE(i, coset + n * 2 * recursive_len)
+    //
+    // Recall that recursive_len = 2^curr_power:
+    //
+    // twiddled[n] = TWIDDLE(i, coset + n * 2^(curr_power + 1)) [†]
+    //
+    // In the inner loop we compute twiddled[u + (1 << k)] = twiddled[u + 2^k]
+    // = TWIDDLE(i, coset + (u + 2^k) * 2^(curr_power + 1)) (by †)
+    // = TWIDDLE(i, coset + u * 2^(curr_power + 1) + 2^k * 2^(curr_power + 1)
+    // = TWIDDLE(i, coset + u * 2^(curr_power + 1) + 2^(k + curr_power + 1))
+    // = TWIDDLE(i, coset + u * 2^(curr_power + 1)) + W_hat[curr_power][k + curr_power + 1] (by *)
+    // = TWIDDLE[u] + W_hat[curr_power][k + curr_power + 1] (by †)
     twiddled[0] = twiddle(curr_power, coset);
-
-    // Section 3.2 gives us the recurrence TWIDDLE(i, u + 2^k) = W_hat[i][k] + TWIDDLE(i, u).
-    // Recall that 2 * recursive_len = 2 * 2 ^ curr_power.
-    //
-    // The next value we need is TWIDDLE(curr_power, coset + 2 * recursive_len)
-    // = TWIDDLE(curr_power, coset + 2 * 2 ^ curr_power)
-    // = TWIDDLE(curr_power, coset + 2^(curr_power + 1))
-    //
-    // Then by the recurrence:
-    //
-    // = TWIDDLE(curr_power, coset) + W_hat[curr_power][curr_power + 1]
-    //
-    // The next value we need is TWIDDLE(curr_power, coset + 2 * 2 * recursive_len)
-    // = TWIDDLE(curr_power, coset) + W_hat[curr_power][curr_power + 2]
-    //
-    // The next value is TWIDDLE(curr_power, coset + 3 * 2 * recursive_len)
-    //
-    // This is trickier because we can't express 6 * recursive_len as a power of 2. Instead:
-    //
-    // = TWIDDLE(curr_power, coset + 2 * recursive_len + 2 * 2 * recursive_len)
-    // = TWIDDLE(curr_power, coset + 2 * recursive_len) + W_hat[curr_power][curr_power + 2]
-    //
-    // ... and we did previously compute TWIDDLE(curr_power, coset + 2 * recursive_len).
-    // Using that as TWIDDLE(i, u) in the recurrence lets us compute the next 4 values
-    // before we need a bigger base twiddle again.
-    //
-    // So the 0th power increment lets us compute 1 twiddle element, then the 1st gets us 2,
-    // and the nth computes 1 << n + 1.
-    for power_increment in 0..(power - curr_power - 1) {
-        for twiddle_base in 0..1 << power_increment {
-            twiddled[twiddle_base + (1 << power_increment)] = twiddled[twiddle_base]
-                + twiddle_array_at(curr_power, curr_power + 1 + power_increment);
+    for k in 0..(power - curr_power - 1) {
+        for u in 0..1 << k {
+            twiddled[u + (1 << k)] = twiddled[u] + twiddle_array_at(curr_power, k + curr_power + 1);
         }
     }
 }

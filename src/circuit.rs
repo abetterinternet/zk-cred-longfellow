@@ -121,13 +121,13 @@ impl Codec for Circuit {
 impl Circuit {
     /// The number of bits needed to describe an output wire. Analogous to `Layer::logw`.
     pub fn logw(&self) -> usize {
-        // u32::ilog2 rounds down, so add 1 if num_outputs was not a power of 2
-        self.num_outputs.0.ilog2() as usize
-            + if self.num_outputs.0.is_power_of_two() {
-                0
-            } else {
-                1
-            }
+        // Unwrap safety: usize should be bigger than u32 anywhere we run
+        self.num_outputs
+            .0
+            .next_power_of_two()
+            .ilog2()
+            .try_into()
+            .expect("u32 too big for usize?")
     }
 
     /// Retrieve the requested constant from the circuit's constant table, if it exists.

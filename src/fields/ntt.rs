@@ -37,7 +37,8 @@ pub trait NttFieldElement: FieldElement {
     ///
     /// This panics if there are not enough roots of unity in `omegas`.
     fn ntt_bit_reversed(values: &mut [Self], omegas: &[Self]) {
-        let log_n = usize::try_from(values.len().ilog2()).unwrap();
+        // Unwrap safety: usize should be at least as large as u32 anywhere we run.
+        let log_n = usize::try_from(values.len().ilog2()).expect("u32 too big for usize?");
         if 1 << log_n != values.len() {
             panic!(
                 "length of input to NTT was {}, which is not a power of two",
@@ -98,7 +99,8 @@ pub trait NttFieldElement: FieldElement {
     ///
     /// This panics if there are not enough roots of unity in `omegas`.
     fn scaled_inverse_ntt_bit_reversed(values: &mut [Self], omega_inverses: &[Self]) {
-        let log_n = usize::try_from(values.len().ilog2()).unwrap();
+        // Unwrap safety: usize should be at least as large as u32 anywhere we run.
+        let log_n = usize::try_from(values.len().ilog2()).expect("u32 too big for usize?");
         if 1 << log_n != values.len() {
             panic!(
                 "length of input to inverse NTT was {}, which is not a power of two",

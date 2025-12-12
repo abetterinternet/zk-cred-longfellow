@@ -180,7 +180,7 @@ mod tests {
     use std::iter;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn test_ntt<FE: NttFieldElement>(random: impl Fn() -> FE) {
+    fn test_ntt_constants<FE: NttFieldElement>() {
         // Check constants.
         let two = FE::from_u128(2);
         assert_eq!(two * FE::HALF, FE::ONE);
@@ -193,7 +193,9 @@ mod tests {
         assert_eq!(temp, FE::ONE);
 
         assert_eq!(FE::ROOT_OF_UNITY * FE::ROOT_OF_UNITY_INVERSE, FE::ONE);
+    }
 
+    fn test_ntt<FE: NttFieldElement>(random: impl Fn() -> FE) {
         // Run on various input sizes.
         test_ntt_with_size(&random, 1);
         test_ntt_with_size(&random, 2);
@@ -269,6 +271,16 @@ mod tests {
         }
 
         out
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_p128_constants() {
+        test_ntt_constants::<FieldP128>();
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_p256_quadratic_extension_constants() {
+        test_ntt_constants::<FieldP256_2>();
     }
 
     #[wasm_bindgen_test(unsupported = test)]

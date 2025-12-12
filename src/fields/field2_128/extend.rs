@@ -21,12 +21,13 @@ pub struct ExtendContext {
 /// [1]: https://eprint.iacr.org/2024/2010.pdf
 fn twiddle(power: u32, mut coset: usize) -> Field2_128 {
     let mut accumulator = Field2_128::ZERO;
-    for position in 0..usize::BITS {
-        // TODO: make this constant time by removing the branch on `coset`
+    let mut position = 0;
+    while coset > 0 {
         if coset & 1 == 1 {
-            accumulator += twiddle_array_at(power, position)
+            accumulator += twiddle_array_at(power, position);
         }
         coset >>= 1;
+        position += 1;
     }
 
     accumulator

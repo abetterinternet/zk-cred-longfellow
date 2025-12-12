@@ -72,7 +72,7 @@ impl FieldP256 {
     ///
     /// This is equivalent to the implementation of `TryFrom<&[u8; 32]>`, but it can be called from
     /// const contexts.
-    const fn try_from_bytes_const(value: &[u8; 32]) -> Result<Self, &'static str> {
+    pub(super) const fn try_from_bytes_const(value: &[u8; 32]) -> Result<Self, &'static str> {
         // We have to use an open-coded for loop instead of iterator combinators due to the present
         // limitations of const functions.
         let mut i = 31;
@@ -96,6 +96,42 @@ impl FieldP256 {
         fiat_p256_to_montgomery(&mut out, &temp);
         Ok(Self(out))
     }
+
+    /// Add two field elements.
+    ///
+    /// This method is needed as a workaround since trait methods cannot yet be declared as const.
+    pub(super) const fn add_const(&self, rhs: &Self) -> Self {
+        let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
+        fiat_p256_add(&mut out, &self.0, &rhs.0);
+        Self(out)
+    }
+
+    /// Subtract two field elements.
+    ///
+    /// This method is needed as a workaround since trait methods cannot yet be declared as const.
+    pub(super) const fn sub_const(&self, rhs: &Self) -> Self {
+        let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
+        fiat_p256_sub(&mut out, &self.0, &rhs.0);
+        Self(out)
+    }
+
+    /// Multiply two field elements.
+    ///
+    /// This method is needed as a workaround since trait methods cannot yet be declared as const.
+    pub(super) const fn mul_const(&self, rhs: &Self) -> Self {
+        let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
+        fiat_p256_mul(&mut out, &self.0, &rhs.0);
+        Self(out)
+    }
+
+    /// Square a field element.
+    ///
+    /// This method is needed as a workaround since trait methods cannot yet be declared as const.
+    pub(super) const fn square_const(&self) -> Self {
+        let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
+        fiat_p256_square(&mut out, &self.0);
+        Self(out)
+    }
 }
 
 impl FieldElement for FieldP256 {
@@ -108,9 +144,7 @@ impl FieldElement for FieldP256 {
     }
 
     fn square(&self) -> Self {
-        let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
-        fiat_p256_square(&mut out, &self.0);
-        Self(out)
+        self.square_const()
     }
 }
 
@@ -295,9 +329,7 @@ impl Add<&Self> for FieldP256 {
     type Output = Self;
 
     fn add(self, rhs: &Self) -> Self::Output {
-        let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
-        fiat_p256_add(&mut out, &self.0, &rhs.0);
-        Self(out)
+        self.add_const(rhs)
     }
 }
 
@@ -321,9 +353,7 @@ impl Sub<&Self> for FieldP256 {
     type Output = Self;
 
     fn sub(self, rhs: &Self) -> Self::Output {
-        let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
-        fiat_p256_sub(&mut out, &self.0, &rhs.0);
-        Self(out)
+        self.sub_const(rhs)
     }
 }
 
@@ -347,9 +377,7 @@ impl Mul<&Self> for FieldP256 {
     type Output = Self;
 
     fn mul(self, rhs: &Self) -> Self::Output {
-        let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
-        fiat_p256_mul(&mut out, &self.0, &rhs.0);
-        Self(out)
+        self.mul_const(rhs)
     }
 }
 

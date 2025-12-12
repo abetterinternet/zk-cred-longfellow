@@ -8,18 +8,11 @@ fn benchmark_ntt<FE: NttFieldElement>(g: &mut BenchmarkGroup<WallTime>) {
     for size in [64, 256, 1024, 4096] {
         g.bench_function(BenchmarkId::new("ntt", size), |b| {
             let mut values = vec![FE::ONE; size];
-            let omegas = FE::omegas();
-            b.iter(|| FE::ntt_bit_reversed(black_box(&mut values), black_box(&omegas)));
+            b.iter(|| FE::ntt_bit_reversed(black_box(&mut values)));
         });
         g.bench_function(BenchmarkId::new("inverse_ntt", size), |b| {
             let mut values = vec![FE::ONE; size];
-            let omega_inverses = FE::omega_inverses();
-            b.iter(|| {
-                FE::scaled_inverse_ntt_bit_reversed(
-                    black_box(&mut values),
-                    black_box(&omega_inverses),
-                )
-            });
+            b.iter(|| FE::scaled_inverse_ntt_bit_reversed(black_box(&mut values)));
         });
     }
 }

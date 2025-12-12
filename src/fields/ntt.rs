@@ -5,20 +5,22 @@ use crate::fields::FieldElement;
 /// Fields implementing this trait must have a subgroup under multiplication with an order that has
 /// many factors of two. For background on the NTT, see <https://eprint.iacr.org/2024/585>.
 pub trait NttFieldElement: FieldElement {
-    /// A root of unity in the field.
+    /// Roots of unity in the field, with power-of-two degrees.
     ///
-    /// The degree of this root of unity is a power of two, specifically 2^LOG2_ROOT_ORDER.
+    /// Each element at index i is a generator of the subgroup of the multiplicative group with
+    /// order 2^i. Thus, it is an element omega that satisfies omega^(2^i) = 1, and omega^j != 1 for
+    /// 0 < j < 2^i.
     ///
-    /// This is a generator of the subgroup of the multiplicative group with order
-    /// 2^LOG2_ROOT_ORDER. Thus, it is an element omega that satisfies omega^(2^k) = 1, and
-    /// omega^i != 1 for 0 < i < 2^k.
-    const ROOT_OF_UNITY: Self;
+    /// This array is limited to only 32 elements, because all relevant fields have a subgroup of
+    /// order 2^31, and an input size of 2^31 should be more than enough for the NTT operations we
+    /// will perform.
+    const ROOTS_OF_UNITY: [Self; 32];
 
-    /// A root of unity in the field, and the inverse of [`Self::ROOT_OF_UNITY`].
-    const ROOT_OF_UNITY_INVERSE: Self;
-
-    /// The base-2 logarithm of the order of `ROOT_OF_UNITY` in the multiplicative group.
-    const LOG2_ROOT_ORDER: usize;
+    /// Roots of unity in the field, and the inverses of [`NttFieldElement::ROOTS_OF_UNITY`].
+    ///
+    /// Each element is the inverse of the corresponding element of
+    /// [`NttFieldElement::ROOTS_OF_UNITY`].
+    const ROOTS_OF_UNITY_INVERSES: [Self; 32];
 
     /// The multiplicative inverse of 2 in this field.
     const HALF: Self;
@@ -33,10 +35,8 @@ pub trait NttFieldElement: FieldElement {
     ///
     /// # Panics
     ///
-    /// This panics if the length of the input is not a power of two.
-    ///
-    /// This panics if there are not enough roots of unity in `omegas`.
-    fn ntt_bit_reversed(values: &mut [Self], omegas: &[Self]) {
+    /// This panics if the length of the input is not a power of two, or if it is greater than 2^31.
+    fn ntt_bit_reversed(values: &mut [Self]) {
         // Unwrap safety: usize should be at least as large as u32 anywhere we run.
         let log_n = usize::try_from(values.len().ilog2()).expect("u32 too big for usize?");
         if 1 << log_n != values.len() {
@@ -51,7 +51,7 @@ pub trait NttFieldElement: FieldElement {
 
         // Evaluate the NTT with the decimation-in-frequency radix-2 FFT algorithm.
         let mut stride = 1 << (log_n - 1);
-        for omega in omegas[1..=log_n].iter().rev() {
+        for omega in Self::ROOTS_OF_UNITY[1..=log_n].iter().rev() {
             // The i=0 iteration of the below loop is unrolled separately to save some multiplications.
             let mut j = 0;
             while j < values.len() {
@@ -95,10 +95,8 @@ pub trait NttFieldElement: FieldElement {
     ///
     /// # Panics
     ///
-    /// This panics if the length of the input is not a power of two.
-    ///
-    /// This panics if there are not enough roots of unity in `omegas`.
-    fn scaled_inverse_ntt_bit_reversed(values: &mut [Self], omega_inverses: &[Self]) {
+    /// This panics if the length of the input is not a power of two, or if it is greater than 2^31.
+    fn scaled_inverse_ntt_bit_reversed(values: &mut [Self]) {
         // Unwrap safety: usize should be at least as large as u32 anywhere we run.
         let log_n = usize::try_from(values.len().ilog2()).expect("u32 too big for usize?");
         if 1 << log_n != values.len() {
@@ -113,7 +111,7 @@ pub trait NttFieldElement: FieldElement {
 
         // Evaluate the inverse NTT.
         let mut stride = 1;
-        for omega_inv in omega_inverses[1..=log_n].iter() {
+        for omega_inv in Self::ROOTS_OF_UNITY_INVERSES[1..=log_n].iter() {
             // The i=0 iteration of the below loop is unrolled separately to save some multiplications.
             let mut j = 0;
             while j < values.len() {
@@ -140,35 +138,6 @@ pub trait NttFieldElement: FieldElement {
             stride *= 2;
         }
     }
-
-    /// Precomputes roots of unity of different degrees, for use in NTT operations.
-    ///
-    /// This returns a vector of elements where the element at index i is the 2^i-th root of unity,
-    /// and the element at index 0 is 1 itself.
-    fn omegas() -> Vec<Self> {
-        let mut output = vec![Self::ZERO; Self::LOG2_ROOT_ORDER + 1];
-        let mut root = Self::ROOT_OF_UNITY;
-        for output_elem in output.iter_mut().rev() {
-            *output_elem = root;
-            root = root.square();
-        }
-        output
-    }
-
-    /// Precomputes roots of unity of different degrees, for use in inverse NTT operations.
-    ///
-    /// This returns a vector of elements where the element at index i is the 2^i-th root of unity,
-    /// and the element at index 0 is 1 itself. The values are each inverses of the corresponding
-    /// output from [`NttFieldElement::omegas()`].
-    fn omega_inverses() -> Vec<Self> {
-        let mut output = vec![Self::ZERO; Self::LOG2_ROOT_ORDER + 1];
-        let mut root = Self::ROOT_OF_UNITY_INVERSE;
-        for output_elem in output.iter_mut().rev() {
-            *output_elem = root;
-            root = root.square();
-        }
-        output
-    }
 }
 
 #[cfg(test)]
@@ -185,14 +154,18 @@ mod tests {
         let two = FE::from_u128(2);
         assert_eq!(two * FE::HALF, FE::ONE);
 
-        let mut temp = FE::ROOT_OF_UNITY;
-        for _ in 0..FE::LOG2_ROOT_ORDER {
-            assert_ne!(temp, FE::ONE);
-            temp = temp.square();
+        assert_eq!(FE::ROOTS_OF_UNITY[0], FE::ONE);
+        assert_eq!(FE::ROOTS_OF_UNITY_INVERSES[0], FE::ONE);
+        for (elem, inv) in FE::ROOTS_OF_UNITY[1..]
+            .iter()
+            .zip(FE::ROOTS_OF_UNITY_INVERSES[1..].iter())
+        {
+            assert_ne!(*elem, FE::ONE);
+            assert_eq!(*elem * inv, FE::ONE);
         }
-        assert_eq!(temp, FE::ONE);
-
-        assert_eq!(FE::ROOT_OF_UNITY * FE::ROOT_OF_UNITY_INVERSE, FE::ONE);
+        for window in FE::ROOTS_OF_UNITY.windows(2) {
+            assert_eq!(window[0], window[1].square());
+        }
     }
 
     fn test_ntt<FE: NttFieldElement>(random: impl Fn() -> FE) {
@@ -208,12 +181,9 @@ mod tests {
     fn test_ntt_with_size<FE: NttFieldElement>(random: &impl Fn() -> FE, size: usize) {
         // Test NTT.
         let log2_size = size.ilog2();
-        let omegas = FE::omegas();
-        assert_eq!(omegas[0], FE::ONE);
-        assert_eq!(omegas[1], -FE::ONE);
         let input = iter::repeat_with(random).take(size).collect::<Vec<_>>();
         let mut inout = input.clone();
-        FE::ntt_bit_reversed(&mut inout, &omegas);
+        FE::ntt_bit_reversed(&mut inout);
         let mut output = vec![FE::ZERO; size];
         if size == 1 {
             output[0] = inout[0];
@@ -225,10 +195,7 @@ mod tests {
         }
         // Compare with NTT definition.
         let mut expected = Vec::with_capacity(size);
-        let omega_n = pow(
-            FE::ROOT_OF_UNITY,
-            1 << (FE::LOG2_ROOT_ORDER - usize::try_from(log2_size).unwrap()),
-        );
+        let omega_n = FE::ROOTS_OF_UNITY[usize::try_from(log2_size).unwrap()];
         assert_eq!(pow(omega_n, size.try_into().unwrap()), FE::ONE);
         if size > 1 {
             assert_ne!(pow(omega_n, u128::try_from(size).unwrap() / 2), FE::ONE);
@@ -243,14 +210,7 @@ mod tests {
         assert_eq!(output, expected);
 
         // Test inverse NTT.
-        let omega_inverses = FE::omega_inverses();
-        assert_eq!(
-            *omegas.last().unwrap() * *omega_inverses.last().unwrap(),
-            FE::ONE
-        );
-        assert_eq!(omega_inverses[0], FE::ONE);
-        assert_eq!(omega_inverses[1], -FE::ONE);
-        FE::scaled_inverse_ntt_bit_reversed(&mut inout, &omega_inverses);
+        FE::scaled_inverse_ntt_bit_reversed(&mut inout);
         let size_inv = pow(FE::HALF, log2_size.into());
         for elem in inout.iter_mut() {
             *elem *= size_inv;

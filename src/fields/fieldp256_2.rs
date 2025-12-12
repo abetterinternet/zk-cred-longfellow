@@ -18,6 +18,20 @@ impl FieldP256_2 {
     pub fn new(real: FieldP256, imag: FieldP256) -> Self {
         Self(QuadraticExtension::new(real, imag))
     }
+
+    /// Square a field element.
+    ///
+    /// This method is needed as a workaround since trait methods cannot yet be declared as const.
+    const fn square_const(&self) -> Self {
+        let cross = self.0.real().mul_const(self.0.imag());
+        Self(QuadraticExtension::new(
+            self.0
+                .real()
+                .square_const()
+                .sub_const(&self.0.imag().square_const()),
+            cross.add_const(&cross),
+        ))
+    }
 }
 
 impl FieldElement for FieldP256_2 {
@@ -37,55 +51,81 @@ impl FieldElement for FieldP256_2 {
 }
 
 impl NttFieldElement for FieldP256_2 {
-    const ROOT_OF_UNITY: Self = {
+    const ROOTS_OF_UNITY: [Self; 32] = {
         // Computed in SageMath:
         //
-        // gen = Fp256_2.multiplicative_generator() ^ ((Fp256_2.order() - 1) / 2^97)
+        // gen = Fp256_2.multiplicative_generator() ^ ((Fp256_2.order() - 1) / 2^31)
         // [coeff.to_bytes(byteorder='little') for coeff in gen.polynomial().coefficients()]
         //
         // Panic safety: these constants are valid base field elements.
-        let bytes_real =
-            b"`}\xd7iv\x10\x1f\xefV\xb8\x14\xa8p!Q9s4iR1\xde -\xd3\x80\xa6\x00\xe8\xe1U<";
+        let bytes_real = b"\xb7y\x06\x7ff\xb3\x18\xaa\xe0\xd2\xd7\xc2[\xb6r\xf6-\xaf\xd5\xd6\xbf\
+            \xb1\xa8@\xfc}+P\xbf\x0ev\n";
         let real = match FieldP256::try_from_bytes_const(bytes_real) {
             Ok(value) => value,
             Err(_) => panic!("could not convert precomputed constant to field element"),
         };
 
-        let bytes_imag = b"5\xa0\x95\xc4\x8a?\x08\x82\xae\xc4\x15\xf5v\xfb\xef\xdat\xbcG#I\x10\xb7\
-            \xb2\x8dH\xdcB\x88\x8cx\xdf";
+        let bytes_imag = b"\xb4\xf9\x9fI\xf06\xab\xfb\xc0\xb3\xae\x0b\xb7;\xd5\x13\x13\xdf\x05_\
+            \xca.\x93\xe2E\x8e\xab\xa8J\x86\x8c\xaa";
         let imag = match FieldP256::try_from_bytes_const(bytes_imag) {
             Ok(value) => value,
             Err(_) => panic!("could not convert precomputed constant to field element"),
         };
 
-        Self(QuadraticExtension::new(real, imag))
+        let start = Self(QuadraticExtension::new(real, imag));
+
+        let mut output = [Self::ZERO; 32];
+        let mut temp = start;
+        let mut i = output.len() - 1;
+        loop {
+            output[i] = temp;
+            if i == 0 {
+                break;
+            }
+            temp = temp.square_const();
+            i -= 1;
+        }
+
+        output
     };
 
-    const ROOT_OF_UNITY_INVERSE: Self = {
+    const ROOTS_OF_UNITY_INVERSES: [Self; 32] = {
         // Computed in SageMath:
         //
-        // gen = Fp256_2.multiplicative_generator() ^ ((Fp256_2.order() - 1) / 2^97)
+        // gen = Fp256_2.multiplicative_generator() ^ ((Fp256_2.order() - 1) / 2^31)
         // [coeff.to_bytes(byteorder='little') for coeff in gen.inverse().polynomial().coefficients()]
         //
         // Panic safety: these constants are valid base field elements.
-        let bytes_real = b"\x9f\x82(\x96\x89\xef\xe0\x10\xa9G\xebW\x90\xde\xae\xc6\x8c\xcb\x96\xad\
-            \xce!\xdf\xd2-\x7fY\xff\x16\x1e\xaa\xc3";
+        let bytes_real = b"\xb7y\x06\x7ff\xb3\x18\xaa\xe0\xd2\xd7\xc2[\xb6r\xf6-\xaf\xd5\xd6\xbf\
+            \xb1\xa8@\xfc}+P\xbf\x0ev\n";
         let real = match FieldP256::try_from_bytes_const(bytes_real) {
             Ok(value) => value,
             Err(_) => panic!("could not convert precomputed constant to field element"),
         };
 
-        let bytes_imag = b"5\xa0\x95\xc4\x8a?\x08\x82\xae\xc4\x15\xf5v\xfb\xef\xdat\xbcG#I\x10\xb7\
-            \xb2\x8dH\xdcB\x88\x8cx\xdf";
+        let bytes_imag =
+            b"K\x06`\xb6\x0f\xc9T\x04?LQ\xf4I\xc4*\xec\xec \xfa\xa05\xd1l\x1d\xbbqTW\xb4ysU";
         let imag = match FieldP256::try_from_bytes_const(bytes_imag) {
             Ok(value) => value,
             Err(_) => panic!("could not convert precomputed constant to field element"),
         };
 
-        Self(QuadraticExtension::new(real, imag))
-    };
+        let start = Self(QuadraticExtension::new(real, imag));
 
-    const LOG2_ROOT_ORDER: usize = 97;
+        let mut output = [Self::ZERO; 32];
+        let mut temp = start;
+        let mut i = output.len() - 1;
+        loop {
+            output[i] = temp;
+            if i == 0 {
+                break;
+            }
+            temp = temp.square_const();
+            i -= 1;
+        }
+
+        output
+    };
 
     const HALF: Self = {
         // Computed in SageMath:
@@ -204,5 +244,22 @@ impl Neg for FieldP256_2 {
 
     fn neg(self) -> Self::Output {
         Self(-self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    use crate::fields::{
+        CodecFieldElement, FieldElement, fieldp256::FieldP256, fieldp256_2::FieldP256_2,
+    };
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_square_const() {
+        for _ in 0..100 {
+            let x = FieldP256_2::new(FieldP256::sample(), FieldP256::sample());
+            assert_eq!(x.square_const(), x.square());
+        }
     }
 }

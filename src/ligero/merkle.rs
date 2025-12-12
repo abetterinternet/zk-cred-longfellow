@@ -12,6 +12,19 @@ use std::fmt::Debug;
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub struct Node([u8; 32]);
 
+impl Node {
+    /// Attempt to decode a `Node` from the provided hex-encoded string.
+    #[cfg(test)]
+    pub fn from_hex(input: &str) -> Result<Self, anyhow::Error> {
+        let array: [u8; 32] = hex::decode(input)
+            .context("failed to decode hex string")?
+            .try_into()
+            .map_err(|_| anyhow!("decoded hex string wrong length for array"))?;
+
+        Ok(Self(array))
+    }
+}
+
 impl From<[u8; 32]> for Node {
     fn from(value: [u8; 32]) -> Self {
         Self(value)
@@ -267,9 +280,8 @@ impl MerkleTree {
 
 #[cfg(test)]
 mod tests {
-    use wasm_bindgen_test::wasm_bindgen_test;
-
     use super::*;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     fn simple_tree() -> MerkleTree {
         let mut tree = MerkleTree::new(4);
@@ -415,5 +427,82 @@ mod tests {
             Node::from([4; 32]),
         ])
         .roundtrip();
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn longfellow_zk_test_vector_69400748daedab509b1c05b771b41c1911fca381() {
+        // Test vector from draft-google-cfrg-libzk section B.1.1. at
+        // 69400748daedab509b1c05b771b41c1911fca381
+        let leaves: Vec<_> = [
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
+            "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+            "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+            "e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db",
+        ]
+        .into_iter()
+        .map(|leaf| Node::from_hex(leaf).unwrap())
+        .collect();
+        let mut tree = MerkleTree::new(leaves.len());
+
+        for (index, leaf) in leaves.iter().enumerate() {
+            // It doesn't matter what nonce we use
+            tree.set_leaf(index, *leaf, [0; 32]);
+        }
+
+        tree.build();
+        let root = tree.root();
+
+        // Check that we compute the right root
+        assert_eq!(
+            root,
+            Node::from_hex("f22f4501ffd3bdffcecc9e4cd6828a4479aeedd6aa484eb7c1f808ccf71c6e76")
+                .unwrap()
+        );
+
+        let proofs = [
+            (
+                [0, 1],
+                vec![
+                    "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+                    "f03808f5b8088c61286d505e8e93aa378991d9889ae2d874433ca06acabcd493",
+                ],
+            ),
+            (
+                [1, 3],
+                vec![
+                    "e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db",
+                    "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+                    "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+                ],
+            ),
+        ];
+
+        for (requested_leaves, hex_proof) in proofs {
+            let decoded_proof = InclusionProof(
+                hex_proof
+                    .iter()
+                    .map(|hex| Node::from_hex(hex).unwrap())
+                    .collect(),
+            );
+
+            // Check that we compute the right proof
+            assert_eq!(decoded_proof, tree.prove(&requested_leaves));
+
+            let included_leaves: Vec<_> = requested_leaves
+                .iter()
+                .map(|index| leaves[*index])
+                .collect();
+
+            // Check that we can verify the test vector proof
+            MerkleTree::verify(
+                root,
+                leaves.len(),
+                &included_leaves,
+                &requested_leaves,
+                &decoded_proof,
+            )
+            .unwrap();
+        }
     }
 }

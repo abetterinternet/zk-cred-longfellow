@@ -2,15 +2,19 @@ use crate::fields::FieldElement;
 
 /// Represents an element of an NTT-friendly field.
 ///
-/// Fields implementing this trait must have a subgroup under multiplication with
+/// Fields implementing this trait must have a subgroup under multiplication with an order that has
+/// many factors of two. For background on the NTT, see <https://eprint.iacr.org/2024/585>.
 pub trait NttFieldElement: FieldElement {
-    /// A 2^k-th root of unity in the field.
+    /// A root of unity in the field.
     ///
-    /// A 2^k-th root of unity of a field is a generator of the subgroup of the multiplicative group
-    /// with order 2^k. Thus, it satisfies omega^(2^k) = 1, and omega^i != 1 for 0 < i < 2^k.
+    /// The degree of this root of unity is a power of two, specifically 2^LOG2_ROOT_ORDER.
+    ///
+    /// This is a generator of the subgroup of the multiplicative group with order
+    /// 2^LOG2_ROOT_ORDER. Thus, it is an element omega that satisfies omega^(2^k) = 1, and
+    /// omega^i != 1 for 0 < i < 2^k.
     const ROOT_OF_UNITY: Self;
 
-    /// A 2^k-th root of unity in the field, and the inverse of [`Self::ROOT_OF_UNITY`].
+    /// A root of unity in the field, and the inverse of [`Self::ROOT_OF_UNITY`].
     const ROOT_OF_UNITY_INVERSE: Self;
 
     /// The base-2 logarithm of the order of `ROOT_OF_UNITY` in the multiplicative group.

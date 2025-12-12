@@ -127,15 +127,12 @@ fn fft(direction: Direction, power: u32, coset: usize, fft_array: &mut [Field2_1
         if direction == Direction::Forward {
             curr_power = power - curr_power - 1;
         }
-        let recursive_len = 2usize.pow(curr_power);
+        let recursive_len = 1 << curr_power;
 
         twiddles(curr_power, power, coset, &mut twiddled);
 
         // for all u : 0 ≤ 2s · u < 2ℓ
-        for (index, start) in (0..2usize.pow(power))
-            .step_by(2 * recursive_len)
-            .enumerate()
-        {
+        for (index, start) in (0..1 << power).step_by(2 * recursive_len).enumerate() {
             let twiddle = twiddled[index];
             for v in 0..recursive_len {
                 match direction {
@@ -174,15 +171,14 @@ fn bidirectional_fft(
 ) {
     assert_eq!(
         fft_array.len(),
-        2usize.pow(power),
+        1 << power,
         "length of fft_array must be 2^power"
     );
     assert!(nodes_count <= fft_array.len());
 
     if power > 0 {
         power -= 1;
-        let recursive_len = 2usize.pow(power);
-        assert_eq!(recursive_len, 1 << power);
+        let recursive_len = 1 << power;
         let twiddle = twiddle(power, coset);
         if nodes_count < recursive_len {
             // Forward FFT: evaluate the polynomial
@@ -303,10 +299,7 @@ mod tests {
         for curr_power in 0..power {
             twiddles(curr_power, power, 0, &mut twiddled);
 
-            for (index, start) in (0..2usize.pow(power))
-                .step_by(2 * 2usize.pow(curr_power))
-                .enumerate()
-            {
+            for (index, start) in (0..1 << power).step_by(2 << curr_power).enumerate() {
                 let slow_twiddle = twiddle(curr_power, start);
                 let twiddle = twiddled[index];
                 assert_eq!(slow_twiddle, twiddle);

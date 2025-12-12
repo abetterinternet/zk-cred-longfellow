@@ -259,12 +259,7 @@ impl<FE: FieldElement> ElementwiseSum for FE {
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.2
 /// [2]: https://github.com/abetterinternet/zk-cred-longfellow/issues/41
 pub fn bindeq<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
-    let output_len = 2usize.pow(
-        input
-            .len()
-            .try_into()
-            .expect("array length too big to exponentiate!"),
-    );
+    let output_len = 1 << input.len();
     let mut bound = vec![FE::ZERO; output_len];
 
     if input.is_empty() {

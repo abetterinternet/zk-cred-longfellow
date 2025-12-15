@@ -392,45 +392,43 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
 mod tests {
     use super::*;
     use crate::{
-        circuit::Evaluation,
+        circuit::{Circuit, Evaluation},
         constraints::proof_constraints::quadratic_constraints,
-        fields::fieldp128::FieldP128,
+        fields::{field2_128::Field2_128, fieldp128::FieldP128},
         ligero::LigeroCommitment,
-        sumcheck::{self, initialize_transcript},
-        test_vector::load_rfc,
+        sumcheck::initialize_transcript,
+        test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::Transcript,
         witness::{Witness, WitnessLayout},
     };
     use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
-        let (test_vector, circuit) = load_rfc();
-        let ligero_parameters = test_vector.ligero_parameters();
-
-        let evaluation: Evaluation<FieldP128> =
-            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
+    fn prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
+        test_vector: CircuitTestVector,
+        circuit: Circuit,
+    ) {
+        let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         let witness = Witness::fill_witness(
             WitnessLayout::from_circuit(&circuit),
             evaluation.private_inputs(circuit.num_public_inputs()),
-            || test_vector.pad().unwrap(),
+            || test_vector.pad(),
         );
 
         let quadratic_constraints = quadratic_constraints(&circuit);
 
         let tableau = Tableau::build_with_field_element_generator(
-            &ligero_parameters,
+            test_vector.ligero_parameters(),
             &witness,
             &quadratic_constraints,
-            || test_vector.pad().unwrap(),
+            || test_vector.pad(),
         );
 
         // Fix the nonce to match what longfellow-zk will do: all zeroes, but set the first byte to
         // what the fixed RNG yields.
         let mut merkle_tree_nonce = [0; 32];
-        merkle_tree_nonce[0] = test_vector.pad.unwrap() as u8;
+        merkle_tree_nonce[0] = test_vector.pad as u8;
         let merkle_tree = tableau
             .commit_with_merkle_tree_nonce_generator(|| merkle_tree_nonce)
             .unwrap();
@@ -449,25 +447,16 @@ mod tests {
         )
         .unwrap();
 
-        // Fork the transcript for constraint generation
-        let mut constraint_transcript = transcript.clone();
-
-        let sumcheck_proof = sumcheck::prover::SumcheckProver::new(&circuit)
-            .prove(&evaluation, &mut transcript, &witness)
-            .unwrap();
-
         let linear_constraints = LinearConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
-            &mut constraint_transcript,
-            &sumcheck_proof.proof,
+            &mut transcript,
+            &test_vector.sumcheck_proof(&circuit),
         )
         .unwrap();
 
-        assert_eq!(transcript, constraint_transcript);
-
         let ligero_proof = ligero_prove(
-            &mut constraint_transcript,
+            &mut transcript,
             &tableau,
             &merkle_tree,
             &linear_constraints,
@@ -482,14 +471,26 @@ mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
+        let (test_vector, circuit) = load_rfc();
+        prove::<FieldP128>(test_vector, circuit);
+    }
+
+    #[ignore = "slow test + failing"]
+    #[wasm_bindgen_test(unsupported = test)]
+    fn longfellow_mac() {
+        let (test_vector, circuit) = load_mac();
+        prove::<Field2_128>(test_vector, circuit);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
     fn ligero_proof_codec_roundtrip() {
         let (test_vector, circuit) = load_rfc();
-        let ligero_parameters = test_vector.ligero_parameters();
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let quadratic_constraints = quadratic_constraints(&circuit);
         let tableau_layout = TableauLayout::new(
-            &ligero_parameters,
+            test_vector.ligero_parameters(),
             witness_layout.length(),
             quadratic_constraints.len(),
         );

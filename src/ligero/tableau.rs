@@ -391,26 +391,26 @@ mod tests {
         let witness = Witness::fill_witness(
             WitnessLayout::from_circuit(&circuit),
             evaluation.private_inputs(circuit.num_public_inputs()),
-            || test_vector.pad().unwrap(),
+            || test_vector.pad(),
         );
 
         // Fix the nonce to match what longfellow-zk will do: all zeroes, but set the first byte to
         // what the fixed RNG yields.
         let mut merkle_tree_nonce = [0; 32];
-        merkle_tree_nonce[0] = test_vector.pad.unwrap() as u8;
+        merkle_tree_nonce[0] = test_vector.pad as u8;
 
         let tree = Tableau::build_with_field_element_generator(
-            &test_vector.ligero_parameters(),
+            test_vector.ligero_parameters(),
             &witness,
             &quadratic_constraints,
-            || test_vector.pad().unwrap(),
+            || test_vector.pad(),
         )
         .commit_with_merkle_tree_nonce_generator(|| merkle_tree_nonce)
         .unwrap();
 
         assert_eq!(
             LigeroCommitment::from(tree.root()),
-            test_vector.ligero_commitment().unwrap()
+            test_vector.ligero_commitment(),
         );
         for nonce in tree.nonces() {
             assert_eq!(nonce, &merkle_tree_nonce);

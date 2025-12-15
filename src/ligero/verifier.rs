@@ -196,38 +196,31 @@ pub fn ligero_verify<FE: ProofFieldElement>(
 mod tests {
     use super::*;
     use crate::{
+        circuit::Circuit,
         constraints::proof_constraints::quadratic_constraints,
-        fields::{FieldElement, fieldp128::FieldP128},
+        fields::{field2_128::Field2_128, fieldp128::FieldP128},
         ligero::tableau::TableauLayout,
-        sumcheck::{initialize_transcript, prover::SumcheckProof},
-        test_vector::load_rfc,
+        sumcheck::initialize_transcript,
+        test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::Transcript,
         witness::WitnessLayout,
     };
-    use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
-        let (test_vector, circuit) = load_rfc();
-        let ligero_parameters = test_vector.ligero_parameters();
-
+    fn verify<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
+        test_vector: CircuitTestVector,
+        circuit: Circuit,
+    ) {
         // hack: prepend 1 to the inputs just like Circuit::evaluate does
-        let mut public_inputs = vec![FieldP128::ONE];
-        public_inputs.extend(test_vector.valid_inputs::<FieldP128>());
+        let mut public_inputs = vec![FE::ONE];
+        public_inputs.extend(test_vector.valid_inputs::<FE>());
 
         let mut transcript = Transcript::new(b"test").unwrap();
-
-        let sumcheck_proof = SumcheckProof::<FieldP128>::decode(
-            &circuit,
-            &mut Cursor::new(test_vector.serialized_sumcheck_proof.as_slice()),
-        )
-        .unwrap();
 
         let quadratic_constraints = quadratic_constraints(&circuit);
 
         transcript
-            .write_byte_array(test_vector.ligero_commitment().unwrap().as_bytes())
+            .write_byte_array(test_vector.ligero_commitment().as_bytes())
             .unwrap();
         initialize_transcript(
             &mut transcript,
@@ -239,30 +232,38 @@ mod tests {
             &circuit,
             &public_inputs[0..circuit.num_public_inputs()],
             &mut transcript,
-            &sumcheck_proof,
+            &test_vector.sumcheck_proof(&circuit),
         )
         .unwrap();
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let tableau_layout = TableauLayout::new(
-            &ligero_parameters,
+            test_vector.ligero_parameters(),
             witness_layout.length(),
             quadratic_constraints.len(),
         );
-        let ligero_proof = LigeroProof::<FieldP128>::decode(
-            &tableau_layout,
-            &mut Cursor::new(test_vector.serialized_ligero_proof.as_slice()),
-        )
-        .unwrap();
 
         ligero_verify(
-            test_vector.ligero_commitment().unwrap(),
-            &ligero_proof,
+            test_vector.ligero_commitment(),
+            &test_vector.ligero_proof(&tableau_layout),
             &mut transcript,
             &linear_constraints,
             &quadratic_constraints,
             &tableau_layout,
         )
         .unwrap();
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
+        let (test_vector, circuit) = load_rfc();
+        verify::<FieldP128>(test_vector, circuit);
+    }
+
+    #[ignore = "slow test + failing"]
+    #[wasm_bindgen_test(unsupported = test)]
+    fn longfellow_mac() {
+        let (test_vector, circuit) = load_mac();
+        verify::<Field2_128>(test_vector, circuit);
     }
 }

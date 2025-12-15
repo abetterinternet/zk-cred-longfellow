@@ -15,7 +15,7 @@ pub mod verifier;
 /// Common parameters for the Ligero proof system. Described in [Section 4.2][1].
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.2
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 pub struct LigeroParameters {
     /// The number of columns of the tableau that the Verifier requests to be revealed by the
     /// Prover. Also `NREQ`.

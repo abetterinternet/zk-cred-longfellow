@@ -211,18 +211,17 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn proof_round_trip() {
         let (test_vector, circuit) = load_rfc();
-        let ligero_parameters = test_vector.ligero_parameters();
         let all_inputs: Vec<FieldP128> = test_vector.valid_inputs();
         let session_id = b"testtesttesttesttesttesttesttest";
 
-        let prover = Prover::new(&circuit, ligero_parameters.clone());
+        let prover = Prover::new(&circuit, *test_vector.ligero_parameters());
         let proof = prover.prove(session_id, &all_inputs).unwrap();
         assert_eq!(session_id, proof.oracle());
 
         let mut encoded = Vec::new();
         proof.encode(&mut encoded).unwrap();
 
-        let verifier = Verifier::new(&circuit, ligero_parameters);
+        let verifier = Verifier::new(&circuit, *test_vector.ligero_parameters());
         let decoded = Proof::<FieldP128>::decode(&verifier, &mut Cursor::new(&encoded)).unwrap();
         assert_eq!(proof, decoded);
     }

@@ -6,8 +6,8 @@ use crate::{
         fieldp256::ops::{
             fiat_p256_add, fiat_p256_from_bytes, fiat_p256_from_montgomery,
             fiat_p256_montgomery_domain_field_element, fiat_p256_mul,
-            fiat_p256_non_montgomery_domain_field_element, fiat_p256_opp, fiat_p256_square,
-            fiat_p256_sub, fiat_p256_to_bytes, fiat_p256_to_montgomery,
+            fiat_p256_non_montgomery_domain_field_element, fiat_p256_opp, fiat_p256_selectznz,
+            fiat_p256_square, fiat_p256_sub, fiat_p256_to_bytes, fiat_p256_to_montgomery,
         },
     },
 };
@@ -18,7 +18,7 @@ use std::{
     io::{self, Read},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-use subtle::ConstantTimeEq;
+use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 /// FieldP256 is the field for the NIST P-256 elliptic curve.
 ///
@@ -404,6 +404,14 @@ impl Neg for FieldP256 {
         let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
         fiat_p256_opp(&mut out, &self.0);
         Self(out)
+    }
+}
+
+impl ConditionallySelectable for FieldP256 {
+    fn conditional_select(a: &Self, b: &Self, choice: subtle::Choice) -> Self {
+        let mut output = [0; 4];
+        fiat_p256_selectznz(&mut output, choice.unwrap_u8(), &(a.0).0, &(b.0).0);
+        Self(fiat_p256_montgomery_domain_field_element(output))
     }
 }
 

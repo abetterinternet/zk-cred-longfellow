@@ -13,7 +13,7 @@ use std::{
     io::Cursor,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-use subtle::{Choice, ConstantTimeEq};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
 /// An element of a finite field.
 pub trait FieldElement:
@@ -35,6 +35,7 @@ pub trait FieldElement:
     + for<'a> Mul<&'a Self, Output = Self>
     + MulAssign
     + Neg<Output = Self>
+    + ConditionallySelectable
 {
     /// The additive identity of the field.
     const ZERO: Self;
@@ -388,6 +389,7 @@ mod tests {
     use num_traits::{One, Zero};
     use rand::RngCore;
     use std::io::Cursor;
+    use subtle::Choice;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -672,6 +674,16 @@ mod tests {
         }
     }
 
+    fn field_element_test_subtle<F: FieldElement>() {
+        let elements = [F::ZERO, F::ONE, -F::ONE, F::from_u128(0xDEADBEEF)];
+        for a in elements {
+            for b in elements {
+                assert_eq!(F::conditional_select(&a, &b, Choice::from(0)), a);
+                assert_eq!(F::conditional_select(&a, &b, Choice::from(1)), b);
+            }
+        }
+    }
+
     #[wasm_bindgen_test(unsupported = test)]
     fn test_field_p256() {
         field_element_test_large_characteristic::<FieldP256>();
@@ -679,6 +691,7 @@ mod tests {
         field_element_test_mul_inv_lagrange_nodes::<FieldP256>();
         field_element_test_pow::<FieldP256>();
         field_element_test_mul_inv::<FieldP256>();
+        field_element_test_subtle::<FieldP256>();
     }
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -688,11 +701,13 @@ mod tests {
         field_element_test_mul_inv_lagrange_nodes::<FieldP128>();
         field_element_test_pow::<FieldP128>();
         field_element_test_mul_inv::<FieldP128>();
+        field_element_test_subtle::<FieldP128>();
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_field_p256_squared() {
         field_element_test_large_characteristic::<FieldP256_2>();
+        field_element_test_subtle::<FieldP256_2>();
     }
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -700,6 +715,7 @@ mod tests {
         field_element_test_codec::<Field2_128>(false);
         field_element_test_mul_inv_lagrange_nodes::<Field2_128>();
         field_element_test_mul_inv::<Field2_128>();
+        field_element_test_subtle::<Field2_128>();
     }
 
     #[wasm_bindgen_test(unsupported = test)]

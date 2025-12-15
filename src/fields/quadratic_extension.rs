@@ -3,7 +3,7 @@ use std::{
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
-use subtle::ConstantTimeEq;
+use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 use crate::fields::FieldElement;
 
@@ -239,6 +239,15 @@ impl<B: Neg<Output = B>> Neg for QuadraticExtension<B> {
         Self {
             real: -self.real,
             imag: -self.imag,
+        }
+    }
+}
+
+impl<B: ConditionallySelectable> ConditionallySelectable for QuadraticExtension<B> {
+    fn conditional_select(a: &Self, b: &Self, choice: subtle::Choice) -> Self {
+        Self {
+            real: B::conditional_select(&a.real, &b.real, choice),
+            imag: B::conditional_select(&a.imag, &b.imag, choice),
         }
     }
 }

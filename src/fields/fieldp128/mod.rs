@@ -6,8 +6,8 @@ use crate::{
         fieldp128::ops::{
             fiat_p128_add, fiat_p128_from_bytes, fiat_p128_from_montgomery,
             fiat_p128_montgomery_domain_field_element, fiat_p128_mul,
-            fiat_p128_non_montgomery_domain_field_element, fiat_p128_opp, fiat_p128_square,
-            fiat_p128_sub, fiat_p128_to_bytes, fiat_p128_to_montgomery,
+            fiat_p128_non_montgomery_domain_field_element, fiat_p128_opp, fiat_p128_selectznz,
+            fiat_p128_square, fiat_p128_sub, fiat_p128_to_bytes, fiat_p128_to_montgomery,
         },
     },
 };
@@ -18,7 +18,7 @@ use std::{
     io::{self, Read},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-use subtle::ConstantTimeEq;
+use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 /// FieldP128 is the field with modulus 2^128 - 2^108 + 1, described in [Section 7.2 of
 /// draft-google-cfrg-libzk-00][1]. The field does not get a name in the draft, but P128 comes from
@@ -430,6 +430,14 @@ impl Neg for FieldP128 {
         let mut out = fiat_p128_montgomery_domain_field_element([0; 2]);
         fiat_p128_opp(&mut out, &self.0);
         Self(out)
+    }
+}
+
+impl ConditionallySelectable for FieldP128 {
+    fn conditional_select(a: &Self, b: &Self, choice: subtle::Choice) -> Self {
+        let mut output = [0; 2];
+        fiat_p128_selectznz(&mut output, choice.unwrap_u8(), &(a.0).0, &(b.0).0);
+        Self(fiat_p128_montgomery_domain_field_element(output))
     }
 }
 

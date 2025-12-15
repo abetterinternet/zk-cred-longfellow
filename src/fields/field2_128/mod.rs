@@ -16,7 +16,7 @@ use std::{
     io::{Cursor, Read},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-use subtle::ConstantTimeEq;
+use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 /// An element of the field GF(2^128).
 ///
@@ -234,6 +234,12 @@ impl Neg for Field2_128 {
 
     fn neg(self) -> Self::Output {
         self
+    }
+}
+
+impl ConditionallySelectable for Field2_128 {
+    fn conditional_select(a: &Self, b: &Self, choice: subtle::Choice) -> Self {
+        Self(u128::conditional_select(&a.0, &b.0, choice))
     }
 }
 

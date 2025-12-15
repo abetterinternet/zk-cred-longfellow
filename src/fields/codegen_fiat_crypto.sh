@@ -2,9 +2,8 @@
 set -ev
 
 # The fiat-crypto binaries must be on the path already. These are at
-# `src/ExtractionOCaml/word_by_word_montgomery` and
-# `src/ExtractionOCaml/unsaturated_solinas` in the checkout. See README.md for
-# compilation instructions.
+# `src/ExtractionOCaml/word_by_word_montgomery`, etc., in the checkout. See
+# README.md for compilation instructions.
 
 cd "$(dirname "$0")"
 
@@ -21,21 +20,6 @@ word_by_word_montgomery \
     mul square \
     selectznz \
     one
-
-unsaturated_solinas \
-    --lang Rust \
-    --inline \
-    -o fieldp521/ops.rs \
-    p521 \
-    64 \
-    '(auto)' \
-    '2^521 - 1' \
-    carry relax \
-    to_bytes from_bytes \
-    add sub opp \
-    carry_add carry_sub carry_opp \
-    carry_mul carry_square \
-    selectznz
 
 word_by_word_montgomery \
     --lang Rust \

@@ -48,12 +48,6 @@ issues](https://github.com/mit-plv/fiat-crypto/issues/554) when synthesizing
 logic for primes that have a "plus" in their decomposition. For these cases, we
 can fall back to using Word-by-word Montgomery.
 
-The upstream fiat-crypto crate uses Word-by-word Montgomery for the P-256 base
-field, and it uses Unsaturated Solinas for the P-521 base field.
-
-For $\mathbb{F}_p128$, we use the Word-by-word Montgomery algorithm, since
-Unsaturated Solinas runs into the same issues as with the P-256 base field.
-
 # Generating addition chain exponentiation routines
 
 Multiplicative inverse operations are implemented with addition chain

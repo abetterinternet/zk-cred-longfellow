@@ -2,7 +2,7 @@ use crate::{
     Codec,
     fields::{
         CodecFieldElement, ExtendContext, FieldElement, LagrangePolynomialFieldElement,
-        addition_chains, extend, extend_precompute,
+        NttFieldElement, addition_chains, extend, extend_precompute,
         fieldp128::ops::{
             fiat_p128_add, fiat_p128_from_bytes, fiat_p128_from_montgomery,
             fiat_p128_montgomery_domain_field_element, fiat_p128_mul,
@@ -101,6 +101,15 @@ impl FieldP128 {
         fiat_p128_to_montgomery(&mut out, &temp);
         Ok(Self(out))
     }
+
+    /// Square a field element.
+    ///
+    /// This method is needed as a workaround since trait methods cannot yet be declared as const.
+    const fn square_const(&self) -> Self {
+        let mut out = fiat_p128_montgomery_domain_field_element([0; 2]);
+        fiat_p128_square(&mut out, &self.0);
+        Self(out)
+    }
 }
 
 impl FieldElement for FieldP128 {
@@ -113,9 +122,7 @@ impl FieldElement for FieldP128 {
     }
 
     fn square(&self) -> Self {
-        let mut out = fiat_p128_montgomery_domain_field_element([0; 2]);
-        fiat_p128_square(&mut out, &self.0);
-        Self(out)
+        self.square_const()
     }
 }
 
@@ -178,6 +185,77 @@ impl LagrangePolynomialFieldElement for FieldP128 {
     fn extend(nodes: &[Self], context: &Self::ExtendContext) -> Vec<Self> {
         extend(nodes, context)
     }
+}
+
+impl NttFieldElement for FieldP128 {
+    const ROOTS_OF_UNITY: [Self; 32] = const {
+        // Computed in SageMath:
+        //
+        // gen = Fp128.multiplicative_generator() ^ ((Fp128.order() - 1) / 2^31)
+        // gen.to_bytes(byteorder='little')
+        //
+        // Panic safety: this constant is a valid field element.
+        let bytes = b"\xf7R2\xc8\xe8*\x82\xf6\x89\x87\xeeG\x05o\xed)";
+        let start = match Self::try_from_bytes_const(bytes) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        };
+
+        let mut output = [Self::ZERO; 32];
+        let mut temp = start;
+        let mut i = output.len() - 1;
+        loop {
+            output[i] = temp;
+            if i == 0 {
+                break;
+            }
+            temp = temp.square_const();
+            i -= 1;
+        }
+
+        output
+    };
+
+    const ROOTS_OF_UNITY_INVERSES: [Self; 32] = const {
+        // Computed in SageMath:
+        //
+        // gen = Fp128.multiplicative_generator() ^ ((Fp128.order() - 1) / 2^31)
+        // gen.inverse().to_bytes(byteorder='little')
+        //
+        // Panic safety: this constant is a valid field element.
+        let bytes = b"\x14u\xb4\xde\xa0%}'F\x16Y\x19\x14\x98K\r";
+        let start = match Self::try_from_bytes_const(bytes) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        };
+
+        let mut output = [Self::ZERO; 32];
+        let mut temp = start;
+        let mut i = output.len() - 1;
+        loop {
+            output[i] = temp;
+            if i == 0 {
+                break;
+            }
+            temp = temp.square_const();
+            i -= 1;
+        }
+
+        output
+    };
+
+    const HALF: Self = const {
+        // Computed in SageMath:
+        //
+        // GF(2^128-2^108+1)(2).inverse().to_bytes(byteorder='little')
+        //
+        // Panic safety: this constant is a valid field element.
+        let bytes = b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf8\xff\x7f";
+        match Self::try_from_bytes_const(bytes) {
+            Ok(value) => value,
+            Err(_) => panic!("could not convert precomputed constant to field element"),
+        }
+    };
 }
 
 impl Debug for FieldP128 {

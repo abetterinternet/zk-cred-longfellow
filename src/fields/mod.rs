@@ -374,6 +374,9 @@ mod addition_chains;
 mod extend_p;
 use extend_p::{ExtendContext, extend, extend_precompute};
 
+mod ntt;
+pub use ntt::NttFieldElement;
+
 #[cfg(test)]
 mod tests {
     use crate::{

@@ -56,6 +56,9 @@ pub trait FieldElement:
 
     /// Square a field element.
     fn square(&self) -> Self;
+
+    /// The multiplicative inverse of this value.
+    fn mul_inv(&self) -> Self;
 }
 
 /// An element of a finite field with a defined serialization format.
@@ -191,9 +194,6 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
     /// The multiplicative inverse of `SUMCHECK_P2^2 - SUMCHECK_P2`. Denominator of the 2nd Lagrange
     /// basis polynomial.
     const SUMCHECK_P2_SQUARED_MINUS_SUMCHECK_P2_MUL_INV: Self;
-
-    /// The multiplicative inverse of this value.
-    fn mul_inv(&self) -> Self;
 
     /// Raise a field element to some power.
     ///
@@ -625,7 +625,7 @@ mod tests {
         );
     }
 
-    fn field_element_test_mul_inv<F: LagrangePolynomialFieldElement>() {
+    fn field_element_test_mul_inv<F: FieldElement>() {
         for element in [3, 9] {
             for field_element in [F::from(element), -F::from(element)] {
                 assert_eq!(
@@ -707,6 +707,7 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn test_field_p256_squared() {
         field_element_test_large_characteristic::<FieldP256_2>();
+        field_element_test_mul_inv::<FieldP256>();
         field_element_test_subtle::<FieldP256_2>();
     }
 

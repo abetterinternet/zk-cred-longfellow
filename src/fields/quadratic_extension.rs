@@ -71,6 +71,24 @@ impl<B: FieldElement> FieldElement for QuadraticExtension<B> {
             imag: cross + cross,
         }
     }
+
+    fn mul_inv(&self) -> Self {
+        // Compute the inverse using complex conjugates and base field inverses, with the following
+        // formula.
+        //
+        // (a + bi)^-1 = (a - bi) * (a - bi)^-1 * (a + bi)^-1
+        // (a + bi)^-1 = (a - bi) * (a^2 + b^2)^-1
+        let numerator = Self {
+            real: self.real,
+            imag: -self.imag,
+        };
+        let denominator = self.real.square() + self.imag.square();
+        let denom_inv = Self {
+            real: denominator.mul_inv(),
+            imag: B::ZERO,
+        };
+        numerator * denom_inv
+    }
 }
 
 impl<B: Debug> Debug for QuadraticExtension<B> {

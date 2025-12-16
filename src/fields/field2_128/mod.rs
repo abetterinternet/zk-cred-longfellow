@@ -72,6 +72,12 @@ impl FieldElement for Field2_128 {
     fn square(&self) -> Self {
         Self(galois_square(self.0))
     }
+
+    fn mul_inv(&self) -> Self {
+        // Compute the multiplicative inverse by exponentiating to the power (2^128 - 2). See
+        // FieldP256::mul_inv() for an explanation of this technique.
+        addition_chains::gf_2_128_m2::exp(*self)
+    }
 }
 
 impl CodecFieldElement for Field2_128 {
@@ -108,12 +114,6 @@ impl LagrangePolynomialFieldElement for Field2_128 {
         // GF2_128(x^2 - x).inverse().to_integer()
         Self::from_u128_const(170141183460469231731687303715884105665)
     };
-
-    fn mul_inv(&self) -> Self {
-        // Compute the multiplicative inverse by exponentiating to the power (2^128 - 2). See
-        // FieldP256::mul_inv() for an explanation of this technique.
-        addition_chains::gf_2_128_m2::exp(*self)
-    }
 
     type ExtendContext = ExtendContext;
 

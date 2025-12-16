@@ -124,6 +124,12 @@ impl FieldElement for FieldP128 {
     fn square(&self) -> Self {
         self.square_const()
     }
+
+    fn mul_inv(&self) -> Self {
+        // Compute the multiplicative inverse by exponentiating to the power (p - 2). See
+        // FieldP256::mul_inv() for an explanation of this technique.
+        addition_chains::p128m2::exp(*self)
+    }
 }
 
 impl CodecFieldElement for FieldP128 {
@@ -169,12 +175,6 @@ impl LagrangePolynomialFieldElement for FieldP128 {
             Err(_) => panic!("could not convert precomputed constant to field element"),
         }
     };
-
-    fn mul_inv(&self) -> Self {
-        // Compute the multiplicative inverse by exponentiating to the power (p - 2). See
-        // FieldP256::mul_inv() for an explanation of this technique.
-        addition_chains::p128m2::exp(*self)
-    }
 
     type ExtendContext = ExtendContext<Self>;
 

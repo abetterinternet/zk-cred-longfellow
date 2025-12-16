@@ -48,6 +48,10 @@ impl FieldElement for FieldP256_2 {
     fn square(&self) -> Self {
         Self(QuadraticExtension::square(&self.0))
     }
+
+    fn mul_inv(&self) -> Self {
+        Self(QuadraticExtension::mul_inv(&self.0))
+    }
 }
 
 impl NttFieldElement for FieldP256_2 {

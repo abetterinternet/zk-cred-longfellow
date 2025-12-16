@@ -36,7 +36,7 @@ impl<'a> SumcheckProver<'a> {
 
     /// Construct a padded proof of the transcript of the given evaluation of the circuit and return
     /// the prover messages needed for the verifier to reconstruct the transcript.
-    pub fn prove<FE: ProofFieldElement + CodecFieldElement>(
+    pub fn prove<FE: ProofFieldElement>(
         &self,
         evaluation: &Evaluation<FE>,
         transcript: &mut Transcript,

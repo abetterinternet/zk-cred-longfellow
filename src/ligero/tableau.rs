@@ -4,7 +4,7 @@
 
 use crate::{
     constraints::proof_constraints::QuadraticConstraint,
-    fields::{CodecFieldElement, ProofFieldElement, field_element_iter_from_source},
+    fields::{ProofFieldElement, field_element_iter_from_source},
     ligero::{
         LigeroParameters,
         merkle::{MerkleTree, Node},
@@ -153,7 +153,7 @@ pub struct Tableau<'a, FieldElement> {
     contents: Vec<Vec<FieldElement>>,
 }
 
-impl<'a, FE: CodecFieldElement + ProofFieldElement> Tableau<'a, FE> {
+impl<'a, FE: ProofFieldElement> Tableau<'a, FE> {
     /// Build the tableau.
     pub fn build(
         ligero_parameters: &'a LigeroParameters,

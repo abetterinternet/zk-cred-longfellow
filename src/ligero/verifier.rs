@@ -4,7 +4,7 @@
 
 use crate::{
     constraints::proof_constraints::{LinearConstraints, QuadraticConstraint},
-    fields::{CodecFieldElement, ProofFieldElement},
+    fields::ProofFieldElement,
     ligero::{
         LigeroChallenges, LigeroCommitment,
         merkle::{MerkleTree, Node},
@@ -17,7 +17,7 @@ use crate::{
 use anyhow::{Context, anyhow};
 use sha2::{Digest, Sha256};
 
-pub fn ligero_verify<FE: CodecFieldElement + ProofFieldElement>(
+pub fn ligero_verify<FE: ProofFieldElement>(
     commitment: LigeroCommitment,
     proof: &LigeroProof<FE>,
     transcript: &mut Transcript,

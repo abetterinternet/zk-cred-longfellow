@@ -50,7 +50,7 @@ impl<'a> Prover<'a> {
     /// inputs. The definition of the circuit determines which inputs are which.
     pub fn prove<FE>(&self, session_id: &[u8], inputs: &[FE]) -> Result<Proof<FE>, anyhow::Error>
     where
-        FE: CodecFieldElement + ProofFieldElement,
+        FE: ProofFieldElement,
     {
         // Evaluate circuit.
         let circuit = self.sumcheck_prover.circuit();

@@ -390,7 +390,7 @@ mod tests {
     use num_bigint::BigUint;
     use num_traits::{One, Zero};
     use rand::RngCore;
-    use std::io::Cursor;
+    use std::{io::Cursor, iter::repeat_with, ops::Range};
     use subtle::Choice;
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -841,5 +841,61 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn extend_x_2_p256() {
         extend_x_2::<FieldP256>();
+    }
+
+    fn extend_many_sizes<FE: ProofFieldElement>() {
+        // Evaluate a polynomial, given in the monomial basis, at a range of points.
+        fn eval_horners_method<FE: ProofFieldElement>(
+            polynomial: &[FE],
+            eval_at: Range<u128>,
+        ) -> Vec<FE> {
+            eval_at
+                .map(|x| {
+                    let x = FE::from_u128(x);
+                    let mut output = FE::ZERO;
+
+                    for coefficient in polynomial.iter().rev() {
+                        output = output * x + *coefficient;
+                    }
+
+                    output
+                })
+                .collect()
+        }
+
+        // Extend to various lengths, to ensure we exercise edge cases.
+        for requested_evaluations in [1, 2, 3, 4, 5, 9, 10, 11, 15, 16, 17] {
+            for input_points in 1..requested_evaluations {
+                // Generate a random polynomial, in the monomial basis.
+                let polynomial = repeat_with(FE::sample)
+                    .take(input_points)
+                    .collect::<Vec<_>>();
+
+                // Evaluate the polynomial directly.
+                let expected =
+                    eval_horners_method(&polynomial, 0..requested_evaluations.try_into().unwrap());
+
+                // Interpolate and evaluate with `extend()`.
+                let extended = FE::extend(
+                    &expected[..input_points],
+                    &FE::extend_precompute(input_points, requested_evaluations),
+                );
+
+                assert_eq!(
+                    extended, expected,
+                    "interpolation mismatch when extending from {input_points} to {requested_evaluations}"
+                );
+            }
+        }
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn extend_many_sizes_p128() {
+        extend_many_sizes::<FieldP128>();
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn extend_many_sizes_p256() {
+        extend_many_sizes::<FieldP256>();
     }
 }

@@ -4,7 +4,13 @@
 
 use crate::{
     Codec,
-    fields::{CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, addition_chains},
+    fields::{
+        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, addition_chains,
+        field2_128::{
+            extend::{ExtendContext, interpolate},
+            extend_constants::subfield_basis,
+        },
+    },
 };
 use anyhow::Context;
 #[cfg(target_arch = "aarch64")]
@@ -25,12 +31,32 @@ use subtle::ConstantTimeEq;
 pub struct Field2_128(u128);
 
 impl Field2_128 {
+    const SUBFIELD_BIT_LENGTH: usize = 16;
+
     /// Project a u128 integer into a field element.
     ///
     /// This duplicates `FieldElement::from_u128()` in order to provide a const function with the
     /// same functionality, since trait methods cannot be used in const contexts yet.
     const fn from_u128_const(value: u128) -> Self {
         Self(value)
+    }
+
+    /// Inject the value into the field using the subfield basis, per [2.2.2][1]. The basis only has
+    /// 16 elements, so we can't inject anything bigger than u16.
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
+    // Allow dead_code for now. This will get used when we wire up proofs on MACs.
+    #[allow(dead_code)]
+    fn inject(mut value: u16) -> Self {
+        let mut injected = Self::ZERO;
+        for basis_element in subfield_basis() {
+            if value & 1 == 1 {
+                injected += basis_element;
+            }
+            value >>= 1;
+        }
+
+        injected
     }
 }
 
@@ -89,14 +115,18 @@ impl LagrangePolynomialFieldElement for Field2_128 {
         addition_chains::gf_2_128_m2::exp(*self)
     }
 
-    type ExtendContext = ();
+    type ExtendContext = ExtendContext;
 
-    fn extend_precompute(_nodes_len: usize, _evaluations: usize) -> Self::ExtendContext {}
+    fn extend_precompute(nodes_len: usize, evaluations: usize) -> Self::ExtendContext {
+        ExtendContext {
+            nodes_len,
+            evaluations,
+        }
+    }
 
-    fn extend(_: &[Self], _: &Self::ExtendContext) -> Vec<Self> {
-        // The extend() operation for this field has not been implemented yet.
-        // https://github.com/abetterinternet/zk-cred-longfellow/issues/56
-        unimplemented!()
+    fn extend(nodes: &[Self], context: &Self::ExtendContext) -> Vec<Self> {
+        assert_eq!(nodes.len(), context.nodes_len);
+        interpolate(nodes, context.evaluations)
     }
 }
 
@@ -244,6 +274,8 @@ mod backend_bit_slicing;
 mod backend_naive_loop;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod backend_x86;
+mod extend;
+mod extend_constants;
 
 /// Cache for runtime CPU feature support detection.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
@@ -328,9 +360,6 @@ fn galois_square(x: u128) -> u128 {
 
 #[cfg(test)]
 mod tests {
-    use rand::random;
-    use wasm_bindgen_test::wasm_bindgen_test;
-
     #[cfg(target_arch = "aarch64")]
     use crate::fields::field2_128::backend_aarch64;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -338,6 +367,8 @@ mod tests {
     use crate::fields::field2_128::{
         backend_bit_slicing, backend_naive_loop, galois_multiply, galois_square,
     };
+    use rand::random;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     static ARGS: [u128; 8] = [
         u128::MIN,

@@ -1,0 +1,347 @@
+//! Implements the extend procedure for binary fields, as specified in [2.2.2][1].
+//!
+//! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
+
+use crate::fields::{
+    FieldElement,
+    field2_128::{Field2_128, extend_constants::twiddle_array_at},
+};
+use std::cmp::min;
+
+#[derive(Copy, Clone)]
+pub struct ExtendContext {
+    pub nodes_len: usize,
+    pub evaluations: usize,
+}
+
+/// Compute a twiddle factor for the given stage of the additive FFT, and the given coset.
+///
+/// Implements procedure TWIDDLE from Algorithm 1 in section 3.2 of [the paper][1].
+///
+/// [1]: https://eprint.iacr.org/2024/2010.pdf
+fn twiddle(power: u32, mut coset: usize) -> Field2_128 {
+    let mut accumulator = Field2_128::ZERO;
+    let mut position = 0;
+    while coset > 0 {
+        if coset & 1 == 1 {
+            accumulator += twiddle_array_at(power, position);
+        }
+        coset >>= 1;
+        position += 1;
+    }
+
+    accumulator
+}
+
+/// Compute all the twiddles needed for `curr_power` in linear time.
+fn twiddles(curr_power: u32, power: u32, coset: usize, twiddled: &mut [Field2_128]) {
+    // Section 3.2 gives us the recurrence TWIDDLE(i, u + 2^k) = W_hat[i][k] + TWIDDLE(i, u) [*]
+    // that lets us cheaply double the size of an array of twiddles (though in fact this applies to
+    // any bitwise dot-product-like function, not just TWIDDLE).
+    //
+    // If we know TWIDDLE(i, p) for 0 <= p < 2^k, then for 2^k <= q < 2^(k+1), we can compute
+    // TWIDDLE(i, q) = TWIDDLE(i, q - 2^k) + W_hat[i][k], which is cheaper than evaluating TWIDDLE
+    // 2^(k+1) - 2^k times.
+    //
+    // But we're not computing twiddles for each p in [0, 2^k), but rather every (2*stride)th one,
+    // where stride is the size of the FFT sub-problem we are currently solving. So the nth element
+    // of twiddled is:
+    //
+    // twiddled[n] = TWIDDLE(i, coset + n * 2 * stride)
+    //
+    // Recall that stride = 2^curr_power:
+    //
+    // twiddled[n] = TWIDDLE(i, coset + n * 2^(curr_power + 1)) [†]
+    //
+    // In the inner loop we compute twiddled[u + (1 << k)] = twiddled[u + 2^k]
+    // = TWIDDLE(i, coset + (u + 2^k) * 2^(curr_power + 1)) (by †)
+    // = TWIDDLE(i, coset + u * 2^(curr_power + 1) + 2^k * 2^(curr_power + 1)
+    // = TWIDDLE(i, coset + u * 2^(curr_power + 1) + 2^(k + curr_power + 1))
+    // = TWIDDLE(i, coset + u * 2^(curr_power + 1)) + W_hat[curr_power][k + curr_power + 1] (by *)
+    // = TWIDDLE[u] + W_hat[curr_power][k + curr_power + 1] (by †)
+    twiddled[0] = twiddle(curr_power, coset);
+    for k in 0..(power - curr_power - 1) {
+        for u in 0..1 << k {
+            twiddled[u + (1 << k)] = twiddled[u] + twiddle_array_at(curr_power, k + curr_power + 1);
+        }
+    }
+}
+
+/// Implements procedure BUTTERFLY-FWD from Algorithm 1 in section 3.2 of [the paper][1].
+///
+/// [1]: https://eprint.iacr.org/2024/2010.pdf
+fn fft_butterfly_forward(
+    fft_array: &mut [Field2_128],
+    index: usize,
+    stride: usize,
+    twiddle: Field2_128,
+) {
+    fft_array[index] += twiddle * fft_array[index + stride];
+    fft_array[index + stride] += fft_array[index];
+}
+
+/// Implements procedure BUTTERFLY-BWD from Algorithm 1 in section 3.2 of [the paper][1].
+///
+/// [1]: https://eprint.iacr.org/2024/2010.pdf
+fn fft_butterfly_backward(
+    fft_array: &mut [Field2_128],
+    index: usize,
+    stride: usize,
+    twiddle: Field2_128,
+) {
+    fft_array[index + stride] -= fft_array[index];
+    fft_array[index] -= twiddle * fft_array[index + stride];
+}
+
+/// Implements procedure BUTTERFLY-DIAG from Algorithm 1 in section 3.2 of [the paper][1].
+///
+/// [1]: https://eprint.iacr.org/2024/2010.pdf
+fn fft_butterfly_diagonal(
+    fft_array: &mut [Field2_128],
+    index: usize,
+    stride: usize,
+    twiddle: Field2_128,
+) {
+    let prev_at_index = fft_array[index];
+
+    fft_array[index] -= twiddle * fft_array[index + stride];
+    fft_array[index + stride] += prev_at_index;
+}
+
+/// Direction in which the FFT operates.
+#[derive(Eq, PartialEq)]
+enum Direction {
+    Forward,
+    Backward,
+}
+
+/// Implements procedure FFT and IFFT (depending on direction) from Algorithm 1 in section 3.2
+/// of [the paper][1].
+///
+/// [1]: https://eprint.iacr.org/2024/2010.pdf
+fn fft(direction: Direction, power: u32, coset: usize, fft_array: &mut [Field2_128]) {
+    if power == 0 {
+        return;
+    }
+    let mut twiddled = vec![Field2_128::ZERO; 1 << (power - 1)];
+    for mut curr_power in 0..power {
+        // Forward FFT iterates over power..0
+        if direction == Direction::Forward {
+            curr_power = power - curr_power - 1;
+        }
+        let stride = 1 << curr_power;
+
+        twiddles(curr_power, power, coset, &mut twiddled);
+
+        // for all u : 0 ≤ 2s · u < 2ℓ
+        for (index, start) in (0..1 << power).step_by(2 * stride).enumerate() {
+            let twiddle = twiddled[index];
+            for v in 0..stride {
+                match direction {
+                    Direction::Forward => {
+                        fft_butterfly_forward(fft_array, start + v, stride, twiddle)
+                    }
+                    Direction::Backward => {
+                        fft_butterfly_backward(fft_array, start + v, stride, twiddle)
+                    }
+                };
+            }
+        }
+    }
+}
+
+/// Perform a Fast Fourier Transform in the novel polynomial basis, in place.
+///
+/// The first `nodes_count` elements of `fft_array` are evaluations of a polynomial in one variable
+/// of degree up to `nodes_count - 1`. The FFT is used to interpolate and evaluate it.
+///
+/// On return, the first `nodes_count` elements of `fft_array` are coefficients of the polynomial
+/// and the remainder is evaluations of it at points `[nodes_count..fft_array.len()]`.
+///
+/// `fft_array.len()` must be `2^power` and greater than `nodes_count`. `coset` selects the coset of
+/// evaluation points at which to evaluate the polynomial.
+///
+/// Corresponds to Algorithm 2: Bidirectional-FFT in [the paper][1]. Their `k` is `nodes_count`
+/// here, their `i` is `power`, their alpha is `coset` and their `B` is `fft_array`.
+///
+/// [1]: https://eprint.iacr.org/2024/2010.pdf
+fn bidirectional_fft(
+    mut power: u32,
+    coset: usize,
+    nodes_count: usize,
+    fft_array: &mut [Field2_128],
+) {
+    assert_eq!(
+        fft_array.len(),
+        1 << power,
+        "length of fft_array must be 2^power"
+    );
+    assert!(nodes_count <= fft_array.len());
+
+    if power > 0 {
+        power -= 1;
+        let stride = 1 << power;
+        let twiddle = twiddle(power, coset);
+        if nodes_count < stride {
+            // Forward FFT: evaluate the polynomial
+            for v in nodes_count..stride {
+                fft_butterfly_forward(fft_array, v, stride, twiddle);
+            }
+            bidirectional_fft(power, coset, nodes_count, &mut fft_array[..stride]);
+            for v in 0..nodes_count {
+                fft_butterfly_diagonal(fft_array, v, stride, twiddle);
+            }
+            fft(
+                Direction::Forward,
+                power,
+                coset + stride,
+                &mut fft_array[stride..],
+            );
+        } else {
+            // Inverse FFT: replace evaluations of the polynomial with coefficients
+            fft(Direction::Backward, power, coset, &mut fft_array[..stride]);
+            for v in (nodes_count - stride)..stride {
+                fft_butterfly_diagonal(fft_array, v, stride, twiddle);
+            }
+            bidirectional_fft(
+                power,
+                coset + stride,
+                nodes_count - stride,
+                &mut fft_array[stride..],
+            );
+            for v in 0..(nodes_count - stride) {
+                fft_butterfly_backward(fft_array, v, stride, twiddle);
+            }
+        }
+    }
+}
+
+/// Interpolate a polynomial from the provided nodes, then evaluate it at points
+/// 0..requested_evaluations.
+pub(crate) fn interpolate(nodes: &[Field2_128], requested_evaluations: usize) -> Vec<Field2_128> {
+    // We first run the bidirectional FFT to interpolate the polynomial, then run forward FFTs over
+    // as many coset as are needed to evaluate all the requested points.
+    //
+    // See "Details of Reed-Solomon encoding" in paper section 3.2.
+    //
+    // The FFT must run in an array whose size is a power of two.
+    let fft_size = nodes.len().next_power_of_two();
+    let power = fft_size.ilog2();
+
+    let mut fft_vec = Vec::with_capacity(fft_size);
+    fft_vec.resize(fft_size, Field2_128::ZERO);
+    fft_vec[..nodes.len()].copy_from_slice(nodes);
+
+    // Run the bidirectional FFT to get nodes.len() coefficients of the polynomial, then
+    // fft_size - nodes.len() evaluations of the polynomial in fft_vec.
+    bidirectional_fft(power, 0, nodes.len(), &mut fft_vec);
+
+    let mut out_vec = vec![Field2_128::ZERO; requested_evaluations];
+
+    // Copy the provided evaluations from the nodes to the output
+    out_vec[..nodes.len()].copy_from_slice(nodes);
+
+    // Copy evaluations from the first coset, if any
+    let range = nodes.len()..min(fft_size, requested_evaluations);
+    let fft_vec_evals = &mut fft_vec[range.clone()];
+    out_vec[range].copy_from_slice(fft_vec_evals);
+
+    // Zero out evaluations in fft_vec so we can use it for FFT again
+    fft_vec_evals.fill(Field2_128::ZERO);
+
+    // Use the forward FFT over the remaining cosets, each of size 2^power, to compute the remaining
+    // requested evaluations.
+    for start in (1..).map_while(|coset| {
+        let curr_power = coset << power;
+        if curr_power >= requested_evaluations {
+            None
+        } else {
+            Some(curr_power)
+        }
+    }) {
+        // If there's enough room left in out_vec, we copy the coefficients from fft_vec into the
+        // output vec and transform in place.
+        //
+        // If not, then this has to be the last iteration of the loop. We do the transform in
+        // fft_vec. That will overwrite the coefficients, but that's okay: we don't need them
+        // anymore after this iteration.
+        if start + fft_size <= requested_evaluations {
+            out_vec[start..(fft_size + start)].copy_from_slice(&fft_vec[..fft_size]);
+            fft(Direction::Forward, power, start, &mut out_vec[start..]);
+        } else {
+            fft(Direction::Forward, power, start, &mut fft_vec);
+            out_vec[start..requested_evaluations]
+                .copy_from_slice(&fft_vec[..(requested_evaluations - start)]);
+        }
+    }
+
+    out_vec
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fields::LagrangePolynomialFieldElement;
+    use rand::random;
+    use std::{iter::repeat_with, ops::Range};
+
+    #[test]
+    fn twiddles_equivalency() {
+        let power = 16;
+        let mut twiddled = vec![Field2_128::ZERO; 1 << (power - 1)];
+        for curr_power in 0..power {
+            twiddles(curr_power, power, 0, &mut twiddled);
+
+            for (index, start) in (0..1 << power).step_by(2 << curr_power).enumerate() {
+                let slow_twiddle = twiddle(curr_power, start);
+                let twiddle = twiddled[index];
+                assert_eq!(slow_twiddle, twiddle);
+            }
+        }
+    }
+
+    #[test]
+    fn extend_gf_2_128() {
+        fn eval_horners_method(polynomial: &[Field2_128], eval_at: Range<u16>) -> Vec<Field2_128> {
+            eval_at
+                .map(|x| {
+                    let x = Field2_128::inject(x);
+                    let mut output = Field2_128::ZERO;
+
+                    for coefficient in polynomial.iter().rev() {
+                        output = output * x + *coefficient;
+                    }
+
+                    output
+                })
+                .collect()
+        }
+
+        // Interpolate to various numbers of evaluations, falling just before, just after or on
+        // powers of two
+        for requested_evaluations in [1, 63, 64, 65, 99, 128] {
+            for polynomial_degree in 1..requested_evaluations {
+                // Generate a random polynomial and evaluate nodes
+                let polynomial: Vec<_> = repeat_with(|| Field2_128::inject(random()))
+                    .take(polynomial_degree)
+                    .collect();
+
+                // Evaluate the polynomial using the slow method
+                let expected =
+                    eval_horners_method(&polynomial, 0..requested_evaluations.try_into().unwrap());
+
+                // Interpolate from the nodes
+                let extended = Field2_128::extend(
+                    &expected[0..polynomial_degree],
+                    &Field2_128::extend_precompute(polynomial_degree, requested_evaluations),
+                );
+
+                assert_eq!(
+                    extended, expected,
+                    "interpolation mismatch at degree {polynomial_degree} and requested \
+                    evaluations {requested_evaluations}"
+                );
+            }
+        }
+    }
+}

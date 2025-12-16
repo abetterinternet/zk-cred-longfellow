@@ -197,14 +197,14 @@ mod tests {
         // Compare with NTT definition.
         let mut expected = Vec::with_capacity(size);
         let omega_n = FE::ROOTS_OF_UNITY[usize::try_from(log2_size).unwrap()];
-        assert_eq!(omega_n.pow(size.into()), FE::ONE);
+        assert_eq!(omega_n.exp_vartime(size.into()), FE::ONE);
         if size > 1 {
-            assert_ne!(omega_n.pow(BigUint::from(size / 2)), FE::ONE);
+            assert_ne!(omega_n.exp_vartime(BigUint::from(size / 2)), FE::ONE);
         }
         for j in 0..size {
             let mut expected_elem = FE::ZERO;
             for (i, a_i) in input.iter().enumerate() {
-                expected_elem += omega_n.pow(BigUint::from(i * j)) * a_i;
+                expected_elem += omega_n.exp_vartime(BigUint::from(i * j)) * a_i;
             }
             expected.push(expected_elem);
         }
@@ -212,7 +212,7 @@ mod tests {
 
         // Test inverse NTT.
         FE::scaled_inverse_ntt_bit_reversed(&mut inout);
-        let size_inv = FE::HALF.pow(log2_size.into());
+        let size_inv = FE::HALF.exp_vartime(log2_size.into());
         for elem in inout.iter_mut() {
             *elem *= size_inv;
         }

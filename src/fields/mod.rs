@@ -63,7 +63,7 @@ pub trait FieldElement:
     /// This is constant-time with respect to the field element input, but variable-time with
     /// respect to the exponent.
     #[cfg(test)]
-    fn pow(&self, mut exponent: BigUint) -> Self {
+    fn exp_vartime(&self, mut exponent: BigUint) -> Self {
         // Modular exponentiation from Schneier's _Applied Cryptography_, via Wikipedia
         // https://en.wikipedia.org/wiki/Modular_exponentiation#Pseudocode
         let mut out = Self::ONE;
@@ -519,7 +519,7 @@ mod tests {
     /// Test methods of [`FieldElement`] implementations.
     fn field_element_test_common<F: FieldElement>() {
         field_element_test_mul_inv::<F>();
-        field_element_test_pow_consistent::<F>();
+        field_element_test_exp_consistent::<F>();
         field_element_test_subtle::<F>();
     }
 
@@ -591,7 +591,7 @@ mod tests {
             value *= value;
         }
 
-        field_element_test_pow_large_characteristic::<F>();
+        field_element_test_exp_large_characteristic::<F>();
     }
 
     /// Test implementations of [`CodecFieldElement`].
@@ -660,56 +660,56 @@ mod tests {
         }
     }
 
-    fn field_element_test_pow_large_characteristic<F: FieldElement>() {
+    fn field_element_test_exp_large_characteristic<F: FieldElement>() {
         for element in [3, 9] {
             let field_element = F::from(element);
             // odd exponent
             assert_eq!(
-                field_element.pow(BigUint::from(11usize)),
+                field_element.exp_vartime(BigUint::from(11usize)),
                 F::from(element.pow(11)),
                 "field element: {field_element:?}"
             );
 
             // even exponent
             assert_eq!(
-                field_element.pow(BigUint::from(12usize)),
+                field_element.exp_vartime(BigUint::from(12usize)),
                 F::from(element.pow(12)),
                 "field element: {field_element:?}"
             );
         }
     }
 
-    fn field_element_test_pow_consistent<F: FieldElement>() {
+    fn field_element_test_exp_consistent<F: FieldElement>() {
         for element in [3, 9] {
             let field_element = F::from(element);
             assert_eq!(
-                field_element.pow(BigUint::zero()),
+                field_element.exp_vartime(BigUint::zero()),
                 F::ONE,
                 "field element: {field_element:?}"
             );
 
             assert_eq!(
-                field_element.pow(BigUint::one()),
+                field_element.exp_vartime(BigUint::one()),
                 field_element,
                 "field element: {field_element:?}"
             );
 
             assert_eq!(
-                field_element.pow(BigUint::from(2usize)),
+                field_element.exp_vartime(BigUint::from(2usize)),
                 field_element.square(),
                 "field element: {field_element:?}"
             );
 
             // odd exponent
             assert_eq!(
-                field_element.pow(BigUint::from(3usize)),
+                field_element.exp_vartime(BigUint::from(3usize)),
                 field_element * field_element * field_element,
                 "field element: {field_element:?}"
             );
 
             // even exponent
             assert_eq!(
-                field_element.pow(BigUint::from(4usize)),
+                field_element.exp_vartime(BigUint::from(4usize)),
                 field_element.square().square(),
                 "field element: {field_element:?}"
             );

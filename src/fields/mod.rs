@@ -365,6 +365,7 @@ pub mod field2_128;
 pub mod fieldp128;
 pub mod fieldp256;
 pub mod fieldp256_2;
+pub mod fieldp256_scalar;
 
 mod quadratic_extension;
 use quadratic_extension::QuadraticExtension;
@@ -384,7 +385,7 @@ mod tests {
         fields::{
             CodecFieldElement, FieldElement, FieldId, ProofFieldElement, SerializedFieldElement,
             field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
-            fieldp256_2::FieldP256_2,
+            fieldp256_2::FieldP256_2, fieldp256_scalar::FieldP256Scalar,
         },
     };
     use num_bigint::BigUint;
@@ -732,6 +733,12 @@ mod tests {
         field_element_test_large_characteristic::<FieldP256>();
         field_element_test_codec::<FieldP256>(true);
         field_element_test_proof::<FieldP256>();
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_field_p256_scalar() {
+        field_element_test_common::<FieldP256Scalar>();
+        field_element_test_large_characteristic::<FieldP256Scalar>();
     }
 
     #[wasm_bindgen_test(unsupported = test)]

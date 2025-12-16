@@ -24,6 +24,20 @@ word_by_word_montgomery \
 word_by_word_montgomery \
     --lang Rust \
     --inline \
+    -o fieldp256_scalar/ops.rs \
+    p256_scalar \
+    64 \
+    '0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551' \
+    to_montgomery from_montgomery \
+    to_bytes from_bytes \
+    add sub opp \
+    mul square \
+    selectznz \
+    one
+
+word_by_word_montgomery \
+    --lang Rust \
+    --inline \
     -o fieldp128/ops.rs \
     p128 \
     64 \

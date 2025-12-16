@@ -681,7 +681,7 @@ pub(crate) mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn evaluate_circuit_mac_false() {
-        let (test_vector, circuit) = load_rfc();
+        let (test_vector, circuit) = load_mac();
         evaluate_circuit_false::<Field2_128>(test_vector, circuit);
     }
 

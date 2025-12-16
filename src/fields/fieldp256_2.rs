@@ -3,7 +3,7 @@ use std::{
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
-use subtle::ConstantTimeEq;
+use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 use crate::fields::{FieldElement, NttFieldElement, QuadraticExtension, fieldp256::FieldP256};
 
@@ -244,6 +244,12 @@ impl Neg for FieldP256_2 {
 
     fn neg(self) -> Self::Output {
         Self(-self.0)
+    }
+}
+
+impl ConditionallySelectable for FieldP256_2 {
+    fn conditional_select(a: &Self, b: &Self, choice: subtle::Choice) -> Self {
+        Self(QuadraticExtension::conditional_select(&a.0, &b.0, choice))
     }
 }
 

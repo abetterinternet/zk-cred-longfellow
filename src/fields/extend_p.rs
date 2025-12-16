@@ -9,27 +9,27 @@ pub struct ExtendContext<FE> {
     evaluations: usize,
     /// Size of the NTT operation used for convolutions.
     ntt_size: usize,
-    /// Reciprocals, used for the terms 1 / (k - i) or 1 / (k - d).
-    ///
-    /// The element at index zero is zero, then every other element is the reciprocal of its index.
-    reciprocals: Vec<FE>,
-    /// Binomial coefficients.
-    ///
-    /// binomial_coefficients[i] is d choose i.
-    binomial_coefficients: Vec<FE>,
     /// Convolution kernel, in the NTT domain.
     ///
     /// This kernel incorporates both reciprocals, from the 1 / (k - i) term in the polynomial
     /// interpolation formula, and a factor of 1/ntt_size to cancel out the scaling that will be
     /// later performed by [`NttFieldElement::scaled_inverse_ntt_bit_reversed()`].
     transformed_convolution_kernel: Vec<FE>,
+    /// Pre-computed constants that are used to rescale the input polynomial evaluation values.
+    ///
+    /// The element at index i is (-1)^i * (d choose i).
+    before_convolution_coeffs: Vec<FE>,
+    /// Pre-computed constants that are used to rescale the output of the convolution operation.
+    ///
+    /// The element at index i is (-1)^d * (k - d) * (k choose d).
+    after_convolution_coeffs: Vec<FE>,
 }
 
 /// Precompute values for the convolution-based implementation of `extend()`.
 ///
-/// This function precomputes reciprocals and binomial coefficients needed by `extend()`.
-/// The returned context can be reused for multiple calls to `extend()` with the same
-/// dimensions, amortizing the O(evaluations) precomputation cost.
+/// This function precomputes arrays of constants needed by `extend()`. The returned context can be
+/// reused for multiple calls to `extend()` with the same dimensions, amortizing the precomputation
+/// cost.
 ///
 /// # Parameters
 ///
@@ -41,20 +41,14 @@ where
 {
     let ntt_size = evaluations.next_power_of_two();
 
+    // Compute reciprocals, for use in later formulas.
+    //
+    // The element at index zero is zero, then every other element is the reciprocal of its index.
     let reciprocals_len = cmp::max(evaluations + 1, ntt_size);
     let mut reciprocals = Vec::with_capacity(reciprocals_len);
     reciprocals.push(FE::ZERO);
     reciprocals
         .extend((1..reciprocals_len).map(|i| FE::from_u128(i.try_into().unwrap()).mul_inv()));
-
-    let d = nodes_len - 1;
-    let mut binomial_coefficients = Vec::with_capacity(nodes_len);
-    let mut binomial = FE::ONE;
-    binomial_coefficients.push(binomial);
-    for (i, reciprocal) in reciprocals.iter().enumerate().take(nodes_len).skip(1) {
-        binomial = binomial * FE::from_u128((d - i + 1).try_into().unwrap()) * reciprocal;
-        binomial_coefficients.push(binomial);
-    }
 
     let ntt_size_inv = FE::from_u128(u128::try_from(ntt_size).unwrap()).mul_inv();
     let mut convolution_left_terms = reciprocals[..ntt_size].to_vec();
@@ -68,13 +62,61 @@ where
     let mut transformed_convolution_kernel = convolution_left_terms;
     FE::ntt_bit_reversed(&mut transformed_convolution_kernel);
 
+    // Compute binomial coefficients, for use in the below array of coefficients.
+    //
+    // The element at index i is d choose i.
+    let d = nodes_len - 1;
+    let mut binomial_coefficients = Vec::with_capacity(nodes_len);
+    let mut binomial = FE::ONE;
+    binomial_coefficients.push(binomial);
+    for (i, reciprocal) in reciprocals.iter().enumerate().take(nodes_len).skip(1) {
+        binomial = binomial * FE::from_u128((d - i + 1).try_into().unwrap()) * reciprocal;
+        binomial_coefficients.push(binomial);
+    }
+
+    // Precompute scalar multiplication coefficients that are applied before the convolution.
+    let before_convolution_coeffs = binomial_coefficients
+        .iter()
+        .enumerate()
+        .map(|(i, binom)| {
+            let mut value = *binom;
+            // Multiply by (-1)^i.
+            if i & 1 != 0 {
+                value = -value;
+            }
+            value
+        })
+        .collect();
+
+    // Precompute scalar multiplication coefficients that are applied after the convolution.
+    //
+    // The variable `binomial_k_d` is set to k choose d throughout the loop below (where d is
+    // `nodes.len() - 1`). We initialize it to d choose d, which is 1. Remark A.3 from the paper
+    // gives the recurrence rule used to update this variable.
+    let mut binomial_k_d = FE::ONE;
+    let mut after_convolution_coeffs = Vec::with_capacity(nodes_len);
+    for k in nodes_len..evaluations {
+        // Calculate (k - d) * (k choose d) from k from this iteration, and (k-1) choose d from the last iteration,
+        // using Remark A.3.
+        let k_minus_d_times_k_choose_d = FE::from_u128(k.try_into().unwrap()) * binomial_k_d;
+        // Update k choose d for k in this iteration, by dividing by (k - d).
+        binomial_k_d = k_minus_d_times_k_choose_d * reciprocals[k - d];
+
+        let mut coefficient = k_minus_d_times_k_choose_d;
+        // Multiply by (-1)^d.
+        if d & 1 != 0 {
+            coefficient = -coefficient;
+        }
+        after_convolution_coeffs.push(coefficient);
+    }
+
     ExtendContext {
         nodes_len,
         evaluations,
         ntt_size,
-        reciprocals,
-        binomial_coefficients,
         transformed_convolution_kernel,
+        before_convolution_coeffs,
+        after_convolution_coeffs,
     }
 }
 
@@ -97,7 +139,13 @@ pub(super) fn extend<FE>(nodes: &[FE], context: &ExtendContext<FE>) -> Vec<FE>
 where
     FE: NttFieldElement,
 {
-    // For now we use equation (2) from "Anonymous Credentials from ECDSA", as-is.
+    // This function is based on equation (2) from "Anonymous Credentials from ECDSA". The
+    // convolution is implemented using pointwise multiplication in the NTT domain. Various
+    // quantities are precomputed in `extend_precompute()`. Binomial coefficients are computed with
+    // recurrence relations, rather than directly. The inverse NTT operation also multiplies its
+    // output by a factor of the NTT size, so we multiply the convolution kernel by the inverse to
+    // cancel out that scalar.
+
     assert_eq!(nodes.len(), context.nodes_len);
     let evaluations = context.evaluations;
     debug_assert!(
@@ -111,28 +159,13 @@ where
     let mut output = Vec::with_capacity(evaluations);
     output.extend_from_slice(nodes);
 
-    // This variable is set to k choose d throughout the algorithm (where d is `nodes.len() - 1`).
-    // We initialize it to d choose d, which is 1. Remark A.3 from the paper gives the recurrence
-    // rule used to update this variable.
-    let mut binomial_k_d = FE::ONE;
-    let d = nodes.len() - 1;
-
-    // Precompute (-1)^i * (d choose i) * p(i).
+    // Compute (-1)^i * (d choose i) * p(i).
     let mut convolution_right_terms = Vec::with_capacity(context.ntt_size);
     convolution_right_terms.extend(
         nodes
             .iter()
-            .enumerate()
-            .zip(context.binomial_coefficients.iter())
-            .map(|((i, p_i), binomial_coefficient)| {
-                let mut right = *binomial_coefficient * p_i;
-                // Multiply by (-1)^i. Note that it is safe to branch on i, since it doesn't depend on
-                // any secret.
-                if i & 1 != 0 {
-                    right = -right;
-                }
-                right
-            }),
+            .zip(context.before_convolution_coeffs.iter())
+            .map(|(p_i, coeff)| *p_i * coeff),
     );
     // Pad with zeros.
     convolution_right_terms.resize(context.ntt_size, FE::ZERO);
@@ -153,23 +186,11 @@ where
     let mut convolution_result = transformed_convolution_input;
     FE::scaled_inverse_ntt_bit_reversed(&mut convolution_result);
 
-    for (k, convolution_elem) in convolution_result
+    for (convolution_elem, coeff) in convolution_result[nodes.len()..evaluations]
         .iter()
-        .enumerate()
-        .take(evaluations)
-        .skip(nodes.len())
+        .zip(context.after_convolution_coeffs.iter())
     {
-        // Calculate (k - d) * (k choose d) from k from this iteration, and (k-1) choose d from the last iteration,
-        // using Remark A.3.
-        let k_minus_d_times_k_choose_d = FE::from_u128(k.try_into().unwrap()) * binomial_k_d;
-        // Update k choose d for k in this iteration, by dividing by (k - d).
-        binomial_k_d = k_minus_d_times_k_choose_d * context.reciprocals[k - d];
-        let mut evaluation = k_minus_d_times_k_choose_d * convolution_elem;
-        // Multiply by (-1)^d. Note that it is safe to branch on d, since it is public knowledge.
-        if d & 1 != 0 {
-            evaluation = -evaluation;
-        }
-        output.push(evaluation);
+        output.push(*convolution_elem * coeff);
     }
 
     output

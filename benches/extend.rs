@@ -3,7 +3,8 @@ use criterion::{
 };
 use std::{hint::black_box, time::Duration};
 use zk_cred_longfellow::fields::{
-    LagrangePolynomialFieldElement, fieldp128::FieldP128, fieldp256::FieldP256,
+    LagrangePolynomialFieldElement, field2_128::Field2_128, fieldp128::FieldP128,
+    fieldp256::FieldP256,
 };
 
 fn benchmark_extend<FE: LagrangePolynomialFieldElement>(g: &mut BenchmarkGroup<WallTime>) {
@@ -35,6 +36,18 @@ fn benchmark_extend<FE: LagrangePolynomialFieldElement>(g: &mut BenchmarkGroup<W
             sample_size: 10,
             measurement_time: Duration::from_secs(30),
         },
+        Parameters {
+            input_size: 981,
+            output_size: 2945,
+            sample_size: 10,
+            measurement_time: Duration::from_secs(30),
+        },
+        Parameters {
+            input_size: 1363,
+            output_size: 4096,
+            sample_size: 10,
+            measurement_time: Duration::from_secs(30),
+        },
     ] {
         g.sample_size(sample_size);
         g.measurement_time(measurement_time);
@@ -58,7 +71,9 @@ fn benchmark_all(c: &mut Criterion) {
     benchmark_extend::<FieldP256>(&mut g);
     g.finish();
 
-    // TODO(#56): Add benchmark for GF(2^128) as well.
+    let mut g = c.benchmark_group("extend_field2_128");
+    benchmark_extend::<Field2_128>(&mut g);
+    g.finish();
 }
 
 criterion_group!(benches, benchmark_all);

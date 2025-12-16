@@ -39,8 +39,6 @@ impl FieldElement for FieldP256_2 {
 
     const ONE: Self = Self(QuadraticExtension::<FieldP256>::ONE);
 
-    const SUMCHECK_P2: Self = Self(QuadraticExtension::<FieldP256>::SUMCHECK_P2);
-
     fn from_u128(value: u128) -> Self {
         Self(QuadraticExtension::<FieldP256>::from_u128(value))
     }

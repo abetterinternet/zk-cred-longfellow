@@ -137,7 +137,6 @@ impl FieldP256 {
 impl FieldElement for FieldP256 {
     const ZERO: Self = Self(fiat_p256_montgomery_domain_field_element([0; 4]));
     const ONE: Self = Self::from_u128_const(1);
-    const SUMCHECK_P2: Self = Self::from_u128_const(2);
 
     fn from_u128(value: u128) -> Self {
         Self::from_u128_const(value)
@@ -176,6 +175,8 @@ impl CodecFieldElement for FieldP256 {
 }
 
 impl ProofFieldElement for FieldP256 {
+    const SUMCHECK_P2: Self = Self::from_u128_const(2);
+
     const SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //

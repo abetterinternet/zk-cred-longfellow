@@ -63,7 +63,6 @@ impl Field2_128 {
 impl FieldElement for Field2_128 {
     const ZERO: Self = Self(0);
     const ONE: Self = Self(0b1);
-    const SUMCHECK_P2: Self = Self(0b10);
 
     fn from_u128(value: u128) -> Self {
         Self(value)
@@ -85,6 +84,8 @@ impl CodecFieldElement for Field2_128 {
 }
 
 impl ProofFieldElement for Field2_128 {
+    const SUMCHECK_P2: Self = Self(0b10);
+
     const SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //

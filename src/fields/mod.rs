@@ -43,10 +43,6 @@ pub trait FieldElement:
     const ZERO: Self;
     /// The multiplicative of the field.
     const ONE: Self;
-    /// The third evaluation point used by sumcheck.
-    ///
-    /// This will be 2 for large characteristic fields, and x for fields of characteristic two.
-    const SUMCHECK_P2: Self;
 
     /// Project an integer into the field.
     fn from_u128(value: u128) -> Self;
@@ -204,6 +200,11 @@ pub trait ProofFieldElement: FieldElement {
             //   = SUMCHECK_P2^2 - SUMCHECK_P2
             * Self::SUMCHECK_P2_SQUARED_MINUS_SUMCHECK_P2_MUL_INV
     }
+
+    /// The third evaluation point used by sumcheck.
+    ///
+    /// This will be 2 for large characteristic fields, and x for fields of characteristic two.
+    const SUMCHECK_P2: Self;
 
     /// The multiplicative inverse of `SUMCHECK_P2`. Denominator of the 0th Lagrange basis
     /// polynomial.
@@ -517,13 +518,14 @@ mod tests {
 
     #[allow(clippy::op_ref, clippy::eq_op)]
     fn field_element_test_large_characteristic<F: FieldElement>() {
+        let two = F::from(2);
         let three = F::from(3);
         let nine = F::from(9);
         let neg_one = -F::ONE;
 
         assert_eq!(F::from(0), F::ZERO);
         assert_eq!(F::from(1), F::ONE);
-        assert_eq!(F::from(2), F::SUMCHECK_P2);
+        assert_eq!(F::from(2), two);
 
         assert_ne!(F::ZERO, F::ONE);
         assert_ne!(F::ONE, three);
@@ -536,11 +538,11 @@ mod tests {
         temp += F::ONE;
         assert_eq!(temp, F::ZERO);
 
-        assert_eq!(F::ONE + &F::ONE, F::SUMCHECK_P2);
-        assert_eq!(F::ONE + F::ONE, F::SUMCHECK_P2);
+        assert_eq!(F::ONE + &F::ONE, two);
+        assert_eq!(F::ONE + F::ONE, two);
         let mut temp = F::ONE;
         temp += F::ONE;
-        assert_eq!(temp, F::SUMCHECK_P2);
+        assert_eq!(temp, two);
 
         assert_eq!(three + &F::ZERO, three);
         assert_eq!(three + F::ZERO, three);
@@ -570,7 +572,7 @@ mod tests {
         assert_eq!(three - F::ZERO, three);
         let mut temp = three;
         temp -= F::ONE;
-        assert_eq!(temp, F::SUMCHECK_P2);
+        assert_eq!(temp, two);
 
         for x in [F::ZERO, F::ONE, three, nine, neg_one] {
             assert_eq!(x.square(), x * x);
@@ -611,6 +613,10 @@ mod tests {
         assert_eq!(F::decode(&mut Cursor::new(&one_encoded)).unwrap(), F::ONE);
 
         assert_eq!(F::from_u128(u64::MAX as u128), F::from(u64::MAX));
+    }
+
+    fn field_element_test_proof<F: ProofFieldElement>() {
+        assert_eq!(F::SUMCHECK_P2, F::from_u128(2));
     }
 
     fn field_element_test_mul_inv_lagrange_nodes<F: ProofFieldElement>() {
@@ -689,6 +695,7 @@ mod tests {
     fn test_field_p256() {
         field_element_test_large_characteristic::<FieldP256>();
         field_element_test_codec::<FieldP256>(true);
+        field_element_test_proof::<FieldP256>();
         field_element_test_mul_inv_lagrange_nodes::<FieldP256>();
         field_element_test_pow::<FieldP256>();
         field_element_test_mul_inv::<FieldP256>();
@@ -699,6 +706,7 @@ mod tests {
     fn test_field_p128() {
         field_element_test_large_characteristic::<FieldP128>();
         field_element_test_codec::<FieldP128>(true);
+        field_element_test_proof::<FieldP128>();
         field_element_test_mul_inv_lagrange_nodes::<FieldP128>();
         field_element_test_pow::<FieldP128>();
         field_element_test_mul_inv::<FieldP128>();
@@ -715,6 +723,7 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn test_field_2_128() {
         field_element_test_codec::<Field2_128>(false);
+        field_element_test_proof::<Field2_128>();
         field_element_test_mul_inv_lagrange_nodes::<Field2_128>();
         field_element_test_mul_inv::<Field2_128>();
         field_element_test_subtle::<Field2_128>();

@@ -516,6 +516,14 @@ mod tests {
         Field2_128::from_u128(0xdeadbeef12345678f00faaaabbbbcccc).roundtrip();
     }
 
+    /// Test methods of [`FieldElement`] implementations.
+    fn field_element_test_common<F: FieldElement>() {
+        field_element_test_mul_inv::<F>();
+        field_element_test_pow_consistent::<F>();
+        field_element_test_subtle::<F>();
+    }
+
+    /// Test [`FieldElement`] implementations, assuming the field has a large characteristic.
     #[allow(clippy::op_ref, clippy::eq_op)]
     fn field_element_test_large_characteristic<F: FieldElement>() {
         let two = F::from(2);
@@ -582,8 +590,11 @@ mod tests {
             assert_eq!(value.square(), value * value);
             value *= value;
         }
+
+        field_element_test_pow_large_characteristic::<F>();
     }
 
+    /// Test implementations of [`CodecFieldElement`].
     fn field_element_test_codec<F: CodecFieldElement>(decode_is_fallible: bool) {
         let three = F::from(3);
         let nine = F::from(9);
@@ -615,11 +626,16 @@ mod tests {
         assert_eq!(F::from_u128(u64::MAX as u128), F::from(u64::MAX));
     }
 
+    /// Test implementations of [`ProofFieldElement`].
     fn field_element_test_proof<F: ProofFieldElement>() {
-        assert_eq!(F::SUMCHECK_P2, F::from_u128(2));
+        field_element_test_proof_constants::<F>();
+        lagrange_basis_polynomial_test::<F>();
     }
 
-    fn field_element_test_mul_inv_lagrange_nodes<F: ProofFieldElement>() {
+    /// Check the consistency of [`ProofFieldElement`] constants.
+    fn field_element_test_proof_constants<F: ProofFieldElement>() {
+        assert_eq!(F::SUMCHECK_P2, F::from_u128(2));
+
         assert_eq!(F::SUMCHECK_P2_MUL_INV * F::SUMCHECK_P2, F::ONE);
         assert_eq!(
             F::ONE_MINUS_SUMCHECK_P2_MUL_INV * (F::ONE - F::SUMCHECK_P2),
@@ -644,7 +660,26 @@ mod tests {
         }
     }
 
-    fn field_element_test_pow<F: ProofFieldElement>() {
+    fn field_element_test_pow_large_characteristic<F: FieldElement>() {
+        for element in [3, 9] {
+            let field_element = F::from(element);
+            // odd exponent
+            assert_eq!(
+                field_element.pow(BigUint::from(11usize)),
+                F::from(element.pow(11)),
+                "field element: {field_element:?}"
+            );
+
+            // even exponent
+            assert_eq!(
+                field_element.pow(BigUint::from(12usize)),
+                F::from(element.pow(12)),
+                "field element: {field_element:?}"
+            );
+        }
+    }
+
+    fn field_element_test_pow_consistent<F: FieldElement>() {
         for element in [3, 9] {
             let field_element = F::from(element);
             assert_eq!(
@@ -667,15 +702,15 @@ mod tests {
 
             // odd exponent
             assert_eq!(
-                field_element.pow(BigUint::from(11usize)),
-                F::from(element.pow(11)),
+                field_element.pow(BigUint::from(3usize)),
+                field_element * field_element * field_element,
                 "field element: {field_element:?}"
             );
 
             // even exponent
             assert_eq!(
-                field_element.pow(BigUint::from(12usize)),
-                F::from(element.pow(12)),
+                field_element.pow(BigUint::from(4usize)),
+                field_element.square().square(),
                 "field element: {field_element:?}"
             );
         }
@@ -693,40 +728,31 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_field_p256() {
+        field_element_test_common::<FieldP256>();
         field_element_test_large_characteristic::<FieldP256>();
         field_element_test_codec::<FieldP256>(true);
         field_element_test_proof::<FieldP256>();
-        field_element_test_mul_inv_lagrange_nodes::<FieldP256>();
-        field_element_test_pow::<FieldP256>();
-        field_element_test_mul_inv::<FieldP256>();
-        field_element_test_subtle::<FieldP256>();
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_field_p128() {
+        field_element_test_common::<FieldP128>();
         field_element_test_large_characteristic::<FieldP128>();
         field_element_test_codec::<FieldP128>(true);
         field_element_test_proof::<FieldP128>();
-        field_element_test_mul_inv_lagrange_nodes::<FieldP128>();
-        field_element_test_pow::<FieldP128>();
-        field_element_test_mul_inv::<FieldP128>();
-        field_element_test_subtle::<FieldP128>();
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_field_p256_squared() {
+        field_element_test_common::<FieldP256>();
         field_element_test_large_characteristic::<FieldP256_2>();
-        field_element_test_mul_inv::<FieldP256>();
-        field_element_test_subtle::<FieldP256_2>();
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_field_2_128() {
+        field_element_test_common::<Field2_128>();
         field_element_test_codec::<Field2_128>(false);
         field_element_test_proof::<Field2_128>();
-        field_element_test_mul_inv_lagrange_nodes::<Field2_128>();
-        field_element_test_mul_inv::<Field2_128>();
-        field_element_test_subtle::<Field2_128>();
     }
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -784,21 +810,6 @@ mod tests {
         assert_eq!(FE::lagrange_basis_polynomial_2(FE::ZERO), FE::ZERO);
         assert_eq!(FE::lagrange_basis_polynomial_2(FE::ONE), FE::ZERO);
         assert_eq!(FE::lagrange_basis_polynomial_2(FE::SUMCHECK_P2), FE::ONE);
-    }
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn lagrange_basis_polynomial_field_p128() {
-        lagrange_basis_polynomial_test::<FieldP128>();
-    }
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn lagrange_basis_polynomial_field_p256() {
-        lagrange_basis_polynomial_test::<FieldP256>();
-    }
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn lagrange_basis_polynomial_field_2_128() {
-        lagrange_basis_polynomial_test::<Field2_128>();
     }
 
     fn extend_x_2<FE: ProofFieldElement>() {

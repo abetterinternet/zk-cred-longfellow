@@ -14,7 +14,7 @@ pub struct ExtendContext {
     pub evaluations: usize,
 }
 
-/// Twiddle the bits of coset by the normalized subspace vanishing polynomials.
+/// Compute a twiddle factor for the given stage of the additive FFT, and the given coset.
 ///
 /// Implements procedure TWIDDLE from Algorithm 1 in section 3.2 of [the paper][1].
 ///
@@ -43,12 +43,13 @@ fn twiddles(curr_power: u32, power: u32, coset: usize, twiddled: &mut [Field2_12
     // TWIDDLE(i, q) = TWIDDLE(i, q - 2^k) + W_hat[i][k], which is cheaper than evaluating TWIDDLE
     // 2^(k+1) - 2^k times.
     //
-    // But we're not computing twiddles for each p in [0, 2^k), but rather every (2*recursive_len)th
-    // one. So the nth element of twiddled is:
+    // But we're not computing twiddles for each p in [0, 2^k), but rather every (2*stride)th one,
+    // where stride is the size of the FFT sub-problem we are currently solving. So the nth element
+    // of twiddled is:
     //
-    // twiddled[n] = TWIDDLE(i, coset + n * 2 * recursive_len)
+    // twiddled[n] = TWIDDLE(i, coset + n * 2 * stride)
     //
-    // Recall that recursive_len = 2^curr_power:
+    // Recall that stride = 2^curr_power:
     //
     // twiddled[n] = TWIDDLE(i, coset + n * 2^(curr_power + 1)) [†]
     //
@@ -72,11 +73,11 @@ fn twiddles(curr_power: u32, power: u32, coset: usize, twiddled: &mut [Field2_12
 fn fft_butterfly_forward(
     fft_array: &mut [Field2_128],
     index: usize,
-    recursive_len: usize,
+    stride: usize,
     twiddle: Field2_128,
 ) {
-    fft_array[index] += twiddle * fft_array[index + recursive_len];
-    fft_array[index + recursive_len] += fft_array[index];
+    fft_array[index] += twiddle * fft_array[index + stride];
+    fft_array[index + stride] += fft_array[index];
 }
 
 /// Implements procedure BUTTERFLY-BWD from Algorithm 1 in section 3.2 of [the paper][1].
@@ -85,11 +86,11 @@ fn fft_butterfly_forward(
 fn fft_butterfly_backward(
     fft_array: &mut [Field2_128],
     index: usize,
-    recursive_len: usize,
+    stride: usize,
     twiddle: Field2_128,
 ) {
-    fft_array[index + recursive_len] -= fft_array[index];
-    fft_array[index] -= twiddle * fft_array[index + recursive_len];
+    fft_array[index + stride] -= fft_array[index];
+    fft_array[index] -= twiddle * fft_array[index + stride];
 }
 
 /// Implements procedure BUTTERFLY-DIAG from Algorithm 1 in section 3.2 of [the paper][1].
@@ -98,13 +99,13 @@ fn fft_butterfly_backward(
 fn fft_butterfly_diagonal(
     fft_array: &mut [Field2_128],
     index: usize,
-    recursive_len: usize,
+    stride: usize,
     twiddle: Field2_128,
 ) {
     let prev_at_index = fft_array[index];
 
-    fft_array[index] -= twiddle * fft_array[index + recursive_len];
-    fft_array[index + recursive_len] += prev_at_index;
+    fft_array[index] -= twiddle * fft_array[index + stride];
+    fft_array[index + stride] += prev_at_index;
 }
 
 /// Direction in which the FFT operates.
@@ -128,20 +129,20 @@ fn fft(direction: Direction, power: u32, coset: usize, fft_array: &mut [Field2_1
         if direction == Direction::Forward {
             curr_power = power - curr_power - 1;
         }
-        let recursive_len = 1 << curr_power;
+        let stride = 1 << curr_power;
 
         twiddles(curr_power, power, coset, &mut twiddled);
 
         // for all u : 0 ≤ 2s · u < 2ℓ
-        for (index, start) in (0..1 << power).step_by(2 * recursive_len).enumerate() {
+        for (index, start) in (0..1 << power).step_by(2 * stride).enumerate() {
             let twiddle = twiddled[index];
-            for v in 0..recursive_len {
+            for v in 0..stride {
                 match direction {
                     Direction::Forward => {
-                        fft_butterfly_forward(fft_array, start + v, recursive_len, twiddle)
+                        fft_butterfly_forward(fft_array, start + v, stride, twiddle)
                     }
                     Direction::Backward => {
-                        fft_butterfly_backward(fft_array, start + v, recursive_len, twiddle)
+                        fft_butterfly_backward(fft_array, start + v, stride, twiddle)
                     }
                 };
             }
@@ -157,8 +158,8 @@ fn fft(direction: Direction, power: u32, coset: usize, fft_array: &mut [Field2_1
 /// On return, the first `nodes_count` elements of `fft_array` are coefficients of the polynomial
 /// and the remainder is evaluations of it at points `[nodes_count..fft_array.len()]`.
 ///
-/// `fft_array.len()` must be `2^power` and greater than `nodes_count`. `coset` is which coset to
-/// recurse on and twiddle with.
+/// `fft_array.len()` must be `2^power` and greater than `nodes_count`. `coset` selects the coset of
+/// evaluation points at which to evaluate the polynomial.
 ///
 /// Corresponds to Algorithm 2: Bidirectional-FFT in [the paper][1]. Their `k` is `nodes_count`
 /// here, their `i` is `power`, their alpha is `coset` and their `B` is `fft_array`.
@@ -179,42 +180,37 @@ fn bidirectional_fft(
 
     if power > 0 {
         power -= 1;
-        let recursive_len = 1 << power;
+        let stride = 1 << power;
         let twiddle = twiddle(power, coset);
-        if nodes_count < recursive_len {
+        if nodes_count < stride {
             // Forward FFT: evaluate the polynomial
-            for v in nodes_count..recursive_len {
-                fft_butterfly_forward(fft_array, v, recursive_len, twiddle);
+            for v in nodes_count..stride {
+                fft_butterfly_forward(fft_array, v, stride, twiddle);
             }
-            bidirectional_fft(power, coset, nodes_count, &mut fft_array[..recursive_len]);
+            bidirectional_fft(power, coset, nodes_count, &mut fft_array[..stride]);
             for v in 0..nodes_count {
-                fft_butterfly_diagonal(fft_array, v, recursive_len, twiddle);
+                fft_butterfly_diagonal(fft_array, v, stride, twiddle);
             }
             fft(
                 Direction::Forward,
                 power,
-                coset + recursive_len,
-                &mut fft_array[recursive_len..],
+                coset + stride,
+                &mut fft_array[stride..],
             );
         } else {
             // Inverse FFT: replace evaluations of the polynomial with coefficients
-            fft(
-                Direction::Backward,
-                power,
-                coset,
-                &mut fft_array[..recursive_len],
-            );
-            for v in (nodes_count - recursive_len)..recursive_len {
-                fft_butterfly_diagonal(fft_array, v, recursive_len, twiddle);
+            fft(Direction::Backward, power, coset, &mut fft_array[..stride]);
+            for v in (nodes_count - stride)..stride {
+                fft_butterfly_diagonal(fft_array, v, stride, twiddle);
             }
             bidirectional_fft(
                 power,
-                coset + recursive_len,
-                nodes_count - recursive_len,
-                &mut fft_array[recursive_len..],
+                coset + stride,
+                nodes_count - stride,
+                &mut fft_array[stride..],
             );
-            for v in 0..(nodes_count - recursive_len) {
-                fft_butterfly_backward(fft_array, v, recursive_len, twiddle);
+            for v in 0..(nodes_count - stride) {
+                fft_butterfly_backward(fft_array, v, stride, twiddle);
             }
         }
     }
@@ -232,11 +228,12 @@ pub(crate) fn interpolate(nodes: &[Field2_128], requested_evaluations: usize) ->
     let fft_size = nodes.len().next_power_of_two();
     let power = fft_size.ilog2();
 
-    let mut fft_vec = nodes.to_vec();
+    let mut fft_vec = Vec::with_capacity(fft_size);
     fft_vec.resize(fft_size, Field2_128::ZERO);
+    fft_vec[..nodes.len()].copy_from_slice(nodes);
 
-    // Run the bidirectional FFT to get context.nodes_len coefficients of the polynomial, then
-    // fft_size - context.nodes_len evaluations of the polynomial in fft_vec.
+    // Run the bidirectional FFT to get nodes.len() coefficients of the polynomial, then
+    // fft_size - nodes.len() evaluations of the polynomial in fft_vec.
     bidirectional_fft(power, 0, nodes.len(), &mut fft_vec);
 
     let mut out_vec = vec![Field2_128::ZERO; requested_evaluations];
@@ -254,7 +251,7 @@ pub(crate) fn interpolate(nodes: &[Field2_128], requested_evaluations: usize) ->
 
     // Use the forward FFT over the remaining cosets, each of size 2^power, to compute the remaining
     // requested evaluations.
-    for curr_power in (1..).map_while(|coset| {
+    for start in (1..).map_while(|coset| {
         let curr_power = coset << power;
         if curr_power >= requested_evaluations {
             None
@@ -268,18 +265,13 @@ pub(crate) fn interpolate(nodes: &[Field2_128], requested_evaluations: usize) ->
         // If not, then this has to be the last iteration of the loop. We do the transform in
         // fft_vec. That will overwrite the coefficients, but that's okay: we don't need them
         // anymore after this iteration.
-        if curr_power + fft_size <= requested_evaluations {
-            out_vec[curr_power..(fft_size + curr_power)].copy_from_slice(&fft_vec[..fft_size]);
-            fft(
-                Direction::Forward,
-                power,
-                curr_power,
-                &mut out_vec[curr_power..],
-            );
+        if start + fft_size <= requested_evaluations {
+            out_vec[start..(fft_size + start)].copy_from_slice(&fft_vec[..fft_size]);
+            fft(Direction::Forward, power, start, &mut out_vec[start..]);
         } else {
-            fft(Direction::Forward, power, curr_power, &mut fft_vec);
-            out_vec[curr_power..requested_evaluations]
-                .copy_from_slice(&fft_vec[..(requested_evaluations - curr_power)]);
+            fft(Direction::Forward, power, start, &mut fft_vec);
+            out_vec[start..requested_evaluations]
+                .copy_from_slice(&fft_vec[..(requested_evaluations - start)]);
         }
     }
 

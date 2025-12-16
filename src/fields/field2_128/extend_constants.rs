@@ -3,8 +3,8 @@
 
 use crate::fields::field2_128::Field2_128;
 
-/// The novel polynomial basis used to inject integers into [`Field2_128`] so that they can be
-/// efficiently multiplied with other field elements.
+/// The basis of the subfield GF(2^16), viewed as a vector space over GF(2), used to inject integers
+/// into [`Field2_128`] so that they can be efficiently stored in proofs.
 ///
 /// The generator is g=x^{(2^{128}-1) / (2^{16}-1)} and the basis consists of g^i for 0 <= i <
 /// 16. Despite the actual field having 128 bits, this 16 bit basis is large enough for values
@@ -14,7 +14,6 @@ use crate::fields::field2_128::Field2_128;
 ///
 /// [1]: https://eprint.iacr.org/2024/2010.pdf
 /// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
-// Restrict this to test cfg for now, to avoid a dead_code warning
 pub(crate) const fn subfield_basis() -> [Field2_128; Field2_128::SUBFIELD_BIT_LENGTH] {
     // Computed in SageMath:
     // GF2 = GF(2)
@@ -53,7 +52,8 @@ pub(crate) const fn subfield_basis() -> [Field2_128; Field2_128::SUBFIELD_BIT_LE
 pub(crate) const fn twiddle_array()
 -> [[Field2_128; Field2_128::SUBFIELD_BIT_LENGTH]; Field2_128::SUBFIELD_BIT_LENGTH] {
     // Computed using fields::field2_128::extend_constants::test::compute_twiddle_array. We can't
-    // evaluate that function in const because it uses loops.
+    // evaluate that function in const because its loops call methods on trait `Iterator` and
+    // related types.
     [
         [
             Field2_128::from_u128_const(1),
@@ -358,8 +358,8 @@ mod tests {
     use super::*;
     use crate::fields::{FieldElement, LagrangePolynomialFieldElement, field2_128::Field2_128};
 
-    /// Compute the twiddle array W^hat from the novel polynomial basis. See [`twiddle_array`] for
-    /// more discussion.
+    /// Compute the twiddle array W^hat from the subfield basis and the subspace vanishing
+    /// polynomials. See [`twiddle_array`] for more discussion.
     fn compute_twiddle_array()
     -> [[Field2_128; Field2_128::SUBFIELD_BIT_LENGTH]; Field2_128::SUBFIELD_BIT_LENGTH] {
         let mut twiddles = [[Field2_128::ZERO; _]; _];

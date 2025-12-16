@@ -5,7 +5,9 @@ use crate::{
 };
 use anyhow::{Context, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+#[cfg(test)]
 use num_bigint::BigUint;
+#[cfg(test)]
 use num_integer::Integer;
 use rand::RngCore;
 use std::{
@@ -59,6 +61,28 @@ pub trait FieldElement:
 
     /// The multiplicative inverse of this value.
     fn mul_inv(&self) -> Self;
+
+    /// Raise a field element to some power.
+    ///
+    /// This is constant-time with respect to the field element input, but variable-time with
+    /// respect to the exponent.
+    #[cfg(test)]
+    fn pow(&self, mut exponent: BigUint) -> Self {
+        // Modular exponentiation from Schneier's _Applied Cryptography_, via Wikipedia
+        // https://en.wikipedia.org/wiki/Modular_exponentiation#Pseudocode
+        let mut out = Self::ONE;
+        let mut base = *self;
+
+        while exponent > BigUint::ZERO {
+            if exponent.is_odd() {
+                out *= base;
+            }
+            exponent >>= 1;
+            base = base.square();
+        }
+
+        out
+    }
 }
 
 /// An element of a finite field with a defined serialization format.
@@ -194,27 +218,6 @@ pub trait LagrangePolynomialFieldElement: FieldElement {
     /// The multiplicative inverse of `SUMCHECK_P2^2 - SUMCHECK_P2`. Denominator of the 2nd Lagrange
     /// basis polynomial.
     const SUMCHECK_P2_SQUARED_MINUS_SUMCHECK_P2_MUL_INV: Self;
-
-    /// Raise a field element to some power.
-    ///
-    /// This is constant-time with respect to the field element input, but variable-time with
-    /// respect to the exponent.
-    fn pow(&self, mut exponent: BigUint) -> Self {
-        // Modular exponentiation from Schneier's _Applied Cryptography_, via Wikipedia
-        // https://en.wikipedia.org/wiki/Modular_exponentiation#Pseudocode
-        let mut out = Self::ONE;
-        let mut base = *self;
-
-        while exponent > BigUint::ZERO {
-            if exponent.is_odd() {
-                out *= base;
-            }
-            exponent >>= 1;
-            base = base.square();
-        }
-
-        out
-    }
 
     /// Precomputed values produced by `extend_precompute()`. This should be passed to `extend()`.
     type ExtendContext;

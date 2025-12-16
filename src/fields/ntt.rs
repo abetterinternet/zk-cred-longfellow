@@ -146,6 +146,7 @@ mod tests {
         CodecFieldElement, NttFieldElement, fieldp128::FieldP128, fieldp256::FieldP256,
         fieldp256_2::FieldP256_2,
     };
+    use num_bigint::BigUint;
     use std::iter;
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -196,14 +197,14 @@ mod tests {
         // Compare with NTT definition.
         let mut expected = Vec::with_capacity(size);
         let omega_n = FE::ROOTS_OF_UNITY[usize::try_from(log2_size).unwrap()];
-        assert_eq!(pow(omega_n, size.try_into().unwrap()), FE::ONE);
+        assert_eq!(omega_n.pow(size.into()), FE::ONE);
         if size > 1 {
-            assert_ne!(pow(omega_n, u128::try_from(size).unwrap() / 2), FE::ONE);
+            assert_ne!(omega_n.pow(BigUint::from(size / 2)), FE::ONE);
         }
         for j in 0..size {
             let mut expected_elem = FE::ZERO;
             for (i, a_i) in input.iter().enumerate() {
-                expected_elem += pow(omega_n, u128::try_from(i * j).unwrap()) * a_i;
+                expected_elem += omega_n.pow(BigUint::from(i * j)) * a_i;
             }
             expected.push(expected_elem);
         }
@@ -211,26 +212,11 @@ mod tests {
 
         // Test inverse NTT.
         FE::scaled_inverse_ntt_bit_reversed(&mut inout);
-        let size_inv = pow(FE::HALF, log2_size.into());
+        let size_inv = FE::HALF.pow(log2_size.into());
         for elem in inout.iter_mut() {
             *elem *= size_inv;
         }
         assert_eq!(input, inout);
-    }
-
-    /// Field element exponentiation. See also [`crate::fields::LagrangePolynomialFieldElement::pow()`].
-    fn pow<FE: NttFieldElement>(mut base: FE, mut exponent: u128) -> FE {
-        let mut out = FE::ONE;
-
-        while exponent > 0 {
-            if exponent & 1 != 0 {
-                out *= base;
-            }
-            exponent >>= 1;
-            base = base.square();
-        }
-
-        out
     }
 
     #[wasm_bindgen_test(unsupported = test)]

@@ -36,6 +36,18 @@ fn benchmark_extend<FE: LagrangePolynomialFieldElement>(g: &mut BenchmarkGroup<W
             sample_size: 10,
             measurement_time: Duration::from_secs(30),
         },
+        Parameters {
+            input_size: 981,
+            output_size: 2945,
+            sample_size: 10,
+            measurement_time: Duration::from_secs(30),
+        },
+        Parameters {
+            input_size: 1363,
+            output_size: 4096,
+            sample_size: 10,
+            measurement_time: Duration::from_secs(30),
+        },
     ] {
         g.sample_size(sample_size);
         g.measurement_time(measurement_time);

@@ -1,5 +1,5 @@
-use crate::fields::NttFieldElement;
-use std::cmp;
+use crate::fields::{FieldElement, NttFieldElement};
+use std::{cmp, iter};
 
 /// Precomputed values for the convolution-based implementation of `extend()`.
 pub struct ExtendContext<FE> {
@@ -45,10 +45,7 @@ where
     //
     // The element at index zero is zero, then every other element is the reciprocal of its index.
     let reciprocals_len = cmp::max(evaluations + 1, ntt_size);
-    let mut reciprocals = Vec::with_capacity(reciprocals_len);
-    reciprocals.push(FE::ZERO);
-    reciprocals
-        .extend((1..reciprocals_len).map(|i| FE::from_u128(i.try_into().unwrap()).mul_inv()));
+    let reciprocals = batched_inversion_sequence(reciprocals_len);
 
     let ntt_size_inv = FE::from_u128(u128::try_from(ntt_size).unwrap()).mul_inv();
     let mut convolution_left_terms = reciprocals[..ntt_size].to_vec();
@@ -194,4 +191,73 @@ where
     }
 
     output
+}
+
+/// Efficiently computes reciprocals of successive numbers.
+///
+/// The element at index zero is zero, then every other element is the reciprocal of its index.
+fn batched_inversion_sequence<FE: FieldElement>(length: usize) -> Vec<FE> {
+    if length == 0 {
+        return Vec::new();
+    }
+
+    let mut output = vec![FE::ZERO; length];
+
+    // First, compute the prefix products of successive numbers. The value of prefix_products[i]
+    // will be i!.
+    let mut prefix_products = Vec::with_capacity(length);
+    prefix_products.push(FE::ONE);
+    let mut product = FE::ONE;
+    let mut i = FE::ONE;
+    prefix_products.extend(
+        iter::repeat_with(|| {
+            product *= i;
+            i += FE::ONE;
+            product
+        })
+        .take(length - 1),
+    );
+
+    // Take the multiplicative inverse of the last number. This will be ((length - 1)!)^-1.
+    let mut product_inverse = prefix_products.last().unwrap().mul_inv();
+
+    // Now, multiply (i!)^-1 by (i - 1)! to get i^-1.
+    for (out_elem, prev_factorial) in output[1..]
+        .iter_mut()
+        .zip(prefix_products[..length - 1].iter())
+        .rev()
+    {
+        *out_elem = product_inverse * prev_factorial;
+        i -= FE::ONE;
+        product_inverse *= i;
+    }
+
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::fields::{FieldElement, extend_p::batched_inversion_sequence, fieldp128::FieldP128};
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_batched_inversion() {
+        let reciprocals = batched_inversion_sequence::<FieldP128>(10);
+        dbg!(reciprocals.iter().map(|x| x.mul_inv()).collect::<Vec<_>>());
+        assert_eq!(reciprocals[0], FieldP128::ZERO);
+        assert_eq!(reciprocals[1], FieldP128::ONE);
+        assert_eq!(reciprocals[4], FieldP128::from_u128(4).mul_inv());
+        assert_eq!(reciprocals[5], FieldP128::from_u128(5).mul_inv());
+        assert_eq!(reciprocals[9], FieldP128::from_u128(9).mul_inv());
+
+        assert_eq!(batched_inversion_sequence::<FieldP128>(0), vec![]);
+        assert_eq!(
+            batched_inversion_sequence::<FieldP128>(1),
+            vec![FieldP128::ZERO]
+        );
+        assert_eq!(
+            batched_inversion_sequence::<FieldP128>(2),
+            vec![FieldP128::ZERO, FieldP128::ONE]
+        );
+    }
 }

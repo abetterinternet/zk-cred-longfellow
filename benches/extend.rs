@@ -3,11 +3,10 @@ use criterion::{
 };
 use std::{hint::black_box, time::Duration};
 use zk_cred_longfellow::fields::{
-    LagrangePolynomialFieldElement, field2_128::Field2_128, fieldp128::FieldP128,
-    fieldp256::FieldP256,
+    ProofFieldElement, field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
 };
 
-fn benchmark_extend<FE: LagrangePolynomialFieldElement>(g: &mut BenchmarkGroup<WallTime>) {
+fn benchmark_extend<FE: ProofFieldElement>(g: &mut BenchmarkGroup<WallTime>) {
     struct Parameters {
         // Parameters for extend().
         input_size: usize,

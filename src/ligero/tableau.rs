@@ -4,7 +4,7 @@
 
 use crate::{
     constraints::proof_constraints::QuadraticConstraint,
-    fields::{CodecFieldElement, LagrangePolynomialFieldElement, field_element_iter_from_source},
+    fields::{CodecFieldElement, ProofFieldElement, field_element_iter_from_source},
     ligero::{
         LigeroParameters,
         merkle::{MerkleTree, Node},
@@ -128,7 +128,7 @@ impl<'a> TableauLayout<'a> {
     /// indices. As specified in [2.1][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.1
-    pub fn gather_iter<FE: LagrangePolynomialFieldElement>(
+    pub fn gather_iter<FE: ProofFieldElement>(
         &self,
         source: &[FE],
         indices: &[usize],
@@ -141,11 +141,7 @@ impl<'a> TableauLayout<'a> {
     /// specified in [2.1][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.1
-    pub fn gather<FE: LagrangePolynomialFieldElement>(
-        &self,
-        source: &[FE],
-        indices: &[usize],
-    ) -> Vec<FE> {
+    pub fn gather<FE: ProofFieldElement>(&self, source: &[FE], indices: &[usize]) -> Vec<FE> {
         self.gather_iter(source, indices).collect()
     }
 }
@@ -157,7 +153,7 @@ pub struct Tableau<'a, FieldElement> {
     contents: Vec<Vec<FieldElement>>,
 }
 
-impl<'a, FE: CodecFieldElement + LagrangePolynomialFieldElement> Tableau<'a, FE> {
+impl<'a, FE: CodecFieldElement + ProofFieldElement> Tableau<'a, FE> {
     /// Build the tableau.
     pub fn build(
         ligero_parameters: &'a LigeroParameters,

@@ -4,7 +4,7 @@ use crate::{
     constraints::proof_constraints::{
         LinearConstraints, QuadraticConstraint, quadratic_constraints,
     },
-    fields::{CodecFieldElement, LagrangePolynomialFieldElement},
+    fields::{CodecFieldElement, ProofFieldElement},
     ligero::{
         LigeroCommitment, LigeroParameters,
         merkle::Node,
@@ -50,7 +50,7 @@ impl<'a> Prover<'a> {
     /// inputs. The definition of the circuit determines which inputs are which.
     pub fn prove<FE>(&self, session_id: &[u8], inputs: &[FE]) -> Result<Proof<FE>, anyhow::Error>
     where
-        FE: CodecFieldElement + LagrangePolynomialFieldElement,
+        FE: CodecFieldElement + ProofFieldElement,
     {
         // Evaluate circuit.
         let circuit = self.sumcheck_prover.circuit();

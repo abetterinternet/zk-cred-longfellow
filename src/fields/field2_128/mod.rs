@@ -5,7 +5,7 @@
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, FieldElement, LagrangePolynomialFieldElement, addition_chains,
+        CodecFieldElement, FieldElement, ProofFieldElement, addition_chains,
         field2_128::{
             extend::{ExtendContext, interpolate},
             extend_constants::subfield_basis,
@@ -84,7 +84,7 @@ impl CodecFieldElement for Field2_128 {
     const NUM_BITS: u32 = 128;
 }
 
-impl LagrangePolynomialFieldElement for Field2_128 {
+impl ProofFieldElement for Field2_128 {
     const SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //

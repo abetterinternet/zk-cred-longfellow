@@ -7,7 +7,7 @@ use crate::{
     constraints::proof_constraints::{
         LinearConstraintLhsTerm, LinearConstraints, QuadraticConstraint,
     },
-    fields::{CodecFieldElement, LagrangePolynomialFieldElement},
+    fields::{CodecFieldElement, ProofFieldElement},
     ligero::{
         LigeroChallenges,
         merkle::{InclusionProof, MerkleTree},
@@ -27,7 +27,7 @@ const MAX_RUN_LENGTH: usize = 1 << 25;
 /// This is specified in [4.4][1].
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.4
-pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
+pub fn ligero_prove<FE: CodecFieldElement + ProofFieldElement>(
     transcript: &mut Transcript,
     tableau: &Tableau<FE>,
     merkle_tree: &MerkleTree,
@@ -194,7 +194,7 @@ pub fn ligero_prove<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
     })
 }
 
-pub fn inner_product_vector<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
+pub fn inner_product_vector<FE: CodecFieldElement + ProofFieldElement>(
     layout: &TableauLayout,
     linear_constraints: &LinearConstraints<FE>,
     linear_constraint_alphas: &[FE],

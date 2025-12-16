@@ -3,7 +3,7 @@ use criterion::{
 };
 use std::hint::black_box;
 use zk_cred_longfellow::fields::{
-    FieldElement, LagrangePolynomialFieldElement, field2_128::Field2_128, fieldp128::FieldP128,
+    FieldElement, ProofFieldElement, field2_128::Field2_128, fieldp128::FieldP128,
     fieldp256::FieldP256, fieldp256_2::FieldP256_2,
 };
 
@@ -41,25 +41,25 @@ fn benchmark_all_fields(c: &mut Criterion) {
     g.finish();
 }
 
-fn benchmark_lagrange_field<FE: LagrangePolynomialFieldElement>(g: &mut BenchmarkGroup<WallTime>) {
+fn benchmark_proof_field<FE: ProofFieldElement>(g: &mut BenchmarkGroup<WallTime>) {
     g.bench_function("multiplicative_inverse", |b| {
         b.iter(|| black_box(FE::ONE).mul_inv())
     });
 }
 
-fn benchmark_all_lagrange_fields(c: &mut Criterion) {
+fn benchmark_all_proof_fields(c: &mut Criterion) {
     let mut g = c.benchmark_group("fieldp128");
-    benchmark_lagrange_field::<FieldP128>(&mut g);
+    benchmark_proof_field::<FieldP128>(&mut g);
     g.finish();
 
     let mut g = c.benchmark_group("fieldp256");
-    benchmark_lagrange_field::<FieldP256>(&mut g);
+    benchmark_proof_field::<FieldP256>(&mut g);
     g.finish();
 
     let mut g = c.benchmark_group("field2_128");
-    benchmark_lagrange_field::<Field2_128>(&mut g);
+    benchmark_proof_field::<Field2_128>(&mut g);
     g.finish();
 }
 
-criterion_group!(benches, benchmark_all_fields, benchmark_all_lagrange_fields);
+criterion_group!(benches, benchmark_all_fields, benchmark_all_proof_fields);
 criterion_main!(benches);

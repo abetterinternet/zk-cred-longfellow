@@ -1,8 +1,8 @@
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, ExtendContext, FieldElement, LagrangePolynomialFieldElement,
-        addition_chains, extend, extend_precompute,
+        CodecFieldElement, ExtendContext, FieldElement, ProofFieldElement, addition_chains, extend,
+        extend_precompute,
         fieldp256::ops::{
             fiat_p256_add, fiat_p256_from_bytes, fiat_p256_from_montgomery,
             fiat_p256_montgomery_domain_field_element, fiat_p256_mul,
@@ -175,7 +175,7 @@ impl CodecFieldElement for FieldP256 {
     const NUM_BITS: u32 = 256;
 }
 
-impl LagrangePolynomialFieldElement for FieldP256 {
+impl ProofFieldElement for FieldP256 {
     const SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //

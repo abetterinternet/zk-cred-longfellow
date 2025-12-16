@@ -166,22 +166,20 @@ pub trait CodecFieldElement:
     }
 }
 
-/// Elements of a field in which we can interpolate polynomials up to degree two. Our nodes are
-/// `x_0 = 0`, `x_1 = 1`, and `x_2 = SUMCHECK_P2` in the field. Since we only have three nodes, we
-/// can work out each Lagrange basis polynomial by hand. We precompute the denominators to avoid
-/// implementing division.
+/// Field elements used directly in proofs.
 ///
-/// For details see [Section 6.6][1] and [2].
-///
-/// # Bugs
-///
-/// The methods `sumcheck_p2_mul_inv`, `one_minus_sumcheck_p2_mul_inv`,
-/// `sumcheck_p2_squared_minus_sumcheck_p2_mul_inv` should be constants ([3]).
+/// This trait provides methods to interpolate polynomials in two different contexts. For the
+/// Sumcheck sub-protocol, [`ProofFieldElement::lagrange_basis_polynomial_0()`],
+/// [`ProofFieldElement::lagrange_basis_polynomial_1()`], and
+/// [`ProofFieldElement::lagrange_basis_polynomial_2()`], provide the basis polynomials necessary to
+/// interpolate degree two polynomials (see [Section 6.6][1] and [2] for details). For the Ligero
+/// sub-protocol, [`ProofFieldElement::extend()`] performs Reed-Solomon encoding (see Section 3.2 of
+/// [3] for details).
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
 /// [2]: https://en.wikipedia.org/wiki/Lagrange_polynomial#Definition
-/// [3]: https://github.com/abetterinternet/zk-cred-longfellow/issues/40
-pub trait LagrangePolynomialFieldElement: FieldElement {
+/// [3]: https://eprint.iacr.org/2024/2010.pdf
+pub trait ProofFieldElement: FieldElement {
     /// Evaluate the 0th Lagrange basis polynomial at x.
     fn lagrange_basis_polynomial_0(x: Self) -> Self {
         // (x - x_1) * (x - x_2)
@@ -383,9 +381,9 @@ mod tests {
     use crate::{
         Codec,
         fields::{
-            CodecFieldElement, FieldElement, FieldId, LagrangePolynomialFieldElement,
-            SerializedFieldElement, field2_128::Field2_128, fieldp128::FieldP128,
-            fieldp256::FieldP256, fieldp256_2::FieldP256_2,
+            CodecFieldElement, FieldElement, FieldId, ProofFieldElement, SerializedFieldElement,
+            field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
+            fieldp256_2::FieldP256_2,
         },
     };
     use num_bigint::BigUint;
@@ -615,7 +613,7 @@ mod tests {
         assert_eq!(F::from_u128(u64::MAX as u128), F::from(u64::MAX));
     }
 
-    fn field_element_test_mul_inv_lagrange_nodes<F: LagrangePolynomialFieldElement>() {
+    fn field_element_test_mul_inv_lagrange_nodes<F: ProofFieldElement>() {
         assert_eq!(F::SUMCHECK_P2_MUL_INV * F::SUMCHECK_P2, F::ONE);
         assert_eq!(
             F::ONE_MINUS_SUMCHECK_P2_MUL_INV * (F::ONE - F::SUMCHECK_P2),
@@ -640,7 +638,7 @@ mod tests {
         }
     }
 
-    fn field_element_test_pow<F: LagrangePolynomialFieldElement>() {
+    fn field_element_test_pow<F: ProofFieldElement>() {
         for element in [3, 9] {
             let field_element = F::from(element);
             assert_eq!(
@@ -764,7 +762,7 @@ mod tests {
         FieldP128::sample();
     }
 
-    fn lagrange_basis_polynomial_test<FE: LagrangePolynomialFieldElement>() {
+    fn lagrange_basis_polynomial_test<FE: ProofFieldElement>() {
         // lag_i is 1 at i and 0 at the other nodes
         assert_eq!(FE::lagrange_basis_polynomial_0(FE::ZERO), FE::ONE);
         assert_eq!(FE::lagrange_basis_polynomial_0(FE::ONE), FE::ZERO);
@@ -794,7 +792,7 @@ mod tests {
         lagrange_basis_polynomial_test::<Field2_128>();
     }
 
-    fn extend_x_2<FE: LagrangePolynomialFieldElement>() {
+    fn extend_x_2<FE: ProofFieldElement>() {
         let output = FE::extend(
             // x^2 evaluated at 0, 1, 2 => 0, 1, 4
             &[FE::ZERO, FE::ONE, FE::from_u128(4)],

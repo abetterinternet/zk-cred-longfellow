@@ -5,9 +5,7 @@ use crate::{
 };
 use anyhow::{Context, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-#[cfg(test)]
 use num_bigint::BigUint;
-#[cfg(test)]
 use num_integer::Integer;
 use rand::RngCore;
 use std::{
@@ -62,7 +60,6 @@ pub trait FieldElement:
     ///
     /// This is constant-time with respect to the field element input, but variable-time with
     /// respect to the exponent.
-    #[cfg(test)]
     fn exp_vartime(&self, mut exponent: BigUint) -> Self {
         // Modular exponentiation from Schneier's _Applied Cryptography_, via Wikipedia
         // https://en.wikipedia.org/wiki/Modular_exponentiation#Pseudocode

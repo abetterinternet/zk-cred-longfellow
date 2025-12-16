@@ -47,7 +47,8 @@ where
     let reciprocals_len = cmp::max(evaluations + 1, ntt_size);
     let reciprocals = batched_inversion_sequence(reciprocals_len);
 
-    let ntt_size_inv = FE::from_u128(u128::try_from(ntt_size).unwrap()).mul_inv();
+    let log_ntt_size = ntt_size.ilog2();
+    let ntt_size_inv = FE::HALF.exp_vartime(log_ntt_size.into());
     let mut convolution_left_terms = reciprocals[..ntt_size].to_vec();
     // Scale the convolution kernel by 1/ntt_size, to cancel out the scaling done later by
     // scaled_inverse_ntt_bit_reversed().

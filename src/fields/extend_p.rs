@@ -1,4 +1,4 @@
-use crate::fields::LagrangePolynomialFieldElement;
+use crate::fields::ProofFieldElement;
 
 /// Precomputed values for the convolution-based implementation of `extend()`.
 pub struct ExtendContext<FE> {
@@ -28,7 +28,7 @@ pub struct ExtendContext<FE> {
 /// * `evaluations` - The desired output length
 pub(super) fn extend_precompute<FE>(nodes_len: usize, evaluations: usize) -> ExtendContext<FE>
 where
-    FE: LagrangePolynomialFieldElement,
+    FE: ProofFieldElement,
 {
     let mut reciprocals = Vec::with_capacity(evaluations + 1);
     reciprocals.push(FE::ZERO);
@@ -68,7 +68,7 @@ where
 /// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
 pub(super) fn extend<FE>(nodes: &[FE], context: &ExtendContext<FE>) -> Vec<FE>
 where
-    FE: LagrangePolynomialFieldElement,
+    FE: ProofFieldElement,
 {
     // For now we use equation (2) from "Anonymous Credentials from ECDSA", as-is.
     assert_eq!(nodes.len(), context.nodes_len);

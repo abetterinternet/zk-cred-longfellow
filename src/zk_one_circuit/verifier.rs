@@ -3,7 +3,7 @@ use crate::{
     constraints::proof_constraints::{
         LinearConstraints, QuadraticConstraint, quadratic_constraints,
     },
-    fields::{CodecFieldElement, LagrangePolynomialFieldElement},
+    fields::ProofFieldElement,
     ligero::{LigeroParameters, tableau::TableauLayout, verifier::ligero_verify},
     sumcheck::initialize_transcript,
     transcript::Transcript,
@@ -35,7 +35,7 @@ impl<'a> Verifier<'a> {
     /// Verify a Longfellow ZK proof.
     pub fn verify<FE>(&self, statement: &[FE], proof: &Proof<FE>) -> Result<(), anyhow::Error>
     where
-        FE: CodecFieldElement + LagrangePolynomialFieldElement,
+        FE: ProofFieldElement,
     {
         // Prepend 1 to public inputs, just like Circuit::evaluate() does.
         let mut inputs = Vec::with_capacity(statement.len() + 1);

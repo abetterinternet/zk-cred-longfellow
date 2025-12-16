@@ -6,7 +6,7 @@
 use crate::{
     circuit::Circuit,
     constraints::symbolic::{SymbolicExpression, Term},
-    fields::{CodecFieldElement, LagrangePolynomialFieldElement},
+    fields::ProofFieldElement,
     sumcheck::{
         bind::{ElementwiseSum, SumcheckArray, bindeq},
         prover::SumcheckProof,
@@ -72,7 +72,7 @@ pub struct LinearConstraints<FieldElement> {
     rhs: Vec<FieldElement>,
 }
 
-impl<FE: CodecFieldElement + LagrangePolynomialFieldElement> LinearConstraints<FE> {
+impl<FE: ProofFieldElement> LinearConstraints<FE> {
     /// Construct constraints from the provided proof of execution for the circuit and public
     /// inputs.
     ///

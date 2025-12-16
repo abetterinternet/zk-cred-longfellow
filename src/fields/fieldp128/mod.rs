@@ -1,8 +1,8 @@
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, ExtendContext, FieldElement, LagrangePolynomialFieldElement,
-        NttFieldElement, addition_chains, extend, extend_precompute,
+        CodecFieldElement, ExtendContext, FieldElement, NttFieldElement, ProofFieldElement,
+        addition_chains, extend, extend_precompute,
         fieldp128::ops::{
             fiat_p128_add, fiat_p128_from_bytes, fiat_p128_from_montgomery,
             fiat_p128_montgomery_domain_field_element, fiat_p128_mul,
@@ -115,7 +115,6 @@ impl FieldP128 {
 impl FieldElement for FieldP128 {
     const ZERO: Self = Self(fiat_p128_montgomery_domain_field_element([0; 2]));
     const ONE: Self = Self::from_u128_const(1);
-    const SUMCHECK_P2: Self = Self::from_u128_const(2);
 
     fn from_u128(value: u128) -> Self {
         Self::from_u128_const(value)
@@ -124,13 +123,21 @@ impl FieldElement for FieldP128 {
     fn square(&self) -> Self {
         self.square_const()
     }
+
+    fn mul_inv(&self) -> Self {
+        // Compute the multiplicative inverse by exponentiating to the power (p - 2). See
+        // FieldP256::mul_inv() for an explanation of this technique.
+        addition_chains::p128m2::exp(*self)
+    }
 }
 
 impl CodecFieldElement for FieldP128 {
     const NUM_BITS: u32 = 128;
 }
 
-impl LagrangePolynomialFieldElement for FieldP128 {
+impl ProofFieldElement for FieldP128 {
+    const SUMCHECK_P2: Self = Self::from_u128_const(2);
+
     const SUMCHECK_P2_MUL_INV: Self = const {
         // Computed in SageMath:
         //
@@ -169,12 +176,6 @@ impl LagrangePolynomialFieldElement for FieldP128 {
             Err(_) => panic!("could not convert precomputed constant to field element"),
         }
     };
-
-    fn mul_inv(&self) -> Self {
-        // Compute the multiplicative inverse by exponentiating to the power (p - 2). See
-        // FieldP256::mul_inv() for an explanation of this technique.
-        addition_chains::p128m2::exp(*self)
-    }
 
     type ExtendContext = ExtendContext<Self>;
 

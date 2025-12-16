@@ -46,11 +46,6 @@ impl<B: FieldElement> FieldElement for QuadraticExtension<B> {
         imag: B::ZERO,
     };
 
-    const SUMCHECK_P2: Self = Self {
-        real: B::SUMCHECK_P2,
-        imag: B::ZERO,
-    };
-
     fn from_u128(value: u128) -> Self {
         Self {
             real: B::from_u128(value),
@@ -70,6 +65,24 @@ impl<B: FieldElement> FieldElement for QuadraticExtension<B> {
             real: self.real.square() - self.imag.square(),
             imag: cross + cross,
         }
+    }
+
+    fn mul_inv(&self) -> Self {
+        // Compute the inverse using complex conjugates and base field inverses, with the following
+        // formula.
+        //
+        // (a + bi)^-1 = (a - bi) * (a - bi)^-1 * (a + bi)^-1
+        // (a + bi)^-1 = (a - bi) * (a^2 + b^2)^-1
+        let numerator = Self {
+            real: self.real,
+            imag: -self.imag,
+        };
+        let denominator = self.real.square() + self.imag.square();
+        let denom_inv = Self {
+            real: denominator.mul_inv(),
+            imag: B::ZERO,
+        };
+        numerator * denom_inv
     }
 }
 

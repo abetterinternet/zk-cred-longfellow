@@ -281,7 +281,7 @@ pub(crate) fn interpolate(nodes: &[Field2_128], requested_evaluations: usize) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fields::LagrangePolynomialFieldElement;
+    use crate::fields::ProofFieldElement;
     use rand::random;
     use std::{iter::repeat_with, ops::Range};
 

@@ -356,7 +356,7 @@ pub(crate) fn twiddle_array_at(x: u32, y: u32) -> Field2_128 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fields::{FieldElement, LagrangePolynomialFieldElement, field2_128::Field2_128};
+    use crate::fields::{FieldElement, field2_128::Field2_128};
 
     /// Compute the twiddle array W^hat from the subfield basis and the subspace vanishing
     /// polynomials. See [`twiddle_array`] for more discussion.

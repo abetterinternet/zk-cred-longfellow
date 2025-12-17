@@ -9,6 +9,7 @@ use crate::{
             fiat_p256_non_montgomery_domain_field_element, fiat_p256_opp, fiat_p256_selectznz,
             fiat_p256_square, fiat_p256_sub, fiat_p256_to_bytes, fiat_p256_to_montgomery,
         },
+        fieldp256_2::FieldP256_2,
     },
 };
 use anyhow::{Context, anyhow};
@@ -225,14 +226,28 @@ impl ProofFieldElement for FieldP256 {
         }
     };
 
-    type ExtendContext = ExtendContext<Self>;
+    type ExtendContext = ExtendContext<FieldP256_2>;
 
     fn extend_precompute(nodes_len: usize, evaluations: usize) -> Self::ExtendContext {
         extend_precompute(nodes_len, evaluations)
     }
 
     fn extend(nodes: &[Self], context: &Self::ExtendContext) -> Vec<Self> {
-        extend(nodes, context)
+        let projected = nodes
+            .iter()
+            .map(|elem| FieldP256_2::new(*elem, Self::ZERO))
+            .collect::<Vec<_>>();
+        let extended = extend::<FieldP256_2>(&projected, context);
+        extended
+            .into_iter()
+            .map(|elem| {
+                // If this is implemented correctly, interpolating and evaluating with evaluations and
+                // evaluation points all in a subfield (FieldP256) should produce new evaluations in the
+                // same subfield.
+                debug_assert_eq!(elem.0.imag(), &Self::ZERO);
+                *elem.0.real()
+            })
+            .collect()
     }
 }
 

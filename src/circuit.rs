@@ -520,8 +520,8 @@ pub(crate) mod tests {
         Codec, Size,
         circuit::{Circuit, CircuitLayer, Evaluation, Quad},
         fields::{
-            CodecFieldElement, FieldElement, FieldId, SerializedFieldElement, fieldp128::FieldP128,
-            fieldp256::FieldP256,
+            CodecFieldElement, FieldElement, FieldId, SerializedFieldElement,
+            field2_128::Field2_128, fieldp128::FieldP128,
         },
         test_vector::{CircuitTestVector, load_mac, load_rfc},
     };
@@ -623,20 +623,19 @@ pub(crate) mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn roundtrip_circuit_test_vector_mac() {
-        roundtrip_circuit_test_vector::<FieldP256>(load_mac());
+        roundtrip_circuit_test_vector::<Field2_128>(load_mac());
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn evaluate_circuit_longfellow_rfc_1_true() {
-        let (test_vector, circuit) = load_rfc();
-
-        let evaluation: Evaluation<FieldP128> =
-            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
+    fn evaluate_circuit_true<FE: CodecFieldElement>(
+        test_vector: CircuitTestVector,
+        circuit: Circuit,
+    ) {
+        let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         // Output size should match circuit serialization and values should all be zero
         assert_eq!(circuit.num_outputs, evaluation.wires[0].len());
         for output in evaluation.outputs() {
-            assert_eq!(*output, FieldP128::ZERO);
+            assert_eq!(*output, FE::ZERO);
         }
 
         // The remaining wire layers should match wire counts claimed by circuit serialization
@@ -648,9 +647,21 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
-    fn evaluate_circuit_longfellow_rfc_1_false() {
+    fn evaluate_circuit_longfellow_rfc_1_true() {
         let (test_vector, circuit) = load_rfc();
+        evaluate_circuit_true::<FieldP128>(test_vector, circuit);
+    }
 
+    #[wasm_bindgen_test(unsupported = test)]
+    fn evaluate_circuit_mac_true() {
+        let (test_vector, circuit) = load_mac();
+        evaluate_circuit_true::<Field2_128>(test_vector, circuit);
+    }
+
+    fn evaluate_circuit_false<FE: CodecFieldElement>(
+        test_vector: CircuitTestVector,
+        circuit: Circuit,
+    ) {
         // Evaluate with other values. At least one output element should be nonzero.
         assert!(
             circuit
@@ -658,8 +669,20 @@ pub(crate) mod tests {
                 .unwrap()
                 .outputs()
                 .iter()
-                .any(|output: &FieldP128| *output != FieldP128::ZERO)
+                .any(|output: &FE| *output != FE::ZERO)
         );
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn evaluate_circuit_longfellow_rfc_1_false() {
+        let (test_vector, circuit) = load_rfc();
+        evaluate_circuit_false::<FieldP128>(test_vector, circuit);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn evaluate_circuit_mac_false() {
+        let (test_vector, circuit) = load_mac();
+        evaluate_circuit_false::<Field2_128>(test_vector, circuit);
     }
 
     /// This test uses `include_bytes!()` instead of reading from files at runtime, so it can be run
@@ -667,13 +690,13 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn evaluate_circuit_longfellow_rfc_1_true_include_bytes() {
         let circuit_bytes = include_bytes!(
-            "../test-vectors/circuit/longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b.circuit.zst"
+            "../test-vectors/one-circuit/longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b.circuit.zst"
         );
         let serialized_circuit = zstd::decode_all(Cursor::new(&circuit_bytes)).unwrap();
         let circuit = Circuit::decode(&mut Cursor::new(&serialized_circuit)).unwrap();
 
         let test_vector: CircuitTestVector = serde_json::from_slice(include_bytes!(
-            "../test-vectors/circuit/longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b.json"
+            "../test-vectors/one-circuit/longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b.json"
         ))
         .unwrap();
 

@@ -336,36 +336,33 @@ impl<FE: CodecFieldElement> ProofLayer<FE> {
 
 #[cfg(test)]
 mod tests {
-    use wasm_bindgen_test::wasm_bindgen_test;
-
     use super::*;
     use crate::{
-        Size, fields::fieldp128::FieldP128, sumcheck::initialize_transcript, test_vector::load_rfc,
+        Size,
+        fields::{field2_128::Field2_128, fieldp128::FieldP128},
+        sumcheck::initialize_transcript,
+        test_vector::{CircuitTestVector, load_mac, load_rfc},
         witness::WitnessLayout,
     };
     use std::io::Cursor;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
-        let (test_vector, circuit) = load_rfc();
-
+    fn prove<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit) {
         assert_eq!(circuit.num_copies, Size(1));
 
-        // This circuit verifies that 2n = (s-2)m^2 - (s - 4)*m. For example, C(45, 5, 6) = 0.
-        let evaluation: Evaluation<FieldP128> =
-            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
+        let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         let witness = Witness::fill_witness(
             WitnessLayout::from_circuit(&circuit),
             evaluation.private_inputs(circuit.num_public_inputs()),
-            || test_vector.pad().unwrap(),
+            || test_vector.pad(),
         );
 
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
         let mut transcript = Transcript::new(b"test").unwrap();
 
         transcript
-            .write_byte_array(test_vector.ligero_commitment().unwrap().as_bytes())
+            .write_byte_array(test_vector.ligero_commitment().as_bytes())
             .unwrap();
         initialize_transcript(
             &mut transcript,
@@ -377,16 +374,11 @@ mod tests {
             .prove(&evaluation, &mut transcript, &witness)
             .unwrap();
 
-        let test_vector_decoded = SumcheckProof::decode(
-            &circuit,
-            &mut Cursor::new(&test_vector.serialized_sumcheck_proof),
-        )
-        .unwrap();
+        let test_vector_proof = test_vector.sumcheck_proof(&circuit);
 
-        assert_eq!(
-            proof.proof, test_vector_decoded,
-            "ours: {proof:#?}\n\ntheirs: {test_vector_decoded:#?}"
-        );
+        // It's not terribly useful to print 1000s of bytes of proof to stderr so we avoid the usual
+        // assert_eq! form.
+        assert!(proof.proof == test_vector_proof);
 
         let mut proof_encoded = Vec::new();
         proof.proof.encode(&mut proof_encoded).unwrap();
@@ -395,7 +387,20 @@ mod tests {
             proof_encoded.len(),
             test_vector.serialized_sumcheck_proof.len()
         );
-        assert_eq!(proof_encoded, test_vector.serialized_sumcheck_proof);
+        assert!(proof_encoded == test_vector.serialized_sumcheck_proof);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
+        let (test_vector, circuit) = load_rfc();
+        prove::<FieldP128>(test_vector, circuit);
+    }
+
+    #[ignore = "slow test + failing"]
+    #[wasm_bindgen_test(unsupported = test)]
+    fn longfellow_mac() {
+        let (test_vector, circuit) = load_mac();
+        prove::<Field2_128>(test_vector, circuit);
     }
 
     #[wasm_bindgen_test(unsupported = test)]

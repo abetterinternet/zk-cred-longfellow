@@ -27,7 +27,7 @@ fn rfc_1(c: &mut Criterion) {
     let session_id = b"test";
     let inputs = &[FieldP128::from(45), FieldP128::from(5), FieldP128::from(6)];
 
-    let prover = Prover::new(&circuit, ligero_parameters.clone());
+    let prover = Prover::new(&circuit, ligero_parameters);
 
     let mut g = c.benchmark_group("rfc_1");
 

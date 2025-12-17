@@ -1,6 +1,8 @@
 # Test vectors
 
-## Circuits
+## Proofs from one circuit
+
+We include several test vectors that do zero knowledge proofs from a single circuit.
 
 [`draft-google-cfrg-libzk-00`][draft-google-cfrg-libzk] contains a test vector for a serialized
 circuit, but it does not appear to correspond to either the structure definitions in that same
@@ -13,8 +15,8 @@ there's not much to be done with it.
 The test vector format is a JSON document describing the test vector. Alongside it are files
 containing:
 
-- `<test-vector>.circuit`: the zstd compressed serialization of the circuit. Circuits are compressed
-  using `zstd(1)` with default options:
+- `<test-vector>.circuit.zst`: the zstd compressed serialization of the circuit. Circuits are
+  compressed using `zstd(1)` with default options:
 
 ```sh
 > zstd --version
@@ -46,12 +48,12 @@ sumcheck proof and Ligero constraints.
 
 [rfc-1-test-vector-constraints]: https://github.com/tgeoghegan/longfellow-zk/tree/zk-test-cleanup
 
-### `longfellow-mac-circuit-902a955fbb22323123aac5b69bdf3442e6ea6f80-1`
+### `longfellow-mac-circuit-0dc911e13963f506df8928c6ba3ab4f5af017b36-1`
 
 This test vector was generated using [`longfellow-zk/lib/circuits/mac/mac_circuit_test.cc`][mac-test-vector-1]
-at commit 902a955fbb22323123aac5b69bdf3442e6ea6f80 and the serializations for circuits, layers and
+at commit 0dc911e13963f506df8928c6ba3ab4f5af017b36 and the serializations for circuits, layers and
 quads at that version.
 
-[mac-test-vector-1]: https://github.com/google/longfellow-zk/blob/902a955fbb22323123aac5b69bdf3442e6ea6f80/lib/circuits/mac/mac_circuit_test.cc
+[mac-test-vector-1]: https://github.com/tgeoghegan/longfellow-zk/blob/0dc911e13963f506df8928c6ba3ab4f5af017b36/lib/circuits/mac/mac_circuit_test.cc
 
 [draft-google-cfrg-libzk]: https://datatracker.ietf.org/doc/draft-google-cfrg-libzk/

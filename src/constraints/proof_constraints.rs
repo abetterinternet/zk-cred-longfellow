@@ -327,17 +327,16 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
 
 #[cfg(test)]
 mod tests {
-    use wasm_bindgen_test::wasm_bindgen_test;
-
     use super::*;
     use crate::{
         circuit::Evaluation,
-        fields::{CodecFieldElement, FieldElement, fieldp128::FieldP128},
+        fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
         ligero::LigeroCommitment,
         sumcheck::{initialize_transcript, prover::SumcheckProver},
-        test_vector::load_rfc,
+        test_vector::{CircuitTestVector, load_mac, load_rfc},
         witness::Witness,
     };
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = test)]
     fn self_consistent() {
@@ -424,53 +423,43 @@ mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
-        let (test_vector, circuit) = load_rfc();
+    fn constraints<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit) {
+        let test_vector_proof = test_vector.sumcheck_proof(&circuit);
 
-        let test_vector_constraints = test_vector.constraints.as_ref().unwrap();
-
-        let evaluation: Evaluation<FieldP128> =
-            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
+        let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let witness = Witness::fill_witness(
             witness_layout.clone(),
             evaluation.private_inputs(circuit.num_public_inputs()),
-            || test_vector.pad().unwrap(),
+            || test_vector.pad(),
         );
 
-        let mut proof_transcript = Transcript::new(b"test").unwrap();
-        proof_transcript
-            .write_byte_array(test_vector.ligero_commitment().unwrap().as_bytes())
+        let mut transcript = Transcript::new(b"test").unwrap();
+        transcript
+            .write_byte_array(test_vector.ligero_commitment().as_bytes())
             .unwrap();
         initialize_transcript(
-            &mut proof_transcript,
+            &mut transcript,
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
         )
         .unwrap();
-
-        // Fork the transcript
-        let mut constraint_transcript = proof_transcript.clone();
-
-        let proof = SumcheckProver::new(&circuit)
-            .prove(&evaluation, &mut proof_transcript, &witness)
-            .unwrap();
 
         let linear_constraints = LinearConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
-            &mut constraint_transcript,
-            &proof.proof,
+            &mut transcript,
+            &test_vector_proof,
         )
         .unwrap();
 
-        let test_vector_rhs_terms = test_vector_constraints.linear_constraint_rhs();
+        assert_eq!(
+            linear_constraints.rhs,
+            test_vector.constraints.linear_constraint_rhs()
+        );
 
-        assert_eq!(linear_constraints.rhs, test_vector_rhs_terms);
-
-        let mut lhs_summed = vec![FieldP128::ZERO; linear_constraints.rhs.len()];
+        let mut lhs_summed = vec![FE::ZERO; linear_constraints.rhs.len()];
         for LinearConstraintLhsTerm {
             constraint_number,
             witness_index,
@@ -479,11 +468,24 @@ mod tests {
         {
             lhs_summed[constraint_number] += witness.element(witness_index) * constant_factor;
         }
-        assert_eq!(lhs_summed, test_vector_constraints.linear_constraint_rhs());
+        assert_eq!(lhs_summed, test_vector.constraints.linear_constraint_rhs());
 
         assert_eq!(
             quadratic_constraints(&circuit),
-            test_vector_constraints.quadratic
+            test_vector.constraints.quadratic
         );
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
+        let (test_vector, circuit) = load_rfc();
+        constraints::<FieldP128>(test_vector, circuit);
+    }
+
+    #[ignore = "slow test + failing"]
+    #[wasm_bindgen_test(unsupported = test)]
+    fn longfellow_mac() {
+        let (test_vector, circuit) = load_mac();
+        constraints::<Field2_128>(test_vector, circuit);
     }
 }

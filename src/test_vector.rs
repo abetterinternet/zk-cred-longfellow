@@ -5,7 +5,8 @@ use crate::{
     circuit::Circuit,
     constraints::proof_constraints::QuadraticConstraint,
     fields::{CodecFieldElement, FieldElement},
-    ligero::{LigeroCommitment, LigeroParameters},
+    ligero::{LigeroCommitment, LigeroParameters, prover::LigeroProof, tableau::TableauLayout},
+    sumcheck::prover::SumcheckProof,
 };
 use serde::Deserialize;
 use std::io::Cursor;
@@ -35,61 +36,40 @@ macro_rules! decode_test_vector {
         CircuitTestVector::decode(
             include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/test-vectors/circuit/",
+                "/test-vectors/one-circuit/",
                 $test_vector_name,
                 ".json"
             )),
             include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/test-vectors/circuit/",
+                "/test-vectors/one-circuit/",
                 $test_vector_name,
                 ".circuit.zst"
             )),
-            None,
-            None,
-        )
-    };
-    ($test_vector_name:expr, proofs $(,)?) => {
-        CircuitTestVector::decode(
             include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/test-vectors/circuit/",
-                $test_vector_name,
-                ".json"
-            )),
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/test-vectors/circuit/",
-                $test_vector_name,
-                ".circuit.zst"
-            )),
-            Some(include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/test-vectors/circuit/",
+                "/test-vectors/one-circuit/",
                 $test_vector_name,
                 ".sumcheck-proof"
-            ))),
-            Some(include_bytes!(concat!(
+            )),
+            include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/test-vectors/circuit/",
+                "/test-vectors/one-circuit/",
                 $test_vector_name,
                 ".ligero-proof"
-            ))),
+            )),
         )
     };
 }
 
 /// Load the test vector for the "rfc" circuit.
 pub(crate) fn load_rfc() -> (CircuitTestVector, Circuit) {
-    decode_test_vector!(
-        "longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b",
-        proofs,
-    )
+    decode_test_vector!("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b")
 }
 
 /// Load the test vector for the "mac" circuit.
 pub(crate) fn load_mac() -> (CircuitTestVector, Circuit) {
-    decode_test_vector!("longfellow-mac-circuit-902a955fbb22323123aac5b69bdf3442e6ea6f80-1")
+    decode_test_vector!("longfellow-mac-circuit-0dc911e13963f506df8928c6ba3ab4f5af017b36-1")
 }
 
 /// JSON descriptor of a circuit test vector.
@@ -105,10 +85,12 @@ pub(crate) struct CircuitTestVector {
     pub(crate) quads: u32,
     /// Not yet clear what this is.
     pub(crate) _terms: u32,
-    /// Inputs which evaluate to 0 in this circuit.
-    pub(crate) valid_inputs: Option<Vec<u128>>,
-    /// Inputs which evaluate to non-zero in this circuit.
-    pub(crate) invalid_inputs: Option<Vec<u128>>,
+    /// Inputs which evaluate to 0 in this circuit. Encoded as hex strings of the serialization of
+    /// each input.
+    pub(crate) valid_inputs: Vec<String>,
+    /// Inputs which evaluate to non-zero in this circuit. Encoded as hex strings of the
+    /// serialization of each input.
+    pub(crate) invalid_inputs: Vec<String>,
     /// The serialized circuit, decompressed from a file alongside the JSON descriptor.
     #[serde(default)]
     pub(crate) serialized_circuit: Vec<u8>,
@@ -116,26 +98,26 @@ pub(crate) struct CircuitTestVector {
     #[serde(default)]
     pub(crate) serialized_sumcheck_proof: Vec<u8>,
     /// The constraints on the proof.
-    pub(crate) constraints: Option<Constraints>,
+    pub(crate) constraints: Constraints,
     /// The Ligero commitment to the witness.
-    pub(crate) ligero_commitment: Option<String>,
+    pub(crate) ligero_commitment: String,
     /// The serialized Ligero proof.
     #[serde(default)]
     // TODO: test against this proof.
     #[allow(dead_code)]
     pub(crate) serialized_ligero_proof: Vec<u8>,
     /// The fixed pad value to use during constraint generation.
-    pub(crate) pad: Option<u64>,
+    pub(crate) pad: u64,
     /// Parameters for the Ligero proof.
-    ligero_parameters: Option<LigeroParameters>,
+    ligero_parameters: LigeroParameters,
 }
 
 impl CircuitTestVector {
     pub(crate) fn decode(
         json: &[u8],
         compressed_circuit: &[u8],
-        sumcheck_proof: Option<&[u8]>,
-        ligero_proof: Option<&[u8]>,
+        sumcheck_proof: &[u8],
+        ligero_proof: &[u8],
     ) -> (Self, Circuit) {
         let mut test_vector: Self = serde_json::from_slice(json).unwrap();
 
@@ -149,50 +131,57 @@ impl CircuitTestVector {
             "bytes left over after parsing circuit"
         );
 
-        // Not all test vectors have serialized sumcheck proofs
-        if let Some(sumcheck_proof) = sumcheck_proof {
-            test_vector.serialized_sumcheck_proof = sumcheck_proof.to_vec();
-        }
+        test_vector.serialized_sumcheck_proof = sumcheck_proof.to_vec();
 
-        // Not all test vectors have serialized Ligero proofs
-        if let Some(ligero_proof) = ligero_proof {
-            test_vector.serialized_ligero_proof = ligero_proof.to_vec();
-        }
+        test_vector.serialized_ligero_proof = ligero_proof.to_vec();
 
         assert_eq!(circuit.num_quads(), test_vector.quads as usize);
 
         (test_vector, circuit)
     }
 
-    pub(crate) fn pad<FE: FieldElement>(&self) -> Option<FE> {
-        self.pad.map(|pad| FE::from_u128(pad.into()))
+    pub(crate) fn pad<FE: FieldElement>(&self) -> FE {
+        FE::from_u128(self.pad.into())
     }
 
-    pub(crate) fn ligero_commitment(&self) -> Option<LigeroCommitment> {
-        self.ligero_commitment.as_ref().map(|ref string| {
-            LigeroCommitment::try_from(hex::decode(string).unwrap().as_slice()).unwrap()
-        })
+    pub(crate) fn ligero_commitment(&self) -> LigeroCommitment {
+        LigeroCommitment::try_from(hex::decode(&self.ligero_commitment).unwrap().as_slice())
+            .unwrap()
     }
 
-    pub(crate) fn valid_inputs<FE: FieldElement>(&self) -> Vec<FE> {
+    pub(crate) fn valid_inputs<FE: CodecFieldElement>(&self) -> Vec<FE> {
         self.valid_inputs
-            .as_ref()
-            .unwrap()
             .iter()
-            .map(|input| FE::from_u128(*input))
+            .map(|input| FE::try_from(hex::decode(input).unwrap().as_slice()).unwrap())
             .collect()
     }
 
-    pub(crate) fn invalid_inputs<FE: FieldElement>(&self) -> Vec<FE> {
+    pub(crate) fn invalid_inputs<FE: CodecFieldElement>(&self) -> Vec<FE> {
         self.invalid_inputs
-            .as_ref()
-            .unwrap()
             .iter()
-            .map(|input| FE::from_u128(*input))
+            .map(|input| FE::try_from(hex::decode(input).unwrap().as_slice()).unwrap())
             .collect()
     }
 
-    pub(crate) fn ligero_parameters(&self) -> LigeroParameters {
-        self.ligero_parameters.clone().unwrap()
+    pub(crate) fn ligero_parameters(&self) -> &LigeroParameters {
+        &self.ligero_parameters
+    }
+
+    pub(crate) fn sumcheck_proof<FE: CodecFieldElement>(
+        &self,
+        circuit: &Circuit,
+    ) -> SumcheckProof<FE> {
+        SumcheckProof::decode(circuit, &mut Cursor::new(&self.serialized_sumcheck_proof)).unwrap()
+    }
+
+    pub(crate) fn ligero_proof<FE: CodecFieldElement>(
+        &self,
+        tableau_layout: &TableauLayout,
+    ) -> LigeroProof<FE> {
+        LigeroProof::decode(
+            tableau_layout,
+            &mut Cursor::new(&self.serialized_ligero_proof),
+        )
+        .unwrap()
     }
 }

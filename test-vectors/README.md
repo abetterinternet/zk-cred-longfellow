@@ -11,11 +11,11 @@ document, or to the circuit serialization implementation in
 
 Presumably the test vector was generated from some intermediate version of longfellow-zk, but
 there's not much to be done with it.
-https://github.com/google/longfellow-zk/commit/0dc911e13963f506df8928c6ba3ab4f5af017b36
+
 The test vector format is a JSON document describing the test vector. Alongside it are files
 containing:
 
-- `<test-vector>.circuit.zt`: the zstd compressed serialization of the circuit. Circuits are
+- `<test-vector>.circuit.zst`: the zstd compressed serialization of the circuit. Circuits are
   compressed using `zstd(1)` with default options:
 
 ```sh

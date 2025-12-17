@@ -376,10 +376,9 @@ mod tests {
 
         let test_vector_proof = test_vector.sumcheck_proof(&circuit);
 
-        assert_eq!(
-            proof.proof, test_vector_proof,
-            "ours: {proof:#?}\n\ntheirs: {test_vector_proof:#?}"
-        );
+        // It's not terribly useful to print 1000s of bytes of proof to stderr so we avoid the usual
+        // assert_eq! form.
+        assert!(proof.proof == test_vector_proof);
 
         let mut proof_encoded = Vec::new();
         proof.proof.encode(&mut proof_encoded).unwrap();
@@ -388,7 +387,7 @@ mod tests {
             proof_encoded.len(),
             test_vector.serialized_sumcheck_proof.len()
         );
-        assert_eq!(proof_encoded, test_vector.serialized_sumcheck_proof);
+        assert!(proof_encoded == test_vector.serialized_sumcheck_proof);
     }
 
     #[wasm_bindgen_test(unsupported = test)]

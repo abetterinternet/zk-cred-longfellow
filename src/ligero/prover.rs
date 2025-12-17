@@ -467,7 +467,9 @@ mod tests {
         let mut encoded_ligero_proof = Vec::new();
         ligero_proof.encode(&mut encoded_ligero_proof).unwrap();
 
-        assert_eq!(test_vector.serialized_ligero_proof, encoded_ligero_proof);
+        // It's not terribly useful to print 1000s of bytes of proof to stderr so we avoid the usual
+        // assert_eq! form.
+        assert!(test_vector.serialized_ligero_proof == encoded_ligero_proof);
     }
 
     #[wasm_bindgen_test(unsupported = test)]

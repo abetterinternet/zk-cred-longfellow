@@ -166,7 +166,7 @@ where
     convolution_right_terms.extend(
         nodes
             .iter()
-            .zip(context.before_convolution_coeffs.iter())
+            .zip(&context.before_convolution_coeffs)
             .map(|(p_i, coeff)| *p_i * coeff),
     );
     // Pad with zeros.
@@ -179,7 +179,7 @@ where
     // Perform a pointwise multiplication in the NTT domain.
     for (input_elem, kernel_elem) in transformed_convolution_input
         .iter_mut()
-        .zip(context.transformed_convolution_kernel.iter())
+        .zip(&context.transformed_convolution_kernel)
     {
         *input_elem *= *kernel_elem;
     }
@@ -190,7 +190,7 @@ where
 
     for (convolution_elem, coeff) in convolution_result[nodes.len()..evaluations]
         .iter()
-        .zip(context.after_convolution_coeffs.iter())
+        .zip(&context.after_convolution_coeffs)
     {
         output.push(*convolution_elem * coeff);
     }
@@ -230,7 +230,7 @@ fn batched_inversion_sequence<FE: FieldElement>(length: usize) -> Vec<FE> {
     // Now, multiply (i!)^-1 by (i - 1)! to get i^-1.
     for (out_elem, prev_factorial) in output[1..]
         .iter_mut()
-        .zip(prefix_products[..length - 1].iter())
+        .zip(&prefix_products[..length - 1])
         .rev()
     {
         *out_elem = product_inverse * prev_factorial;

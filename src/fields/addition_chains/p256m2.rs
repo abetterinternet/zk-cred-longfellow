@@ -4,8 +4,9 @@ use crate::fields::FieldElement;
 
 /// Exponentiates a field element to a constant power.
 ///
-/// This is used to exponentiate field elements to the power (|F| - 2), in order to compute
-/// multiplicative inverses in constant time.
+/// This is used to either exponentiate field elements to the power (|F| - 2), in order to compute
+/// multiplicative inverses in constant time, or to the power (p + 1) / 4, in order to compute
+/// square roots in certain fields in constant time.
 #[allow(unused_mut)]
 pub(crate) fn exp<F: FieldElement>(x: F) -> F {
     // This is implemented with addition chain exponentiation, using the following chain:

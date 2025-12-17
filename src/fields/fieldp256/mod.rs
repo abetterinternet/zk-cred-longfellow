@@ -18,7 +18,7 @@ use std::{
     io::{self, Read},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-use subtle::{ConditionallySelectable, ConstantTimeEq};
+use subtle::{ConditionallySelectable, ConstantTimeEq, CtOption};
 
 /// FieldP256 is the field for the NIST P-256 elliptic curve.
 ///
@@ -131,6 +131,37 @@ impl FieldP256 {
         let mut out = fiat_p256_montgomery_domain_field_element([0; 4]);
         fiat_p256_square(&mut out, &self.0);
         Self(out)
+    }
+
+    /// Computes the modular square root of an element.
+    pub fn sqrt(&self) -> CtOption<Self> {
+        // Since p % 4 is 3, we can compute modular square roots with a single exponentiation.
+        // This algorithm is taken from the implementation of the `ff::PrimeField` derive macro.
+        //
+        // To find a modular square root, we calculate a candidate square root by exponentiating
+        // to the power (p + 1) / 4.
+        //
+        //     (p + 1) / 4 = 0x3fffffffc0000000400000000000000000000000400000000000000000000000
+        //
+        // We then perform a trial squaring to determine if the requested square root exists or not.
+        //
+        // The exponentiation and trial squaring will produce the following result.
+        //
+        //     x ^ ((p + 1) / 4) ^ 2 mod p
+        //     x ^ ((p + 1) / 2) mod p
+        //     x * x ^ ((p - 1) / 2) mod p
+        //
+        // The value of x ^ ((p - 1) / 2) depends on the multiplicative order of x. The order of the
+        // multiplicative group, p - 1, has a single factor of two, thus there is a subgroup of
+        // order (p - 1) / 2 in the multiplicative group. If x is in that subgroup, then
+        // x ^ ((p - 1) / 2) mod p = 1, and we will get back x after the exponentiation and trial
+        // squaring. If x is not in that subgroup, then (p - 1) / 2 does not divide the order of
+        // x, and we will get back some other element, also outside the subgroup, for
+        // x ^ ((p - 1) / 2) mod p. Then, the result of the trial squaring will not be equal to x.
+
+        let candidate = addition_chains::p256sqrt::exp(*self);
+
+        CtOption::new(candidate, candidate.square().ct_eq(self))
     }
 }
 
@@ -453,5 +484,46 @@ mod tests {
             let res2 = FieldP256::try_from(&bytes).map_err(|e| e.to_string());
             assert_eq!(res1, res2);
         }
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_sqrt() {
+        // The expected values for these test cases were produced in Sage. Note that some
+        // guess-and-check was required to pick the square root with the correct sign to match what
+        // the exponentiation routine returns. The byte strings were produced with one of the
+        // following snippets.
+        //
+        // GF(p)(x).sqrt().to_bytes(byteorder='little')
+        //
+        // (-GF(p)(x).sqrt()).to_bytes(byteorder='little')
+        assert_eq!(FieldP256::ZERO.sqrt().unwrap(), FieldP256::ZERO);
+        assert_eq!(FieldP256::ONE.sqrt().unwrap(), FieldP256::ONE);
+        assert_eq!(
+            FieldP256::from_u128(2).sqrt().unwrap(),
+            FieldP256::try_from(
+                b"\"]\xaa\xd3\xf2\x87\x07\xea\x97[\x86\xd3\x94N/@\xcf(=T[4\xbf\xacwU\xdd\x8c\xfe\xbd\x8b\xaf"
+            )
+            .unwrap()
+        );
+        assert_eq!(FieldP256::from_u128(3).sqrt().is_none().unwrap_u8(), 1);
+        assert_eq!(
+            FieldP256::from_u128(4).sqrt().unwrap(),
+            FieldP256::from_u128(2)
+        );
+        assert_eq!(
+            FieldP256::from_u128(5).sqrt().unwrap(),
+            FieldP256::try_from(
+                b"<\xad\x15\x1b\xc2\xda\xf9\xd2>(\xe0F\xe0\xd3\x96\x9c\"\xcb\xff\xaei\x90\x18ck\x17@\xaf\xa4\xc5^\x08"
+            )
+            .unwrap()
+        );
+        assert_eq!(FieldP256::from_u128(6).sqrt().is_none().unwrap_u8(), 1);
+        assert_eq!(
+            FieldP256::from_u128(7).sqrt().unwrap(),
+            FieldP256::try_from(
+                b"\x0c \x88\x1d\xa0\xa3[\x97\xa7\"1O\xb2\xee\xbd\x15\xe4\xf4\x02\x19\x00\x93q\xf6\xc6Q&u\x06\xda\xf3\xe6"
+            )
+            .unwrap()
+        );
     }
 }

@@ -68,6 +68,7 @@ where
     let mut binomial = FE::ONE;
     binomial_coefficients.push(binomial);
     for (i, reciprocal) in reciprocals.iter().enumerate().take(nodes_len).skip(1) {
+        // Unwrap safety: we will run out of roots of unity long before `nodes_len` overflows u128.
         binomial = binomial * FE::from_u128((d - i + 1).try_into().unwrap()) * reciprocal;
         binomial_coefficients.push(binomial);
     }
@@ -94,8 +95,11 @@ where
     let mut binomial_k_d = FE::ONE;
     let mut after_convolution_coeffs = Vec::with_capacity(nodes_len);
     for k in nodes_len..evaluations {
-        // Calculate (k - d) * (k choose d) from k from this iteration, and (k-1) choose d from the last iteration,
-        // using Remark A.3.
+        // Calculate (k - d) * (k choose d) from k from this iteration, and (k-1) choose d from the
+        // last iteration, using Remark A.3.
+        //
+        // Unwrap safety: we will run out of roots of unity long before `evaluations` overflows
+        // u128.
         let k_minus_d_times_k_choose_d = FE::from_u128(k.try_into().unwrap()) * binomial_k_d;
         // Update k choose d for k in this iteration, by dividing by (k - d).
         binomial_k_d = k_minus_d_times_k_choose_d * reciprocals[k - d];
@@ -220,6 +224,7 @@ fn batched_inversion_sequence<FE: FieldElement>(length: usize) -> Vec<FE> {
     );
 
     // Take the multiplicative inverse of the last number. This will be ((length - 1)!)^-1.
+    // Unwrap safety: prefix_products must be non-empty because we unconditionally push FE::ONE.
     let mut product_inverse = prefix_products.last().unwrap().mul_inv();
 
     // Now, multiply (i!)^-1 by (i - 1)! to get i^-1.
@@ -244,7 +249,6 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn test_batched_inversion() {
         let reciprocals = batched_inversion_sequence::<FieldP128>(10);
-        dbg!(reciprocals.iter().map(|x| x.mul_inv()).collect::<Vec<_>>());
         assert_eq!(reciprocals[0], FieldP128::ZERO);
         assert_eq!(reciprocals[1], FieldP128::ONE);
         assert_eq!(reciprocals[4], FieldP128::from_u128(4).mul_inv());

@@ -347,7 +347,7 @@ mod tests {
     use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn prove<FE: CodecFieldElement>(test_vector: CircuitTestVector, circuit: Circuit) {
+    fn prove<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit) {
         assert_eq!(circuit.num_copies, Size(1));
 
         let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();

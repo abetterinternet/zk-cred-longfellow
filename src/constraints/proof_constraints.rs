@@ -423,10 +423,7 @@ mod tests {
         }
     }
 
-    fn constraints<FE: CodecFieldElement + LagrangePolynomialFieldElement>(
-        test_vector: CircuitTestVector,
-        circuit: Circuit,
-    ) {
+    fn constraints<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit) {
         let test_vector_proof = test_vector.sumcheck_proof(&circuit);
 
         let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();

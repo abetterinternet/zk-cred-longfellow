@@ -7,10 +7,7 @@ pub mod verifier;
 mod tests {
     use crate::{
         circuit::Circuit,
-        fields::{
-            CodecFieldElement, LagrangePolynomialFieldElement, field2_128::Field2_128,
-            fieldp128::FieldP128,
-        },
+        fields::{ProofFieldElement, field2_128::Field2_128, fieldp128::FieldP128},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         zk_one_circuit::{
             prover::{Proof, Prover},
@@ -20,7 +17,7 @@ mod tests {
     use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn test_vector_end_to_end<FE: LagrangePolynomialFieldElement + CodecFieldElement>(
+    fn test_vector_end_to_end<FE: ProofFieldElement>(
         test_vector: CircuitTestVector,
         circuit: Circuit,
     ) {

@@ -278,11 +278,10 @@ pub fn bindeq<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
 
 #[cfg(test)]
 mod tests {
-    use wasm_bindgen_test::wasm_bindgen_test;
-
     use super::*;
-    use crate::fields::fieldp256::FieldP256;
+    use crate::field_element_tests;
     use std::iter::Iterator;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     fn field_vec<FE: FieldElement>(values: &[u128]) -> Vec<FE> {
         values.iter().map(|v| FE::from_u128(*v)).collect()
@@ -294,39 +293,42 @@ mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn one_dimension_bind_nothing() {
-        let original = field_vec::<FieldP256>(&[0, 1, 2, 3, 4]);
+    fn one_dimension_bind_nothing<FE: FieldElement>() {
+        let original = field_vec::<FE>(&[0, 1, 2, 3, 4]);
         let bound = original.bind(&[]);
 
         check_field_vec(&original, &bound);
 
         // Indices beyond the length of the original array should be 0
-        assert_eq!(original.element(original.len()), FieldP256::ZERO);
+        assert_eq!(original.element(original.len()), FE::ZERO);
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn one_dimension_bind_one() {
-        let original = field_vec::<FieldP256>(&[0, 1, 2, 3, 4]);
-        let bound = original.bind(&[FieldP256::ONE]);
+    field_element_tests!(one_dimension_bind_nothing);
+
+    fn one_dimension_bind_one<FE: FieldElement>() {
+        let original = field_vec::<FE>(&[0, 1, 2, 3, 4]);
+        let bound = original.bind(&[FE::ONE]);
 
         // Elements beyond index 1, including ones beyond the length of the original array, should
         // be 0
-        check_field_vec(&field_vec::<FieldP256>(&[1, 3, 0, 0, 0, 0]), &bound);
+        check_field_vec(&field_vec::<FE>(&[1, 3, 0, 0, 0, 0]), &bound);
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn one_dimension_bind_zero() {
-        let original = field_vec::<FieldP256>(&[0, 1, 2, 3, 4]);
-        let bound = original.bind(&[FieldP256::ZERO]);
+    field_element_tests!(one_dimension_bind_one);
 
-        check_field_vec(&field_vec::<FieldP256>(&[0, 2, 4, 0, 0]), &bound);
+    fn one_dimension_bind_zero<FE: FieldElement>() {
+        let original = field_vec::<FE>(&[0, 1, 2, 3, 4]);
+        let bound = original.bind(&[FE::ZERO]);
+
+        check_field_vec(&field_vec::<FE>(&[0, 2, 4, 0, 0]), &bound);
 
         // Indices beyond the length of the original array should be 0
-        assert_eq!(bound.element(original.len()), FieldP256::ZERO);
+        assert_eq!(bound.element(original.len()), FE::ZERO);
     }
 
-    fn one_dimension_bind_five(original: Vec<FieldP256>) {
+    field_element_tests!(one_dimension_bind_zero);
+
+    fn one_dimension_bind_five<FE: FieldElement>(original: Vec<FE>) {
         // Bind to some value besides zero or one so that both terms of
         //   B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
         // will be nonzero
@@ -335,7 +337,7 @@ mod tests {
         // B[i] = 5 * (2i + 1) - 4 * (2i)
         // Keep the two terms separate so we can see if either 2i or 2i + 1 exceeds the size of the
         // original array and yield zeroes appropriately
-        let bound = original.bind(&[FieldP256::from(5)]);
+        let bound = original.bind(&[FE::from(5)]);
 
         for (index, (expected, bound)) in (0..original.len())
             .map(|i| {
@@ -350,7 +352,7 @@ mod tests {
                     5 * (2 * i + 1)
                 };
 
-                FieldP256::from_u128(second_term as u128) - FieldP256::from_u128(first_term as u128)
+                FE::from_u128(second_term as u128) - FE::from_u128(first_term as u128)
             })
             .zip(bound)
             .enumerate()
@@ -359,21 +361,22 @@ mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn one_dimension_bind_five_even_length() {
-        one_dimension_bind_five(field_vec::<FieldP256>(&(0..100).collect::<Vec<_>>()));
+    fn one_dimension_bind_five_even_length<FE: FieldElement>() {
+        one_dimension_bind_five(field_vec::<FE>(&(0..100).collect::<Vec<_>>()));
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn one_dimension_bind_five_odd_length() {
-        one_dimension_bind_five(field_vec::<FieldP256>(&(0..101).collect::<Vec<_>>()));
+    field_element_tests!(one_dimension_bind_five_even_length);
+
+    fn one_dimension_bind_five_odd_length<FE: FieldElement>() {
+        one_dimension_bind_five(field_vec::<FE>(&(0..101).collect::<Vec<_>>()));
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn one_dimension_bindv() {
+    field_element_tests!(one_dimension_bind_five_odd_length);
+
+    fn one_dimension_bindv<FE: FieldElement>() {
         // Bind to multiple field elements, described as bindv in the spec
-        let original = field_vec::<FieldP256>(&(0..100).collect::<Vec<_>>());
-        let bound = original.bind(&[FieldP256::from_u128(1), FieldP256::from_u128(2)]);
+        let original = field_vec::<FE>(&(0..100).collect::<Vec<_>>());
+        let bound = original.bind(&[FE::from_u128(1), FE::from_u128(2)]);
 
         // Expand bindv(A, [x0, x1])[i] to
         // (1 - x1) * ((1 - x0) * A[4i] + x0 * A[4i + 1])
@@ -383,7 +386,7 @@ mod tests {
         for index in 0..original.len() {
             assert_eq!(
                 bound.element(index),
-                FieldP256::from_u128(2) * original.element(4 * index + 3)
+                FE::from_u128(2) * original.element(4 * index + 3)
                     - original.element(4 * index + 1),
                 "mismatch at index {index}: bound({}): {bound:#?}",
                 bound.len(),
@@ -391,50 +394,53 @@ mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn two_dimension_bind_one() {
+    field_element_tests!(one_dimension_bindv);
+
+    fn two_dimension_bind_one<FE: FieldElement>() {
         let original = vec![
-            field_vec::<FieldP256>(&[0, 5, 10, 15, 20]),
-            field_vec::<FieldP256>(&[1, 6, 11, 16, 21]),
-            field_vec::<FieldP256>(&[2, 7, 12, 17, 22]),
-            field_vec::<FieldP256>(&[3, 8, 13, 18, 23]),
-            field_vec::<FieldP256>(&[4, 9, 14, 19, 24]),
+            field_vec::<FE>(&[0, 5, 10, 15, 20]),
+            field_vec::<FE>(&[1, 6, 11, 16, 21]),
+            field_vec::<FE>(&[2, 7, 12, 17, 22]),
+            field_vec::<FE>(&[3, 8, 13, 18, 23]),
+            field_vec::<FE>(&[4, 9, 14, 19, 24]),
         ];
 
-        let bound = original.bind(&[FieldP256::ONE]);
+        let bound = original.bind(&[FE::ONE]);
 
         // Accessing row 0 of the bound array should access row 1 of the underlying array, but the
         // column access is unaffected.
-        assert_eq!(bound.element([0, 0]), FieldP256::from_u128(1));
-        assert_eq!(bound.element([0, 1]), FieldP256::from_u128(6));
+        assert_eq!(bound.element([0, 0]), FE::from_u128(1));
+        assert_eq!(bound.element([0, 1]), FE::from_u128(6));
         // Accessing row 1 of the bound array should access row 3 of the underlying array.
-        assert_eq!(bound.element([1, 2]), FieldP256::from_u128(13));
-        assert_eq!(bound.element([1, 4]), FieldP256::from_u128(23));
+        assert_eq!(bound.element([1, 2]), FE::from_u128(13));
+        assert_eq!(bound.element([1, 4]), FE::from_u128(23));
 
         // Values from further rows should be 0, including indices outside the array.
         for i in 2..(original.len() + 1) {
-            assert_eq!(bound.element([i, i]), FieldP256::ZERO);
+            assert_eq!(bound.element([i, i]), FE::ZERO);
         }
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn two_dimension_bind_zero() {
+    field_element_tests!(two_dimension_bind_one);
+
+    fn two_dimension_bind_zero<FE: FieldElement>() {
         let original = vec![
-            field_vec::<FieldP256>(&[0, 5, 10, 15, 20]),
-            field_vec::<FieldP256>(&[1, 6, 11, 16, 21]),
-            field_vec::<FieldP256>(&[2, 7, 12, 17, 22]),
-            field_vec::<FieldP256>(&[3, 8, 13, 18, 23]),
-            field_vec::<FieldP256>(&[4, 9, 14, 19, 24]),
+            field_vec::<FE>(&[0, 5, 10, 15, 20]),
+            field_vec::<FE>(&[1, 6, 11, 16, 21]),
+            field_vec::<FE>(&[2, 7, 12, 17, 22]),
+            field_vec::<FE>(&[3, 8, 13, 18, 23]),
+            field_vec::<FE>(&[4, 9, 14, 19, 24]),
         ];
 
-        let bound = original.bind(&[FieldP256::ZERO]);
-        assert_eq!(bound.element([2, 2]), FieldP256::from(14));
+        let bound = original.bind(&[FE::ZERO]);
+        assert_eq!(bound.element([2, 2]), FE::from(14));
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn two_dimension_bindv() {
+    field_element_tests!(two_dimension_bind_zero);
+
+    fn two_dimension_bindv<FE: FieldElement>() {
         let original = vec![
-            field_vec::<FieldP256>(&[0; 5]),
+            field_vec::<FE>(&[0; 5]),
             field_vec(&[1; 5]),
             field_vec(&[2; 5]),
             field_vec(&[3; 5]),
@@ -451,7 +457,7 @@ mod tests {
             field_vec(&[14; 5]),
         ];
 
-        let bound = original.bind(&[FieldP256::ONE, FieldP256::from_u128(2)]);
+        let bound = original.bind(&[FE::ONE, FE::from_u128(2)]);
 
         // Expand bindv(A, [x0, x1])[i] to
         // (1 - x1) * ((1 - x0) * A[4i] + x0 * A[4i + 1])
@@ -460,35 +466,36 @@ mod tests {
         // bind(A, [1, 2])[i] = 2 * A[4i + 3] - A[4i + 1]
         // Row 0 of the bound array should be 2 * row 3 - row 1 (elementwise)
         for i in 0..original[0].len() {
-            assert_eq!(bound.element([0, i]), FieldP256::from(5));
+            assert_eq!(bound.element([0, i]), FE::from(5));
         }
 
         // Row 1 of the bound array should be 2 * row 7 - row 5 (elementwise)
         for i in 0..original[1].len() {
-            assert_eq!(bound.element([1, i]), FieldP256::from(9));
+            assert_eq!(bound.element([1, i]), FE::from(9));
         }
 
         // Row 2 of the bound array should be 2 * row 11 - row 9 (elementwise)
         for i in 0..original[2].len() {
-            assert_eq!(bound.element([2, i]), FieldP256::from(13));
+            assert_eq!(bound.element([2, i]), FE::from(13));
         }
 
         // Row 3 of the bound array should be 2 * row 15 (0) - row 13 (elementwise)
         for i in 0..original[3].len() {
-            assert_eq!(bound.element([3, i]), FieldP256::from(13) * -FieldP256::ONE);
+            assert_eq!(bound.element([3, i]), FE::from(13) * -FE::ONE);
         }
 
         // All other values in the bound array should be 0
         #[allow(clippy::needless_range_loop)]
         for i in 4..original.len() {
             for j in 0..original[i].len() {
-                assert_eq!(bound.element([i, j]), FieldP256::ZERO);
+                assert_eq!(bound.element([i, j]), FE::ZERO);
             }
         }
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn three_dimension_bind_one() {
+    field_element_tests!(two_dimension_bindv);
+
+    fn three_dimension_bind_one<FE: FieldElement>() {
         let original = vec![
             vec![field_vec(&[0; 5]); 2],
             vec![field_vec(&[1; 5]); 2],
@@ -497,7 +504,7 @@ mod tests {
             vec![field_vec(&[4; 5]); 2],
         ];
 
-        let bound = original.bind(&[FieldP256::ONE]);
+        let bound = original.bind(&[FE::ONE]);
 
         // "Row" 0 (which is an array) should be row 1
         assert_eq!(bound[0], vec![field_vec(&[1; 5]); 2]);
@@ -510,17 +517,18 @@ mod tests {
         for i in 2..original.len() {
             for j in 0..original[i].len() {
                 for k in 0..original[i][j].len() {
-                    assert_eq!(bound.element([i, j, k]), FieldP256::ZERO);
+                    assert_eq!(bound.element([i, j, k]), FE::ZERO);
                 }
             }
         }
 
         // Indices outside the array should be zero
-        assert_eq!(bound.element([original.len(), 0, 0]), FieldP256::ZERO);
+        assert_eq!(bound.element([original.len(), 0, 0]), FE::ZERO);
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn three_dimension_bindv() {
+    field_element_tests!(three_dimension_bind_one);
+
+    fn three_dimension_bindv<FE: FieldElement>() {
         let original = vec![
             vec![field_vec(&[0; 5]); 2],
             vec![field_vec(&[1; 5]); 2],
@@ -539,13 +547,13 @@ mod tests {
             vec![field_vec(&[14; 5]); 2],
         ];
 
-        let bound = original.bind(&[FieldP256::ONE, FieldP256::from_u128(2)]);
+        let bound = original.bind(&[FE::ONE, FE::from_u128(2)]);
 
         // "Row" 0 (which is an array) should be 2 * row 3 - row 1 (elementwise)
         #[allow(clippy::needless_range_loop)]
         for i in 0..original[0].len() {
             for j in 0..original[0][i].len() {
-                assert_eq!(bound.element([0, i, j]), FieldP256::from(5));
+                assert_eq!(bound.element([0, i, j]), FE::from(5));
             }
         }
 
@@ -553,7 +561,7 @@ mod tests {
         #[allow(clippy::needless_range_loop)]
         for i in 0..original[1].len() {
             for j in 0..original[1][i].len() {
-                assert_eq!(bound.element([1, i, j]), FieldP256::from(9));
+                assert_eq!(bound.element([1, i, j]), FE::from(9));
             }
         }
 
@@ -561,7 +569,7 @@ mod tests {
         #[allow(clippy::needless_range_loop)]
         for i in 0..original[2].len() {
             for j in 0..original[2][i].len() {
-                assert_eq!(bound.element([2, i, j]), FieldP256::from(13));
+                assert_eq!(bound.element([2, i, j]), FE::from(13));
             }
         }
 
@@ -569,10 +577,7 @@ mod tests {
         #[allow(clippy::needless_range_loop)]
         for i in 0..original[3].len() {
             for j in 0..original[3][i].len() {
-                assert_eq!(
-                    bound.element([3, i, j]),
-                    FieldP256::from(13) * -FieldP256::ONE,
-                );
+                assert_eq!(bound.element([3, i, j]), FE::from(13) * -FE::ONE,);
             }
         }
 
@@ -581,20 +586,21 @@ mod tests {
         for i in 4..original.len() {
             for j in 0..original[i].len() {
                 for k in 0..original[i][j].len() {
-                    assert_eq!(bound.element([i, j, k]), FieldP256::ZERO);
+                    assert_eq!(bound.element([i, j, k]), FE::ZERO);
                 }
             }
         }
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn transpose_2d() {
+    field_element_tests!(three_dimension_bindv);
+
+    fn transpose_2d<FE: FieldElement>() {
         let original = vec![
-            field_vec::<FieldP256>(&[0, 5, 10, 15, 20]),
-            field_vec::<FieldP256>(&[1, 6, 11, 16, 21]),
-            field_vec::<FieldP256>(&[2, 7, 12, 17, 22]),
-            field_vec::<FieldP256>(&[3, 8, 13, 18, 23]),
-            field_vec::<FieldP256>(&[4, 9, 14, 19, 24]),
+            field_vec::<FE>(&[0, 5, 10, 15, 20]),
+            field_vec::<FE>(&[1, 6, 11, 16, 21]),
+            field_vec::<FE>(&[2, 7, 12, 17, 22]),
+            field_vec::<FE>(&[3, 8, 13, 18, 23]),
+            field_vec::<FE>(&[4, 9, 14, 19, 24]),
         ];
 
         let transposed = original.transpose();
@@ -614,7 +620,7 @@ mod tests {
             }
         }
 
-        let bound_array = original.bind(&[FieldP256::from_u128(2), FieldP256::from_u128(3)]);
+        let bound_array = original.bind(&[FE::from_u128(2), FE::from_u128(3)]);
         let transposed_bound_array = bound_array.transpose();
 
         #[allow(clippy::needless_range_loop)]
@@ -640,15 +646,16 @@ mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn transpose_3d() {
+    field_element_tests!(transpose_2d);
+
+    fn transpose_3d<FE: FieldElement>() {
         // Transposing a 3d array should only affect the last two dimensions
         let original = vec![vec![
-            field_vec::<FieldP256>(&[0, 5, 10, 15, 20]),
-            field_vec::<FieldP256>(&[1, 6, 11, 16, 21]),
-            field_vec::<FieldP256>(&[2, 7, 12, 17, 22]),
-            field_vec::<FieldP256>(&[3, 8, 13, 18, 23]),
-            field_vec::<FieldP256>(&[4, 9, 14, 19, 24]),
+            field_vec::<FE>(&[0, 5, 10, 15, 20]),
+            field_vec::<FE>(&[1, 6, 11, 16, 21]),
+            field_vec::<FE>(&[2, 7, 12, 17, 22]),
+            field_vec::<FE>(&[3, 8, 13, 18, 23]),
+            field_vec::<FE>(&[4, 9, 14, 19, 24]),
         ]];
 
         let transposed = original.transpose();
@@ -668,31 +675,33 @@ mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn scalar_mul_1d() {
-        let original = field_vec::<FieldP256>(&[1, 2, 3, 4, 5]);
+    field_element_tests!(transpose_3d);
 
-        let scaled = original.scale(FieldP256::from_u128(2));
+    fn scalar_mul_1d<FE: FieldElement>() {
+        let original = field_vec::<FE>(&[1, 2, 3, 4, 5]);
+
+        let scaled = original.scale(FE::from_u128(2));
         assert_eq!(scaled, field_vec(&[2, 4, 6, 8, 10]));
 
-        let scaled_again = scaled.scale(FieldP256::from_u128(3));
+        let scaled_again = scaled.scale(FE::from_u128(3));
         assert_eq!(scaled_again, field_vec(&[6, 12, 18, 24, 30]));
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn scalar_mul_2d() {
+    field_element_tests!(scalar_mul_1d);
+
+    fn scalar_mul_2d<FE: FieldElement>() {
         let original = vec![
-            field_vec::<FieldP256>(&[1, 2, 3, 4, 5]),
+            field_vec::<FE>(&[1, 2, 3, 4, 5]),
             field_vec(&[1, 2, 3, 4, 5]),
         ];
 
-        let scaled = original.scale(FieldP256::from_u128(2));
+        let scaled = original.scale(FE::from_u128(2));
         assert_eq!(
             scaled,
             vec![field_vec(&[2, 4, 6, 8, 10]), field_vec(&[2, 4, 6, 8, 10])]
         );
 
-        let scaled_again = scaled.scale(FieldP256::from_u128(3));
+        let scaled_again = scaled.scale(FE::from_u128(3));
         assert_eq!(
             scaled_again,
             vec![
@@ -702,45 +711,43 @@ mod tests {
         );
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn scalar_mul_3d() {
+    field_element_tests!(scalar_mul_2d);
+
+    fn scalar_mul_3d<FE: FieldElement>() {
         let original = vec![
-            vec![field_vec::<FieldP256>(&[0; 5]); 2],
+            vec![field_vec::<FE>(&[0; 5]); 2],
             vec![field_vec(&[1; 5]); 2],
         ];
 
-        let scaled = original.scale(FieldP256::from_u128(2));
+        let scaled = original.scale(FE::from_u128(2));
         assert_eq!(
             scaled,
             vec![
-                vec![field_vec::<FieldP256>(&[0; 5]); 2],
+                vec![field_vec::<FE>(&[0; 5]); 2],
                 vec![field_vec(&[2; 5]); 2],
             ],
         );
 
-        let scaled_again = scaled.scale(FieldP256::from_u128(3));
+        let scaled_again = scaled.scale(FE::from_u128(3));
         assert_eq!(
             scaled_again,
             vec![
-                vec![field_vec::<FieldP256>(&[0; 5]); 2],
+                vec![field_vec::<FE>(&[0; 5]); 2],
                 vec![field_vec(&[6; 5]); 2],
             ],
         );
     }
 
-    #[wasm_bindgen_test(unsupported = test)]
-    fn bindeq_equivalence() {
+    field_element_tests!(scalar_mul_3d);
+
+    fn bindeq_equivalence<FE: FieldElement>() {
         // 6.2: bindv(EQ_{n}, X) = bindeq(l, X) for n = 2^l
-        fn construct_eq(n: usize) -> Vec<Vec<FieldP256>> {
-            let mut eq_n = vec![vec![FieldP256::ZERO; n]; n];
+        fn construct_eq<FE: FieldElement>(n: usize) -> Vec<Vec<FE>> {
+            let mut eq_n = vec![vec![FE::ZERO; n]; n];
 
             for (i, row) in eq_n.iter_mut().enumerate() {
                 for (j, element) in row.iter_mut().enumerate() {
-                    *element = if i == j {
-                        FieldP256::ONE
-                    } else {
-                        FieldP256::ZERO
-                    };
+                    *element = if i == j { FE::ONE } else { FE::ZERO };
                 }
             }
 
@@ -748,14 +755,16 @@ mod tests {
         }
 
         for (binding, eq_n) in [
-            (vec![FieldP256::ONE], construct_eq(2)),
-            (vec![FieldP256::from_u128(217)], construct_eq(2)),
+            (vec![FE::ONE], construct_eq(2)),
+            (vec![FE::from_u128(217)], construct_eq(2)),
             (
-                vec![FieldP256::from_u128(217), FieldP256::from_u128(11111)],
+                vec![FE::from_u128(217), FE::from_u128(11111)],
                 construct_eq(4),
             ),
         ] {
             assert_eq!(bindeq(binding.as_slice()), eq_n.bind(binding.as_slice())[0]);
         }
     }
+
+    field_element_tests!(bindeq_equivalence);
 }

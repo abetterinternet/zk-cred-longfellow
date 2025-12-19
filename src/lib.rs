@@ -254,7 +254,6 @@ mod tests {
                     $function::<$crate::fields::fieldp256::FieldP256>();
                 }
 
-                #[ignore = "test cases not yet valid for binary fields"]
                 #[wasm_bindgen_test(unsupported = test)]
                 fn field2_128() {
                     $function::<$crate::fields::field2_128::Field2_128>();

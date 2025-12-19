@@ -337,22 +337,28 @@ mod tests {
         // B[i] = 5 * (2i + 1) - 4 * (2i)
         // Keep the two terms separate so we can see if either 2i or 2i + 1 exceeds the size of the
         // original array and yield zeroes appropriately
-        let bound = original.bind(&[FE::from(5)]);
+        let five = FE::from_u128(5);
+        let four = FE::from_u128(4);
+        let two = FE::from_u128(2);
+        let bound = original.bind(&[five]);
 
         for (index, (expected, bound)) in (0..original.len())
             .map(|i| {
+                let i_fe = FE::from_u128(i as u128);
                 let first_term = if 2 * i >= original.len() {
-                    0
+                    FE::ZERO
                 } else {
-                    4 * 2 * i
+                    //4 * 2 * i
+                    four * two * i_fe
                 };
                 let second_term = if 2 * i + 1 >= original.len() {
-                    0
+                    FE::ZERO
                 } else {
-                    5 * (2 * i + 1)
+                    //5 * (2 * i + 1)
+                    five * (two * i_fe + FE::ONE)
                 };
 
-                FE::from_u128(second_term as u128) - FE::from_u128(first_term as u128)
+                second_term - first_term
             })
             .zip(bound)
             .enumerate()
@@ -376,18 +382,19 @@ mod tests {
     fn one_dimension_bindv<FE: FieldElement>() {
         // Bind to multiple field elements, described as bindv in the spec
         let original = field_vec::<FE>(&(0..100).collect::<Vec<_>>());
-        let bound = original.bind(&[FE::from_u128(1), FE::from_u128(2)]);
+        let two = FE::from_u128(2);
+        let bound = original.bind(&[FE::ONE, two]);
 
         // Expand bindv(A, [x0, x1])[i] to
         // (1 - x1) * ((1 - x0) * A[4i] + x0 * A[4i + 1])
         //     + x1 * ((1 - x0) * A[4i + 2] + x0 * A[4i + 3])
-        // Plugging in x0 = 1, x1 = 2:
-        // bind(A, [1, 2])[i] = 2 * A[4i + 3] - A[4i + 1]
+        // Plugging in x0 = 1, x1 = 2, but noting that 1 - 2 = -1 is not true in all fields:
+        // bind(A, [1, 2])[i] = (1 - 2) * A[4i + 1] + 2 * A[4i + 3]
         for index in 0..original.len() {
             assert_eq!(
                 bound.element(index),
-                FE::from_u128(2) * original.element(4 * index + 3)
-                    - original.element(4 * index + 1),
+                (FE::ONE - two) * original.element(4 * index + 1)
+                    + two * original.element(4 * index + 3),
                 "mismatch at index {index}: bound({}): {bound:#?}",
                 bound.len(),
             );
@@ -433,7 +440,7 @@ mod tests {
         ];
 
         let bound = original.bind(&[FE::ZERO]);
-        assert_eq!(bound.element([2, 2]), FE::from(14));
+        assert_eq!(bound.element([2, 2]), FE::from_u128(14));
     }
 
     field_element_tests!(two_dimension_bind_zero);
@@ -457,31 +464,42 @@ mod tests {
             field_vec(&[14; 5]),
         ];
 
+        let two = FE::from_u128(2);
+        let one_minus_two = FE::ONE - two;
         let bound = original.bind(&[FE::ONE, FE::from_u128(2)]);
 
         // Expand bindv(A, [x0, x1])[i] to
         // (1 - x1) * ((1 - x0) * A[4i] + x0 * A[4i + 1])
         //     + x1 * ((1 - x0) * A[4i + 2] + x0 * A[4i + 3])
-        // Plugging in x0 = 1, x1 = 2:
-        // bind(A, [1, 2])[i] = 2 * A[4i + 3] - A[4i + 1]
-        // Row 0 of the bound array should be 2 * row 3 - row 1 (elementwise)
+        // Plugging in x0 = 1, x1 = 2, but noting that 1 - 2 = -1 is not true in all fields:
+        // bind(A, [1, 2])[i] = (1 - 2) * A[4i + 1] + 2 * A[4i + 3]
+        // Row 0 of the bound array should be (1 - 2) * row 1 + 2 * row 3 (elementwise)
         for i in 0..original[0].len() {
-            assert_eq!(bound.element([0, i]), FE::from(5));
+            assert_eq!(
+                bound.element([0, i]),
+                one_minus_two * FE::ONE + two * FE::from_u128(3),
+            );
         }
 
-        // Row 1 of the bound array should be 2 * row 7 - row 5 (elementwise)
+        // Row 1 of the bound array should be (1 - 2) * row 5 + 2 * row 7 (elementwise)
         for i in 0..original[1].len() {
-            assert_eq!(bound.element([1, i]), FE::from(9));
+            assert_eq!(
+                bound.element([1, i]),
+                one_minus_two * FE::from_u128(5) + two * FE::from_u128(7),
+            );
         }
 
-        // Row 2 of the bound array should be 2 * row 11 - row 9 (elementwise)
+        // Row 2 of the bound array should be (1 - 2) * row 9 + 2 * row 11 (elementwise)
         for i in 0..original[2].len() {
-            assert_eq!(bound.element([2, i]), FE::from(13));
+            assert_eq!(
+                bound.element([2, i]),
+                one_minus_two * FE::from_u128(9) + two * FE::from_u128(11),
+            );
         }
 
-        // Row 3 of the bound array should be 2 * row 15 (0) - row 13 (elementwise)
+        // Row 3 of the bound array should be (1 - 2) * row 13 + 2 * row 15 (0) (elementwise)
         for i in 0..original[3].len() {
-            assert_eq!(bound.element([3, i]), FE::from(13) * -FE::ONE);
+            assert_eq!(bound.element([3, i]), one_minus_two * FE::from_u128(13));
         }
 
         // All other values in the bound array should be 0
@@ -547,37 +565,48 @@ mod tests {
             vec![field_vec(&[14; 5]); 2],
         ];
 
-        let bound = original.bind(&[FE::ONE, FE::from_u128(2)]);
+        let two = FE::from_u128(2);
+        let one_minus_two = FE::ONE - two;
+        let bound = original.bind(&[FE::ONE, two]);
 
-        // "Row" 0 (which is an array) should be 2 * row 3 - row 1 (elementwise)
+        // "Row" 0 (which is an array) should be (1 - 2) + row 1 + 2 * row 3 (elementwise)
         #[allow(clippy::needless_range_loop)]
         for i in 0..original[0].len() {
             for j in 0..original[0][i].len() {
-                assert_eq!(bound.element([0, i, j]), FE::from(5));
+                assert_eq!(
+                    bound.element([0, i, j]),
+                    one_minus_two * FE::ONE + two * FE::from_u128(3),
+                );
             }
         }
 
-        // "Row" 1 should be 2 * row 7 - row 5 (elementwise)
+        // "Row" 1 should be (1 - 2) + row 5 + 2 * row 7 (elementwise)
         #[allow(clippy::needless_range_loop)]
         for i in 0..original[1].len() {
             for j in 0..original[1][i].len() {
-                assert_eq!(bound.element([1, i, j]), FE::from(9));
+                assert_eq!(
+                    bound.element([1, i, j]),
+                    one_minus_two * FE::from_u128(5) + two * FE::from_u128(7),
+                );
             }
         }
 
-        // "Row" 2 should be 2 * row 11 - row 9 (elementwise)
+        // "Row" 2 should be (1 - 2) * row 9 + 2 * row 11 (elementwise)
         #[allow(clippy::needless_range_loop)]
         for i in 0..original[2].len() {
             for j in 0..original[2][i].len() {
-                assert_eq!(bound.element([2, i, j]), FE::from(13));
+                assert_eq!(
+                    bound.element([2, i, j]),
+                    one_minus_two * FE::from_u128(9) + two * FE::from_u128(11),
+                );
             }
         }
 
-        // "Row" 3 of the bound array should be 2 * row 15 (0) - row 13 (elementwise)
+        // "Row" 3 of the bound array should be (1 - 2) * row 13 + 2 * row 15 (0) (elementwise)
         #[allow(clippy::needless_range_loop)]
         for i in 0..original[3].len() {
             for j in 0..original[3][i].len() {
-                assert_eq!(bound.element([3, i, j]), FE::from(13) * -FE::ONE,);
+                assert_eq!(bound.element([3, i, j]), one_minus_two * FE::from_u128(13));
             }
         }
 
@@ -678,36 +707,73 @@ mod tests {
     field_element_tests!(transpose_3d);
 
     fn scalar_mul_1d<FE: FieldElement>() {
+        let two = FE::from_u128(2);
+        let three = FE::from_u128(3);
         let original = field_vec::<FE>(&[1, 2, 3, 4, 5]);
 
-        let scaled = original.scale(FE::from_u128(2));
-        assert_eq!(scaled, field_vec(&[2, 4, 6, 8, 10]));
+        let scaled = original.scale(two);
+        assert_eq!(
+            scaled,
+            vec![
+                FE::from_u128(1) * two,
+                FE::from_u128(2) * two,
+                FE::from_u128(3) * two,
+                FE::from_u128(4) * two,
+                FE::from_u128(5) * two,
+            ]
+        );
 
-        let scaled_again = scaled.scale(FE::from_u128(3));
-        assert_eq!(scaled_again, field_vec(&[6, 12, 18, 24, 30]));
+        let scaled_again = scaled.scale(three);
+        assert_eq!(
+            scaled_again,
+            vec![
+                FE::from_u128(1) * two * three,
+                FE::from_u128(2) * two * three,
+                FE::from_u128(3) * two * three,
+                FE::from_u128(4) * two * three,
+                FE::from_u128(5) * two * three,
+            ]
+        );
     }
 
     field_element_tests!(scalar_mul_1d);
 
     fn scalar_mul_2d<FE: FieldElement>() {
+        let two = FE::from_u128(2);
+        let three = FE::from_u128(3);
         let original = vec![
             field_vec::<FE>(&[1, 2, 3, 4, 5]),
             field_vec(&[1, 2, 3, 4, 5]),
         ];
 
-        let scaled = original.scale(FE::from_u128(2));
+        let scaled = original.scale(two);
         assert_eq!(
             scaled,
-            vec![field_vec(&[2, 4, 6, 8, 10]), field_vec(&[2, 4, 6, 8, 10])]
+            vec![
+                vec![
+                    FE::from_u128(1) * two,
+                    FE::from_u128(2) * two,
+                    FE::from_u128(3) * two,
+                    FE::from_u128(4) * two,
+                    FE::from_u128(5) * two,
+                ];
+                2
+            ],
         );
 
-        let scaled_again = scaled.scale(FE::from_u128(3));
+        let scaled_again = scaled.scale(three);
         assert_eq!(
             scaled_again,
             vec![
-                field_vec(&[6, 12, 18, 24, 30]),
-                field_vec(&[6, 12, 18, 24, 30])
-            ]
+                vec![
+                    FE::from_u128(1) * two * three,
+                    FE::from_u128(2) * two * three,
+                    FE::from_u128(3) * two * three,
+                    FE::from_u128(4) * two * three,
+                    FE::from_u128(5) * two * three,
+                ];
+                2
+            ],
         );
     }
 

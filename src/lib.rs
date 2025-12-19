@@ -234,7 +234,6 @@ impl Codec for [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fields::FieldElement;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     /// Given a test function that is generic over [`FieldElement`], this macro stamps out a module
@@ -452,28 +451,6 @@ mod tests {
             }
         };
     }
-
-    fn macro_test_1<T: FieldElement>() {
-        let _ = T::ONE;
-    }
-
-    fn macro_test_2<T: FieldElement>() {
-        let _ = T::ONE;
-    }
-
-    field_element_tests!(
-        macro_test_1,
-        ignore(FieldP128),
-        ignore(FieldP256),
-        ignore(Field2_128),
-    );
-
-    field_element_tests!(
-        macro_test_2,
-        ignore(FieldP128 = "macro test ignore message for FieldP128"),
-        ignore(FieldP256 = "macro test ignore message for FieldP256"),
-        ignore(Field2_128 = "macro test ignore message for Field2_128"),
-    );
 
     #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_u8() {

@@ -233,9 +233,35 @@ impl Codec for [u8; 32] {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    use super::*;
+    /// Given a test function that is generic over [`FieldElement`], this macro stamps out a module
+    /// containing test cases for multiple specific implementations.
+    #[macro_export]
+    macro_rules! field_element_tests {
+        ($function:ident) => {
+            mod $function {
+                use super::*;
+
+                #[wasm_bindgen_test(unsupported = test)]
+                fn field_p128() {
+                    $function::<$crate::fields::fieldp128::FieldP128>();
+                }
+
+                #[wasm_bindgen_test(unsupported = test)]
+                fn field_p256() {
+                    $function::<$crate::fields::fieldp256::FieldP256>();
+                }
+
+                #[ignore = "test cases not yet valid for binary fields"]
+                #[wasm_bindgen_test(unsupported = test)]
+                fn field2_128() {
+                    $function::<$crate::fields::field2_128::Field2_128>();
+                }
+            }
+        };
+    }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_u8() {

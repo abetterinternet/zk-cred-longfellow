@@ -238,22 +238,212 @@ mod tests {
 
     /// Given a test function that is generic over [`FieldElement`], this macro stamps out a module
     /// containing test cases for multiple specific implementations.
+    ///
+    /// To ignore specific test instantiations, use the following syntax:
+    ///
+    /// ```text
+    /// field_element_tests!(function, ignore(Field2_128));
+    ///
+    /// field_element_tests!(function, ignore(Field2_128 = "reason"));
+    /// ```
     #[macro_export]
     macro_rules! field_element_tests {
-        ($function:ident) => {
+        ($function:ident $($rest:tt)*) => {
+            field_element_tests!(
+                @internal
+                $function
+                @fieldp128 {}
+                @fieldp128_msg {}
+                @fieldp256 {}
+                @fieldp256_msg {}
+                @field2_128 {}
+                @field2_128_msg {}
+                $($rest)*
+            );
+        };
+
+        // TT muncher pattern: collect DSL arguments, transform them, and regroup them by field.
+        (
+            @internal
+            $function:ident
+            @fieldp128 {}
+            @fieldp128_msg { $(ignore = $message_p128:tt)? }
+            @fieldp256 { $($ignore_p256:ident)? }
+            @fieldp256_msg { $(ignore = $message_p256:tt)? }
+            @field2_128 { $($ignore_2_128:ident)? }
+            @field2_128_msg { $(ignore = $message_2_128:tt)? }
+            , ignore(FieldP128)
+            $($rest:tt)*
+        ) => {
+            field_element_tests!(
+                @internal
+                $function
+                @fieldp128 { ignore }
+                @fieldp128_msg { $(ignore = $message_p128)? }
+                @fieldp256 { $($ignore_p256)? }
+                @fieldp256_msg { $(ignore = $message_p256)? }
+                @field2_128 { $($ignore_2_128)? }
+                @field2_128_msg { $(ignore = $message_2_128)? }
+                $($rest)*
+            );
+        };
+
+        (
+            @internal
+            $function:ident
+            @fieldp128 { $($ignore_p128:ident)? }
+            @fieldp128_msg {}
+            @fieldp256 { $($ignore_p256:ident)? }
+            @fieldp256_msg { $(ignore = $message_p256:tt)? }
+            @field2_128 { $($ignore_2_128:ident)? }
+            @field2_128_msg { $(ignore = $message_2_128:tt)? }
+            , ignore(FieldP128 = $message_p128:tt)
+            $($rest:tt)*
+        ) => {
+            field_element_tests!(
+                @internal
+                $function
+                @fieldp128 { $($ignore_p128)? }
+                @fieldp128_msg { ignore = $message_p128 }
+                @fieldp256 { $($ignore_p256)? }
+                @fieldp256_msg { $(ignore = $message_p256)? }
+                @field2_128 { $($ignore_2_128)? }
+                @field2_128_msg { $(ignore = $message_2_128)? }
+                $($rest)*
+            );
+        };
+
+        (
+            @internal
+            $function:ident
+            @fieldp128 { $($ignore_p128:ident)? }
+            @fieldp128_msg { $(ignore = $message_p128:tt)? }
+            @fieldp256 {}
+            @fieldp256_msg { $(ignore = $message_p256:tt)? }
+            @field2_128 { $($ignore_2_128:ident)? }
+            @field2_128_msg { $(ignore = $message_2_128:tt)? }
+            , ignore(FieldP256)
+            $($rest:tt)*
+        ) => {
+            field_element_tests!(
+                @internal
+                $function
+                @fieldp128 { $($ignore_p128)? }
+                @fieldp128_msg { $(ignore = $message_p128)? }
+                @fieldp256 { ignore }
+                @fieldp256_msg { $(ignore = $message_p256)? }
+                @field2_128 { $($ignore_2_128)? }
+                @field2_128_msg { $(ignore = $message_2_128)? }
+                $($rest)*
+            );
+        };
+
+        (
+            @internal
+            $function:ident
+            @fieldp128 { $($ignore_p128:ident)? }
+            @fieldp128_msg { $(ignore = $message_p128:tt)? }
+            @fieldp256 { $($ignore_p256:ident)? }
+            @fieldp256_msg {}
+            @field2_128 { $($ignore_2_128:ident)? }
+            @field2_128_msg { $(ignore = $message_2_128:tt)? }
+            , ignore(FieldP256 = $message_p256:tt)
+            $($rest:tt)*
+        ) => {
+            field_element_tests!(
+                @internal
+                $function
+                @fieldp128 { $($ignore_p128)? }
+                @fieldp128_msg { $(ignore = $message_p128)? }
+                @fieldp256 { $($ignore_p256)? }
+                @fieldp256_msg { ignore = $message_p256 }
+                @field2_128 { $($ignore_2_128)? }
+                @field2_128_msg { $(ignore = $message_2_128)? }
+                $($rest)*
+            );
+        };
+
+        (
+            @internal
+            $function:ident
+            @fieldp128 { $($ignore_p128:ident)? }
+            @fieldp128_msg { $(ignore = $message_p128:tt)? }
+            @fieldp256 { $($ignore_p256:ident)? }
+            @fieldp256_msg { $(ignore = $message_p256:tt)? }
+            @field2_128 {}
+            @field2_128_msg { $(ignore = $message_2_128:tt)? }
+            , ignore(Field2_128)
+            $($rest:tt)*
+        ) => {
+            field_element_tests!(
+                @internal
+                $function
+                @fieldp128 { $($ignore_p128)? }
+                @fieldp128_msg { $(ignore = $message_p128)? }
+                @fieldp256 { $($ignore_p256)? }
+                @fieldp256_msg { $(ignore = $message_p256)? }
+                @field2_128 { ignore }
+                @field2_128_msg { $(ignore = $message_2_128)? }
+                $($rest)*
+            );
+        };
+
+        (
+            @internal
+            $function:ident
+            @fieldp128 { $($ignore_p128:ident)? }
+            @fieldp128_msg { $(ignore = $message_p128:tt)? }
+            @fieldp256 { $($ignore_p256:ident)? }
+            @fieldp256_msg { $(ignore = $message_p256:tt)? }
+            @field2_128 { $($ignore_2_128:ident)? }
+            @field2_128_msg {}
+            , ignore(Field2_128 = $message_2_128:tt)
+            $($rest:tt)*
+        ) => {
+            field_element_tests!(
+                @internal
+                $function
+                @fieldp128 { $($ignore_p128)? }
+                @fieldp128_msg { $(ignore = $message_p128)? }
+                @fieldp256 { $($ignore_p256)? }
+                @fieldp256_msg { $(ignore = $message_p256)? }
+                @field2_128 { $($ignore_2_128)? }
+                @field2_128_msg { ignore = $message_2_128 }
+                $($rest)*
+            );
+        };
+
+        // Base case: no DSL arguments left.
+        (
+            @internal
+            $function:ident
+            @fieldp128 { $($ignore_p128:ident)? }
+            @fieldp128_msg { $(ignore = $message_p128:tt)? }
+            @fieldp256 { $($ignore_p256:ident)? }
+            @fieldp256_msg { $(ignore = $message_p256:tt)? }
+            @field2_128 { $($ignore_2_128:ident)? }
+            @field2_128_msg { $(ignore = $message_2_128:tt)? }
+            $(,)?
+        ) => {
             mod $function {
                 use super::*;
 
+                $(#[$ignore_p128])?
+                $(#[ignore = $message_p128])?
                 #[wasm_bindgen_test(unsupported = test)]
                 fn field_p128() {
                     $function::<$crate::fields::fieldp128::FieldP128>();
                 }
 
+                $(#[$ignore_p256])?
+                $(#[ignore = $message_p256])?
                 #[wasm_bindgen_test(unsupported = test)]
                 fn field_p256() {
                     $function::<$crate::fields::fieldp256::FieldP256>();
                 }
 
+                $(#[$ignore_2_128])?
+                $(#[ignore = $message_2_128])?
                 #[wasm_bindgen_test(unsupported = test)]
                 fn field2_128() {
                     $function::<$crate::fields::field2_128::Field2_128>();

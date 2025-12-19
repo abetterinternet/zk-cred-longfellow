@@ -246,18 +246,17 @@ mod tests {
 
                 #[wasm_bindgen_test(unsupported = test)]
                 fn field_p128() {
-                    $function::<crate::fields::fieldp128::FieldP128>();
+                    $function::<$crate::fields::fieldp128::FieldP128>();
                 }
 
                 #[wasm_bindgen_test(unsupported = test)]
                 fn field_p256() {
-                    $function::<crate::fields::fieldp256::FieldP256>();
+                    $function::<$crate::fields::fieldp256::FieldP256>();
                 }
 
                 #[wasm_bindgen_test(unsupported = test)]
-                #[ignore = "test cases not yet valid for binary fields"]
                 fn field2_128() {
-                    $function::<crate::fields::field2_128::Field2_128>();
+                    $function::<$crate::fields::field2_128::Field2_128>();
                 }
             }
         };

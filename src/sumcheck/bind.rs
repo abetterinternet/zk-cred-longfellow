@@ -569,7 +569,7 @@ mod tests {
         let one_minus_two = FE::ONE - two;
         let bound = original.bind(&[FE::ONE, two]);
 
-        // "Row" 0 (which is an array) should be (1 - 2) + row 1 + 2 * row 3 (elementwise)
+        // "Row" 0 (which is an array) should be (1 - 2) * row 1 + 2 * row 3 (elementwise)
         #[allow(clippy::needless_range_loop)]
         for i in 0..original[0].len() {
             for j in 0..original[0][i].len() {
@@ -580,7 +580,7 @@ mod tests {
             }
         }
 
-        // "Row" 1 should be (1 - 2) + row 5 + 2 * row 7 (elementwise)
+        // "Row" 1 should be (1 - 2) * row 5 + 2 * row 7 (elementwise)
         #[allow(clippy::needless_range_loop)]
         for i in 0..original[1].len() {
             for j in 0..original[1][i].len() {

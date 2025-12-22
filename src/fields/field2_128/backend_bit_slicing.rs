@@ -13,13 +13,34 @@ pub(super) fn galois_multiply(x: u128, y: u128) -> u128 {
 
 /// Squares a GF(2^128) element, represented as a `u128`.
 ///
-/// This fallback implementation uses SIMD-within-a-register techniques. It combines bit slicing
-/// with integer multiplication to implement carryless multiplication.
+/// This fallback implementation uses bit manipulation.
 pub(super) fn galois_square(x: u128) -> u128 {
-    // Produce a 255-bit carryless multiplication product.
-    let product = clmul128_square(x);
+    // Squaring when using carryless multiplication looks like interleaving the bits of the input
+    // with zeroes. We can accomplish this with shifts, ANDs, and ORs, rather than using many
+    // multiplications.
+    //
+    // The lower half of x will end up in the lower u128 of the result, and the upper half of x
+    // will end up in the upper u128 of the result.
+    let product = U256 {
+        high: galois_square_u64_widening((x >> 64) as u64),
+        low: galois_square_u64_widening(x as u64),
+    };
 
     reduce(product)
+}
+
+/// Helper for squaring GF(2^128) elements.
+///
+/// This interleaves the bits of its input with zeroes.
+fn galois_square_u64_widening(x: u64) -> u128 {
+    // Adapted from https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN.
+    let x = x as u128;
+    let x = (x | (x << 32)) & 0x0000_0000_FFFF_FFFF_0000_0000_FFFF_FFFF;
+    let x = (x | (x << 16)) & 0x0000_FFFF_0000_FFFF_0000_FFFF_0000_FFFF;
+    let x = (x | (x << 8)) & 0x00FF_00FF_00FF_00FF_00FF_00FF_00FF_00FF;
+    let x = (x | (x << 4)) & 0x0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F;
+    let x = (x | (x << 2)) & 0x3333_3333_3333_3333_3333_3333_3333_3333;
+    (x | (x << 1)) & 0x5555_5555_5555_5555_5555_5555_5555_5555
 }
 
 /// Reduce an intermediate 256-bit product by the field's quotient polynomial.
@@ -85,27 +106,6 @@ fn clmul64(x: u64, y: u64) -> u128 {
     z0 | z1 | z2 | z3 | z4
 }
 
-/// Carryless multiplication of one 64-bit argument by itself.
-fn clmul64_square(x: u64) -> u128 {
-    // Note that most of the terms in `clmul64()` cancel out when x = y, in the case of squaring.
-    // This results in a much simpler formula. In fact, the even bits of the output directly
-    // correspond to all the bits of the input.
-
-    let x0 = (x & (MASK_0 as u64)) as u128;
-    let x1 = (x & (MASK_1 as u64)) as u128;
-    let x2 = (x & (MASK_2 as u64)) as u128;
-    let x3 = (x & (MASK_3 as u64)) as u128;
-    let x4 = (x & (MASK_4 as u64)) as u128;
-
-    let z0 = (x0 * x0) & MASK_0;
-    let z1 = (x3 * x3) & MASK_1;
-    let z2 = (x1 * x1) & MASK_2;
-    let z3 = (x4 * x4) & MASK_3;
-    let z4 = (x2 * x2) & MASK_4;
-
-    z0 | z1 | z2 | z3 | z4
-}
-
 /// A 256-bit integer.
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct U256 {
@@ -134,17 +134,6 @@ fn clmul128(x: u128, y: u128) -> U256 {
     U256 {
         low: r1 ^ (t << 64),
         high: (t >> 64) ^ r4,
-    }
-}
-
-/// Carryless multiplication of one 128-bit argument by itself.
-fn clmul128_square(x: u128) -> U256 {
-    // This uses schoolbook multiplication. Since we are squaring in a field of characteristic two,
-    // terms that arise from multiplying the low half of the input by the high half of the input (or
-    // vice versa) appear twice, and therefore cancel themselves out.
-    U256 {
-        high: clmul64_square((x >> 64) as u64),
-        low: clmul64_square(x as u64),
     }
 }
 

@@ -632,8 +632,6 @@ mod tests {
 
     /// Check the consistency of [`ProofFieldElement`] constants.
     fn field_element_test_proof_constants<F: ProofFieldElement>() {
-        assert_eq!(F::SUMCHECK_P2, F::from_u128(2));
-
         assert_eq!(F::SUMCHECK_P2_MUL_INV * F::SUMCHECK_P2, F::ONE);
         assert_eq!(
             F::ONE_MINUS_SUMCHECK_P2_MUL_INV * (F::ONE - F::SUMCHECK_P2),

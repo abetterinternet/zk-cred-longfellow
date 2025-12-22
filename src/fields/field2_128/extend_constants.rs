@@ -14,6 +14,7 @@ use crate::fields::field2_128::Field2_128;
 ///
 /// [1]: https://eprint.iacr.org/2024/2010.pdf
 /// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
+#[cfg(test)]
 pub(crate) const fn subfield_basis() -> [Field2_128; Field2_128::SUBFIELD_BIT_LENGTH] {
     // Computed in SageMath:
     // GF2 = GF(2)

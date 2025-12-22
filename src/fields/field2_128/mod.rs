@@ -6,10 +6,7 @@ use crate::{
     Codec,
     fields::{
         CodecFieldElement, FieldElement, ProofFieldElement, addition_chains,
-        field2_128::{
-            extend::{ExtendContext, interpolate},
-            extend_constants::subfield_basis,
-        },
+        field2_128::extend::{ExtendContext, interpolate},
     },
 };
 use anyhow::Context;
@@ -45,11 +42,12 @@ impl Field2_128 {
     /// 16 elements, so we can't inject anything bigger than u16.
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
-    // Allow dead_code for now. This will get used when we wire up proofs on MACs.
-    #[allow(dead_code)]
+    #[cfg(test)]
     fn inject(mut value: u16) -> Self {
+        // It's safe and reasonable to inject any u16 because the basis has 16 elements.
         let mut injected = Self::ZERO;
-        for basis_element in subfield_basis() {
+        assert_eq!(extend_constants::subfield_basis().len(), u16::BITS as usize);
+        for basis_element in extend_constants::subfield_basis() {
             if value & 1 == 1 {
                 injected += basis_element;
             }
@@ -84,37 +82,17 @@ impl CodecFieldElement for Field2_128 {
 }
 
 impl ProofFieldElement for Field2_128 {
-    const SUMCHECK_P2: Self = Self(0b10);
+    // These constants were computed using constants.sage.
+    const SUMCHECK_P2: Self = Self::from_u128_const(122753392676920971658749122761936853580);
 
-    const SUMCHECK_P2_MUL_INV: Self = const {
-        // Computed in SageMath:
-        //
-        // GF2 = GF(2)
-        // x = polygen(GF2)
-        // GF2_128.<x> = GF2.extension(x^128 + x^7 + x^2 + x + 1)
-        // GF2_128(x).inverse().to_integer()
-        Self::from_u128_const(170141183460469231731687303715884105795)
-    };
+    const SUMCHECK_P2_MUL_INV: Self =
+        Self::from_u128_const(334209021876177427854041998379618990425);
 
-    const ONE_MINUS_SUMCHECK_P2_MUL_INV: Self = const {
-        // Computed in SageMath:
-        //
-        // GF2 = GF(2)
-        // x = polygen(GF2)
-        // GF2_128.<x> = GF2.extension(x^128 + x^7 + x^2 + x + 1)
-        // GF2_128(1 - x).inverse().to_integer()
-        Self::from_u128_const(340282366920938463463374607431768211330)
-    };
+    const ONE_MINUS_SUMCHECK_P2_MUL_INV: Self =
+        Self::from_u128_const(184748276259172837197859239441540652321);
 
-    const SUMCHECK_P2_SQUARED_MINUS_SUMCHECK_P2_MUL_INV: Self = const {
-        // Computed in SageMath:
-        //
-        // GF2 = GF(2)
-        // x = polygen(GF2)
-        // GF2_128.<x> = GF2.extension(x^128 + x^7 + x^2 + x + 1)
-        // GF2_128(x^2 - x).inverse().to_integer()
-        Self::from_u128_const(170141183460469231731687303715884105665)
-    };
+    const SUMCHECK_P2_SQUARED_MINUS_SUMCHECK_P2_MUL_INV: Self =
+        Self::from_u128_const(150968175972766452367765019741058622584);
 
     type ExtendContext = ExtendContext;
 

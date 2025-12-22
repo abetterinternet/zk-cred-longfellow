@@ -396,7 +396,7 @@ mod tests {
         prove::<FieldP128>(test_vector, circuit);
     }
 
-    #[ignore = "slow test + failing"]
+    #[ignore = "slow test"]
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_mac() {
         let (test_vector, circuit) = load_mac();

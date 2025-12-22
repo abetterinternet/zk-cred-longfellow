@@ -14,8 +14,8 @@ g = GF2_128(x)^5192376087906286159508272029171713
 for i in range(16):
     basis.append(g^i)
 
-# inject SUMCHECK_P2 (aka the function x) into the subfield
-p2_integer = GF2_128(x).to_integer()
+# compute SUMCHECK_P2 by injecting 2 into the subfield
+p2_integer = 2
 p2_injected = GF2_128(0)
 for basis_element in basis:
     if p2_integer & 1 == 1:

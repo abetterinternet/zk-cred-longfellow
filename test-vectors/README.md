@@ -48,12 +48,12 @@ sumcheck proof and Ligero constraints.
 
 [rfc-1-test-vector-constraints]: https://github.com/tgeoghegan/longfellow-zk/tree/zk-test-cleanup
 
-### `longfellow-mac-circuit-0dc911e13963f506df8928c6ba3ab4f5af017b36-1`
+### `longfellow-mac-circuit-66aeaf09a9cc98e36873e868307ac07279d5f7e0-1`
 
 This test vector was generated using [`longfellow-zk/lib/circuits/mac/mac_circuit_test.cc`][mac-test-vector-1]
-at commit 0dc911e13963f506df8928c6ba3ab4f5af017b36 and the serializations for circuits, layers and
+at commit 66aeaf09a9cc98e36873e868307ac07279d5f7e0 and the serializations for circuits, layers and
 quads at that version.
 
-[mac-test-vector-1]: https://github.com/tgeoghegan/longfellow-zk/blob/0dc911e13963f506df8928c6ba3ab4f5af017b36/lib/circuits/mac/mac_circuit_test.cc
+[mac-test-vector-1]: https://github.com/tgeoghegan/longfellow-zk/blob/66aeaf09a9cc98e36873e868307ac07279d5f7e0/lib/circuits/mac/mac_circuit_test.cc
 
 [draft-google-cfrg-libzk]: https://datatracker.ietf.org/doc/draft-google-cfrg-libzk/

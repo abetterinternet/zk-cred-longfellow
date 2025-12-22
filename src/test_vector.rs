@@ -69,7 +69,7 @@ pub(crate) fn load_rfc() -> (CircuitTestVector, Circuit) {
 
 /// Load the test vector for the "mac" circuit.
 pub(crate) fn load_mac() -> (CircuitTestVector, Circuit) {
-    decode_test_vector!("longfellow-mac-circuit-0dc911e13963f506df8928c6ba3ab4f5af017b36-1")
+    decode_test_vector!("longfellow-mac-circuit-66aeaf09a9cc98e36873e868307ac07279d5f7e0-1")
 }
 
 /// JSON descriptor of a circuit test vector.

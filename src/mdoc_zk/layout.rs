@@ -216,6 +216,7 @@ impl InputLayout {
 }
 
 /// Pointers to different parts of the signature circuit's inputs.
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct SplitSignatureInput<'a> {
     pub(super) implicit_one: &'a mut FieldP256,
     pub(super) issuer_public_key_x: &'a mut FieldP256,
@@ -232,6 +233,7 @@ pub(super) struct SplitSignatureInput<'a> {
 }
 
 /// Witnesses for ECDSA verification.
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct EcdsaWitness<'a> {
     pub(super) r_x: &'a mut FieldP256,
     pub(super) r_y: &'a mut FieldP256,
@@ -307,6 +309,7 @@ impl<'a> EcdsaWitness<'a> {
 }
 
 /// Pointers to different parts of the hash circuit's inputs.
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct SplitHashInput<'a> {
     pub(super) implicit_one: &'a mut Field2_128,
     pub(super) attribute_inputs: AttributeInputs<'a>,
@@ -329,10 +332,12 @@ pub(super) struct SplitHashInput<'a> {
 }
 
 #[derive(Default)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct AttributeInputs<'a> {
     pub(super) inputs: [Option<AttributeInput<'a>>; 4],
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct AttributeInput<'a> {
     pub(super) cbor_data: &'a mut [Field2_128; 96 * 8],
     pub(super) cbor_length: &'a mut [Field2_128; 8],
@@ -345,6 +350,7 @@ impl<'a> AttributeInput<'a> {
     };
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct Sha256Witness<'a, const WIRES: usize> {
     input: &'a mut [Field2_128; WIRES],
 }
@@ -368,6 +374,7 @@ impl<'a, const WIRES: usize> Sha256Witness<'a, WIRES> {
     }
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct Sha256BlockWitness<'a> {
     pub(super) message_schedule: &'a mut [Field2_128; 48 * 32 / 4],
     pub(super) state_e_a: &'a mut [Field2_128; 64 * 2 * 32 / 4],
@@ -384,10 +391,12 @@ impl<'a> Sha256BlockWitness<'a> {
 }
 
 #[derive(Default)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct AttributeWitnesses<'a> {
     pub(super) inputs: [Option<AttributeWitness<'a>>; 4],
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct AttributeWitness<'a> {
     pub(super) sha_256_input: &'a mut [Field2_128; 2 * 64 * 8],
     pub(super) sha_256_witness: Sha256Witness<'a, { 2 * Sha256BlockWitness::LENGTH }>,

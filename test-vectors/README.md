@@ -57,3 +57,14 @@ quads at that version.
 [mac-test-vector-1]: https://github.com/tgeoghegan/longfellow-zk/blob/66aeaf09a9cc98e36873e868307ac07279d5f7e0/lib/circuits/mac/mac_circuit_test.cc
 
 [draft-google-cfrg-libzk]: https://datatracker.ietf.org/doc/draft-google-cfrg-libzk/
+
+## `mdoc_zk`
+
+### `witness_test_vector.json`
+
+This test vector was generated using a custom test from commit
+[88fc0a208659a867efe7428ad19939515dc42d07][commit]. It provides all high-level prover inputs, plus
+MAC key shares generated randomly or from Fiat-Shamir challenges, and the resulting circuit input
+values.
+
+[commit]: https://github.com/divergentdave/longfellow-zk/commit/88fc0a208659a867efe7428ad19939515dc42d07

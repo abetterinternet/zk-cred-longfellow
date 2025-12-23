@@ -86,6 +86,11 @@ impl Field2_128 {
             None
         }
     }
+
+    /// Decomposes a field element into bits.
+    pub fn iter_bits(&self) -> impl Iterator<Item = bool> {
+        (0..Self::NUM_BITS).map(|i| (self.0 >> i) & 1 != 0)
+    }
 }
 
 /// The lower-upper decomposition of the basis for the 16-bit subfield of [`Field2_128`].

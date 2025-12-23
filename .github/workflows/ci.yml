@@ -27,6 +27,8 @@ jobs:
         RUSTDOCFLAGS: "-D warnings"
     - name: Test
       run: cargo test
+    - name: Test benchmarks
+      run: cargo test --benches
 
   wasm-node:
     runs-on: ubuntu-latest

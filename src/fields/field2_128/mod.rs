@@ -72,7 +72,8 @@ impl Field2_128 {
             if (remainder >> decomposition.first_nonzero[rank]) & 1 == 1 {
                 // Subtract the row-reduced element of beta from the value we started with
                 remainder ^= decomposition.upper[rank];
-                // Sum the identity matrix element into the encoding
+                // Sum the corresponding coefficients of the linear combination of basis elements
+                // into the encoding.
                 subfield_encoding ^= decomposition.lower_inverse[rank];
                 // Recall that in GF(2), addition and subtraction are the same and in turn boil
                 // down to XOR

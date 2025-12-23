@@ -30,7 +30,7 @@ impl InputLayout {
         })
     }
 
-    /// Returns the length of the input for the signature circuit, in field elements.
+    /// Returns the length of the input for the signature circuit, in P-256 field elements.
     ///
     /// This includes all public and private inputs, including the implicit 1.
     pub(super) fn signature_input_length(&self) -> usize {
@@ -93,7 +93,7 @@ impl InputLayout {
         }
     }
 
-    /// Returns the length of the input for the hash circuit, in field elements.
+    /// Returns the length of the input for the hash circuit, in GF(2^128) field elements.
     ///
     /// This includes all public and private inputs, including the implicit 1.
     pub(super) fn hash_input_length(&self) -> usize {

@@ -403,8 +403,6 @@ fn galois_square(x: u128) -> u128 {
 
 #[cfg(test)]
 mod tests {
-    use std::u128;
-
     #[cfg(target_arch = "aarch64")]
     use crate::fields::field2_128::backend_aarch64;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

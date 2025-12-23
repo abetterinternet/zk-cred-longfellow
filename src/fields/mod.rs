@@ -138,14 +138,14 @@ pub trait CodecFieldElement:
     }
 
     /// Whether or not this field element fits in the subfield associated with the field.
-    fn fits_in_subfield(&self) -> bool {
-        // For now, we only support fields where the subfield and the field are the same.
+    fn is_in_subfield(&self) -> bool {
+        // By default, fields have no subfield, or put another way, they are their own subfield.
         true
     }
 
     /// Encode this element as an element of the subfield associated with the field.
     fn encode_in_subfield(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
-        // For now, we only support fields where the subfield and the field are the same.
+        // By default, fields have no subfield, or put another way, they are their own subfield.
         self.encode(bytes)
     }
 
@@ -154,7 +154,7 @@ pub trait CodecFieldElement:
         bytes: &mut Cursor<&[u8]>,
         count: usize,
     ) -> Result<Vec<Self>, anyhow::Error> {
-        // For now, we only support fields where the subfield and the field are the same.
+        // By default, fields have no subfield, or put another way, they are their own subfield.
         Self::decode_fixed_array(bytes, count)
     }
 }

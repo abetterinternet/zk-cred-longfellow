@@ -203,6 +203,20 @@ impl Codec for u8 {
     }
 }
 
+impl Codec for u16 {
+    fn decode(bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        bytes
+            .read_u16::<LittleEndian>()
+            .context("failed to read u16")
+    }
+
+    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        bytes
+            .write_u16::<LittleEndian>(*self)
+            .context("failed to write u16")
+    }
+}
+
 impl Codec for u32 {
     fn decode(bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
         bytes

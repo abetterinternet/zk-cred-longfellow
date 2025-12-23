@@ -1,7 +1,7 @@
-//! Precomputed constants used in interpolating polynomials in GF(2^128). These are over here
-//! because it would be annoying to scroll past them while reading module `extend`.
+//! Precomputed constants used in various operations in GF(2^128). These are over here because
+//! because it would be annoying to scroll past them while reading other modules.
 
-use crate::fields::field2_128::Field2_128;
+use crate::fields::field2_128::{Field2_128, SubfieldBasisLowerUpperDecomposition};
 
 /// The basis of the subfield GF(2^16), viewed as a vector space over GF(2), used to inject integers
 /// into [`Field2_128`] so that they can be efficiently stored in proofs.
@@ -14,7 +14,6 @@ use crate::fields::field2_128::Field2_128;
 ///
 /// [1]: https://eprint.iacr.org/2024/2010.pdf
 /// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
-#[cfg(test)]
 pub(crate) const fn subfield_basis() -> [Field2_128; Field2_128::SUBFIELD_BIT_LENGTH] {
     // Computed in SageMath:
     // GF2 = GF(2)
@@ -44,17 +43,67 @@ pub(crate) const fn subfield_basis() -> [Field2_128; Field2_128::SUBFIELD_BIT_LE
     ]
 }
 
+/// The precomputed lower-upper decomposition of the basis of the [`Field2_128`] subfield
+/// ([`subfield_basis`]). Used to attempt projection of GF(2^128) elements into the subfield, as
+/// described in [FS24 section 3.3][1].
+///
+/// [1]: https://eprint.iacr.org/2024/2010.pdf#subsection.3.3
+pub(crate) const fn subfield_basis_lu_decomposition() -> SubfieldBasisLowerUpperDecomposition {
+    // Computed using fields::field2_128::constants::test::compute_subfield_basis_lu_decomposition.
+    // We can't evaluate that function in const because its loops call methods on trait `Iterator`
+    // and related types.
+    SubfieldBasisLowerUpperDecomposition {
+        upper: [
+            0b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001,
+            0b10100111011011000010111001100011010011000110010010000011101011101001101110100011001010000010000010000111101000111111100000100110,
+            0b10110110000111100000100011011010000100101111100101100110010111000011111110001101111010001010001011111001111111110111111011101100,
+            0b10001011101110011001011001011000111010101111001011001010111000001010011011100011000100001111101101101110000101110110111010101000,
+            0b01111000010000011111011111001111000000111011000011010101101000111100101011101111011101100100100010001011001010111111111000010000,
+            0b11101010010001110111100101011101011001111111100010110010111001001100111000001010111101101010001101001111101100001010010010100000,
+            0b11010011001001110110111101011111101100100001100001010100000100001110011110101011001010011000010100101101110100001011000011000000,
+            0b00110101110001110000001111111000111110001010001100101000110111001011100010011111101110010100000001010010100101110101000110000000,
+            0b11011011100110011101001010010011100011011110011101010111111010110110110001010001110001010000100010001010111100110111011100000000,
+            0b00101101001010010000101100110000011000110011110100101101001100000111101011111110100111011001101001010111110010001001111000000000,
+            0b00111100110000101001100100100111100000100100111011101011001000000011010011101011011111111001100100110001000000111010110000000000,
+            0b01101100111010101100011111101011110100110100111101110010110100100001000100010111110101100000101110010111111100011010100000000000,
+            0b01001100011000010101110011111000100111001111111111011010001011101101010011001000011111001111111100110101100110111111000000000000,
+            0b11101011011010011011010111110101001000101010101000010011010010011111000100111011111110011100001010001010000101001100000000000000,
+            0b11010010111111100011000111111100010001001110110001101010111101000000100000111011110001000101111011001111110111111000000000000000,
+            0b11101010000011011000110001001110011110010101111111111011011001101110010011001000110100111000110111000100110110110000000000000000,
+        ],
+        lower_inverse: [
+            0b0000000000000000000000000000000000000000000000000000000000000001,
+            0b0000000000000000000000000000000000000000000000000000000000010001,
+            0b0000000000000000000000000000000000000000000000000000000000001001,
+            0b0000000000000000000000000000000000000000000000000000000000000100,
+            0b0000000000000000000000000000000000000000000000000000000000110101,
+            0b0000000000000000000000000000000000000000000000000000000000001011,
+            0b0000000000000000000000000000000000000000000000000000000010011100,
+            0b0000000000000000000000000000000000000000000000000000000001001111,
+            0b0000000000000000000000000000000000000000000000000000001011101011,
+            0b0000000000000000000000000000000000000000000000000000011010001000,
+            0b0000000000000000000000000000000000000000000000000000000110101001,
+            0b0000000000000000000000000000000000000000000000000000100011100011,
+            0b0000000000000000000000000000000000000000000000000001011100010000,
+            0b0000000000000000000000000000000000000000000000000010110011110001,
+            0b0000000000000000000000000000000000000000000000001011001011000111,
+            0b0000000000000000000000000000000000000000000000000110111001011110,
+        ],
+        first_nonzero: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16],
+    }
+}
+
 /// The precomputed array used in the twiddle function for additive Fast Fourier Transforms in
-/// [`Field2_128`]. Also "W^hat" in section 3.2 of the [paper][1], or the normalized subspace vanishing polynomials.
+/// [`Field2_128`]. Also "W^hat" in [FS24 section 3.2][1], or the normalized subspace vanishing
+/// polynomials.
 ///
 /// Element [i][j] of this array represents W^hat_i(beta_j).
 ///
-/// [1]: https://eprint.iacr.org/2024/2010.pdf
+/// [1]: https://eprint.iacr.org/2024/2010.pdf#subsection.3.2
 pub(crate) const fn twiddle_array()
 -> [[Field2_128; Field2_128::SUBFIELD_BIT_LENGTH]; Field2_128::SUBFIELD_BIT_LENGTH] {
-    // Computed using fields::field2_128::extend_constants::test::compute_twiddle_array. We can't
-    // evaluate that function in const because its loops call methods on trait `Iterator` and
-    // related types.
+    // Computed using fields::field2_128::constants::test::compute_twiddle_array. We can't evaluate
+    // that function in const because its loops call methods on trait `Iterator` and related types.
     [
         [
             Field2_128::from_u128_const(1),
@@ -357,7 +406,7 @@ pub(crate) fn twiddle_array_at(x: u32, y: u32) -> Field2_128 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fields::{FieldElement, field2_128::Field2_128};
+    use crate::fields::{CodecFieldElement, FieldElement, field2_128::Field2_128};
 
     /// Compute the twiddle array W^hat from the subfield basis and the subspace vanishing
     /// polynomials. See [`twiddle_array`] for more discussion.
@@ -388,8 +437,8 @@ mod tests {
 
     #[test]
     fn twiddle_array_equivalence() {
-        // Print out the computed twiddle array as a literal so it can be copy-pasted into
-        // Field2_128::twiddle_array
+        // Print out the computed twiddle array as a literal so it can be copy-pasted into function
+        // twiddle_array
         println!("[");
         for row in compute_twiddle_array() {
             println!("[");
@@ -401,5 +450,103 @@ mod tests {
         print!("]");
 
         assert_eq!(twiddle_array(), compute_twiddle_array());
+    }
+
+    fn compute_subfield_basis_lu_decomposition() -> SubfieldBasisLowerUpperDecomposition {
+        // Make sure our definition of the subfield basis is consistent with everything else.
+        assert_eq!(Field2_128::SUBFIELD_BIT_LENGTH, subfield_basis().len());
+
+        // Construct the matrix B whose rows are the elements of the subfield basis vector
+        // interpreted as vectors of 128 bits.
+        let mut upper = [0u128; Field2_128::SUBFIELD_BIT_LENGTH];
+        for (upper_element, subfield_basis_element) in upper.iter_mut().zip(subfield_basis()) {
+            *upper_element = subfield_basis_element.0;
+        }
+
+        // Negative of identity matrix (-I). Negation in GF(2) is a no-op.
+        let mut lower_inverse = [0u16; Field2_128::SUBFIELD_BIT_LENGTH];
+        for (index, li_element) in lower_inverse.iter_mut().enumerate() {
+            *li_element = 1 << index;
+        }
+
+        // first_nonzero[i] is the index of the first column in row i that is not zero.
+        let mut first_nonzero = [0usize; Field2_128::SUBFIELD_BIT_LENGTH];
+
+        // Reduce B to row echelon form, thus converting -I to -L^(-1)
+        let mut rank = 0usize;
+        for j in 0..Field2_128::NUM_BITS {
+            // find pivot at row >= rank in column j
+            let mut found_pivot = false;
+            for i in rank..Field2_128::SUBFIELD_BIT_LENGTH {
+                if (upper[i] >> j) & 1 == 1 {
+                    upper.swap(i, rank);
+                    lower_inverse.swap(i, rank);
+
+                    found_pivot = true;
+                    break;
+                }
+            }
+
+            if !found_pivot {
+                // No pivot for this rank on this row. We'll keep looking in the next row.
+                continue;
+            }
+
+            first_nonzero[rank] = j.try_into().expect("u32 too big for usize?");
+
+            // Pivot on [rank][j]
+            for i in (rank + 1)..Field2_128::SUBFIELD_BIT_LENGTH {
+                if (upper[i] >> j) & 1 == 1 {
+                    upper[i] ^= upper[rank];
+                    lower_inverse[i] ^= lower_inverse[rank];
+                }
+            }
+            rank += 1;
+            if rank == Field2_128::SUBFIELD_BIT_LENGTH {
+                break;
+            }
+        }
+
+        assert_eq!(rank, Field2_128::SUBFIELD_BIT_LENGTH);
+
+        SubfieldBasisLowerUpperDecomposition {
+            upper,
+            lower_inverse,
+            first_nonzero,
+        }
+    }
+
+    #[test]
+    fn subfield_basis_lu_decomposition_equivalence() {
+        let decomposition = compute_subfield_basis_lu_decomposition();
+        // Print out the LU decomposition as a literal so it can be copy-pasted into function
+        // subfield_basis_lu_decomposition
+        println!(
+            r#"SubfieldBasisLowerUpperDecomposition {{
+  upper: ["#
+        );
+        for upper_elem in decomposition.upper {
+            println!("    0b{:0128b},", upper_elem);
+        }
+        println!(
+            r#"  ],
+  lower_inverse: ["#
+        );
+        for lower_elem in decomposition.lower_inverse {
+            println!("    0b{:064b},", lower_elem);
+        }
+        println!(
+            r#"  ],
+  first_nonzero: ["#
+        );
+        for element in decomposition.first_nonzero {
+            println!("    {},", element);
+        }
+        println!(
+            r#"  ],
+}}"#
+        );
+
+        assert_eq!(decomposition, subfield_basis_lu_decomposition());
     }
 }

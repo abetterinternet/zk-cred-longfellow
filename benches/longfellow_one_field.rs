@@ -9,7 +9,7 @@ use zk_cred_longfellow::{
 };
 
 fn load_circuit(name: &str) -> Circuit {
-    let compressed = fs::read(format!("test-vectors/circuit/{name}.circuit.zst")).unwrap();
+    let compressed = fs::read(format!("test-vectors/one-circuit/{name}.circuit.zst")).unwrap();
     let bytes = zstd::decode_all(compressed.as_slice()).unwrap();
     Circuit::decode(&mut Cursor::new(&bytes)).unwrap()
 }

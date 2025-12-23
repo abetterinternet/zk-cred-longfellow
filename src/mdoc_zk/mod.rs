@@ -37,11 +37,13 @@ impl CircuitInputs {
         _time: &str,
         _mac_prover_key_shares: &[Field2_128; 6],
     ) -> Result<Self, anyhow::Error> {
-        if attributes.is_empty() || attributes.len() > 4 {
-            return Err(anyhow!("unsupported number of attributes"));
-        }
-
-        let layout = InputLayout::new(version, attributes.len() as u8)?;
+        let layout = InputLayout::new(
+            version,
+            attributes
+                .len()
+                .try_into()
+                .map_err(|_| anyhow!("unsupported number of attributes"))?,
+        )?;
 
         let mut signature_input = vec![FieldP256::ZERO; layout.signature_input_length()];
         let mut split_signature_input = layout.split_signature_input(&mut signature_input);

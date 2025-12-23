@@ -4,7 +4,7 @@
 
 use crate::fields::{
     FieldElement,
-    field2_128::{Field2_128, extend_constants::twiddle_array_at},
+    field2_128::{Field2_128, constants::twiddle_array_at},
 };
 use std::cmp::min;
 

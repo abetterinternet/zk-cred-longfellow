@@ -9,7 +9,8 @@ use crate::{
         field2_128::extend::{ExtendContext, interpolate},
     },
 };
-use anyhow::Context;
+use anyhow::{Context, anyhow};
+use constants::{subfield_basis, subfield_basis_lu_decomposition};
 #[cfg(target_arch = "aarch64")]
 use std::arch::is_aarch64_feature_detected;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
@@ -42,12 +43,11 @@ impl Field2_128 {
     /// 16 elements, so we can't inject anything bigger than u16.
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
-    #[cfg(test)]
     fn inject(mut value: u16) -> Self {
         // It's safe and reasonable to inject any u16 because the basis has 16 elements.
         let mut injected = Self::ZERO;
-        assert_eq!(extend_constants::subfield_basis().len(), u16::BITS as usize);
-        for basis_element in extend_constants::subfield_basis() {
+        assert_eq!(subfield_basis().len(), u16::BITS as usize);
+        for basis_element in subfield_basis() {
             if value & 1 == 1 {
                 injected += basis_element;
             }
@@ -56,6 +56,43 @@ impl Field2_128 {
 
         injected
     }
+
+    /// Reverse [`Self::inject`]: find the representation of `self` in the subfield, if it exists.
+    /// In other words, determine if this element of `GF(2^128)` is also an element of the subfield.
+    /// The representation is a u16, which is interpreted as a vector of bits that can be dotted
+    /// with the subfield basis to get the GF(2^128) representation, but is also the encoding of the
+    /// field element.
+    fn uninject(&self) -> Option<u16> {
+        let decomposition = subfield_basis_lu_decomposition();
+
+        let mut remainder = self.0;
+        let mut subfield_encoding = 0u16;
+
+        for rank in 0..Self::SUBFIELD_BIT_LENGTH {
+            if (remainder >> decomposition.first_nonzero[rank]) & 1 == 1 {
+                // Subtract the row-reduced element of beta from the value we started with
+                remainder ^= decomposition.upper[rank];
+                // Sum the identity matrix element into the encoding
+                subfield_encoding ^= decomposition.lower_inverse[rank];
+                // Recall that in GF(2), addition and subtraction are the same and in turn boil
+                // down to XOR
+            }
+        }
+
+        if remainder == 0 {
+            Some(subfield_encoding)
+        } else {
+            None
+        }
+    }
+}
+
+/// The lower-upper decomposition of the basis for the 16-bit subfield of [`Field2_128`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SubfieldBasisLowerUpperDecomposition {
+    upper: [u128; Field2_128::SUBFIELD_BIT_LENGTH],
+    lower_inverse: [u16; Field2_128::SUBFIELD_BIT_LENGTH],
+    first_nonzero: [usize; Field2_128::SUBFIELD_BIT_LENGTH],
 }
 
 impl FieldElement for Field2_128 {
@@ -79,6 +116,27 @@ impl FieldElement for Field2_128 {
 
 impl CodecFieldElement for Field2_128 {
     const NUM_BITS: u32 = 128;
+
+    fn is_in_subfield(&self) -> bool {
+        self.uninject().is_some()
+    }
+
+    fn encode_in_subfield(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        let subfield_encoding = self
+            .uninject()
+            .ok_or_else(|| anyhow!("GF(2^128) element {:?} is not in subfield", self))?;
+
+        subfield_encoding.encode(bytes)
+    }
+
+    fn decode_fixed_array_in_subfield(
+        bytes: &mut Cursor<&[u8]>,
+        count: usize,
+    ) -> Result<Vec<Self>, anyhow::Error> {
+        let subfield_elements = u16::decode_fixed_array(bytes, count)?;
+
+        Ok(subfield_elements.iter().map(|e| Self::inject(*e)).collect())
+    }
 }
 
 impl ProofFieldElement for Field2_128 {
@@ -259,8 +317,8 @@ mod backend_bit_slicing;
 mod backend_naive_loop;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod backend_x86;
+mod constants;
 mod extend;
-mod extend_constants;
 
 /// Cache for runtime CPU feature support detection.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
@@ -345,12 +403,17 @@ fn galois_square(x: u128) -> u128 {
 
 #[cfg(test)]
 mod tests {
+    use std::u128;
+
     #[cfg(target_arch = "aarch64")]
     use crate::fields::field2_128::backend_aarch64;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     use crate::fields::field2_128::backend_x86;
-    use crate::fields::field2_128::{
-        backend_bit_slicing, backend_naive_loop, galois_multiply, galois_square,
+    use crate::fields::{
+        CodecFieldElement,
+        field2_128::{
+            Field2_128, backend_bit_slicing, backend_naive_loop, galois_multiply, galois_square,
+        },
     };
     use rand::random;
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -358,12 +421,12 @@ mod tests {
     static ARGS: [u128; 8] = [
         u128::MIN,
         u128::MAX,
-        0x5555_5555_5555_5555_5555_5555_5555_5555u128,
-        0xAAAA_AAAA_AAAA_AAAA_AAAA_AAAA_AAAA_AAAAu128,
-        0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFEu128,
-        0x8000_0000_0000_0000_0000_0000_0000_0001u128,
-        0x8000_0000_0000_0000_0000_0000_0000_0002u128,
-        0x0000_0000_0000_0001_0000_0000_0000_0000u128,
+        0x5555_5555_5555_5555_5555_5555_5555_5555,
+        0xAAAA_AAAA_AAAA_AAAA_AAAA_AAAA_AAAA_AAAA,
+        0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFE,
+        0x8000_0000_0000_0000_0000_0000_0000_0001,
+        0x8000_0000_0000_0000_0000_0000_0000_0002,
+        0x0000_0000_0000_0001_0000_0000_0000_0000,
     ];
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -597,5 +660,21 @@ mod tests {
                 "0x{x:032x}^2 returned 0x{result:032x} not 0x{expected:032x}"
             );
         }
+    }
+
+    #[test]
+    fn inject_roundtrip() {
+        for to_inject in 0..u16::MAX {
+            let in_subfield = Field2_128::inject(to_inject);
+            assert!(in_subfield.is_in_subfield());
+            assert_eq!(in_subfield.uninject(), Some(to_inject));
+        }
+    }
+
+    #[test]
+    fn inject_not_in_subfield() {
+        let not_in_subfield = Field2_128::from_u128_const(u128::MAX);
+        assert!(!not_in_subfield.is_in_subfield());
+        assert_eq!(not_in_subfield.uninject(), None);
     }
 }

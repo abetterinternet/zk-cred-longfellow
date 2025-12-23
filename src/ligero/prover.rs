@@ -281,7 +281,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
         let expected_column_elements = layout.num_rows() * layout.num_requested_columns();
         let mut column_elements = Vec::with_capacity(expected_column_elements);
         let mut subfield_run = false;
-        while column_elements.len() < layout.num_rows() * layout.num_requested_columns() {
+        while column_elements.len() < expected_column_elements {
             // Sizes are usually u24 in Longfellow, but in this case it happens to be u32. See
             // `write_size` and `read_size` in lib/zk/zk_proof.h.
             let run_length =
@@ -348,7 +348,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
                 if run_length == MAX_RUN_LENGTH {
                     break;
                 }
-                if element.fits_in_subfield() == is_subfield_run {
+                if element.is_in_subfield() == is_subfield_run {
                     run_length += 1;
                 }
             }
@@ -475,7 +475,7 @@ mod tests {
         prove::<FieldP128>(test_vector, circuit);
     }
 
-    #[ignore = "slow test + failing"]
+    #[ignore = "slow test"]
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_mac() {
         let (test_vector, circuit) = load_mac();

@@ -10,6 +10,7 @@ use crate::{
     transcript::Transcript,
     witness::Witness,
 };
+use anyhow::anyhow;
 use std::mem::swap;
 
 /// Generate a sumcheck proof of evaluation of a circuit.
@@ -45,6 +46,10 @@ impl<'a> SumcheckProver<'a> {
         // Specification interpretation verification: all the outputs should be zero
         for output in evaluation.outputs() {
             assert_eq!(output, &FE::ZERO);
+        }
+
+        if evaluation.inputs().len() != usize::from(self.circuit.num_inputs) {
+            return Err(anyhow!("wrong number of inputs"));
         }
 
         // Choose the bindings for the output layer.

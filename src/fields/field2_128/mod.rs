@@ -20,7 +20,7 @@ use std::{
     io::{Cursor, Read},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-use subtle::{ConditionallySelectable, ConstantTimeEq};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
 /// An element of the field GF(2^128).
 ///
@@ -48,9 +48,8 @@ impl Field2_128 {
         let mut injected = Self::ZERO;
         assert_eq!(subfield_basis().len(), u16::BITS as usize);
         for basis_element in subfield_basis() {
-            if value & 1 == 1 {
-                injected += basis_element;
-            }
+            let bit = Choice::from((value & 1) as u8);
+            injected += Self::conditional_select(&Self::ZERO, &basis_element, bit);
             value >>= 1;
         }
 

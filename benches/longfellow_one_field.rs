@@ -3,7 +3,7 @@ use std::{fs, hint::black_box, io::Cursor};
 use zk_cred_longfellow::{
     Codec,
     circuit::Circuit,
-    fields::fieldp128::FieldP128,
+    fields::{FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
     ligero::LigeroParameters,
     zk_one_circuit::{prover::Prover, verifier::Verifier},
 };
@@ -36,7 +36,7 @@ fn rfc_1(c: &mut Criterion) {
         b.iter(|| {
             prover
                 .prove(black_box(session_id), black_box(inputs))
-                .unwrap()
+                .unwrap();
         });
     });
 
@@ -50,12 +50,57 @@ fn rfc_1(c: &mut Criterion) {
         b.iter(|| {
             verifier
                 .verify(black_box(public_inputs), black_box(&proof))
-                .unwrap()
-        })
+                .unwrap();
+        });
     });
 
     g.finish();
 }
 
-criterion_group!(benches, rfc_1);
+fn mac(c: &mut Criterion) {
+    let circuit = load_circuit("longfellow-mac-circuit-66aeaf09a9cc98e36873e868307ac07279d5f7e0-1");
+    let ligero_parameters = LigeroParameters {
+        nreq: 128,
+        witnesses_per_row: 213,
+        quadratic_constraints_per_row: 213,
+        block_size: 341,
+        num_columns: 2048,
+    };
+
+    let session_id = b"test";
+    let num_inputs = circuit.num_public_inputs() + circuit.num_private_inputs();
+    let inputs = vec![Field2_128::ZERO; num_inputs - 1];
+    // The inputs are the implicit one, the message, the MACs, the verifier key share, and the proof
+    // key shares. The `Circuit::evaluate()` method will prepend the implicit one. We can set all of
+    // the other inputs to zero for benchmark purposes, since the MAC will verify successfully.
+
+    let prover = Prover::new(&circuit, ligero_parameters);
+
+    let mut g = c.benchmark_group("mac");
+
+    g.bench_function("prove", |b| {
+        b.iter(|| {
+            prover
+                .prove(black_box(session_id), black_box(inputs.as_slice()))
+                .unwrap();
+        });
+    });
+
+    let proof = prover.prove(session_id, inputs.as_slice()).unwrap();
+    let public_inputs = &inputs[..circuit.num_public_inputs() - 1];
+
+    let verifier = Verifier::new(&circuit, ligero_parameters);
+
+    g.bench_function("verify", |b| {
+        b.iter(|| {
+            verifier
+                .verify(black_box(public_inputs), black_box(&proof))
+                .unwrap();
+        });
+    });
+
+    g.finish();
+}
+
+criterion_group!(benches, rfc_1, mac);
 criterion_main!(benches);

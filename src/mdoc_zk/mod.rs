@@ -1,10 +1,12 @@
 use crate::{
     fields::{FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
-    mdoc_zk::layout::InputLayout,
+    mdoc_zk::{layout::InputLayout, mdoc::parse_device_response},
 };
 use anyhow::anyhow;
 
+mod ec;
 mod layout;
+mod mdoc;
 
 /// Versions of the mdoc_zk circuit interface.
 pub enum CircuitVersion {
@@ -30,7 +32,7 @@ impl CircuitInputs {
     /// Construct inputs for the signature and hash circuits.
     pub fn new(
         version: CircuitVersion,
-        _mdoc_device_response: &[u8],
+        mdoc_device_response: &[u8],
         _issuer_public_key: [FieldP256; 2],
         _transcript: &[u8],
         attributes: &[Attribute],
@@ -45,6 +47,8 @@ impl CircuitInputs {
                 .map_err(|_| anyhow!("unsupported number of attributes"))?,
         )?;
 
+        let mdoc = parse_device_response(mdoc_device_response)?;
+
         let mut signature_input = vec![FieldP256::ZERO; layout.signature_input_length()];
         let mut split_signature_input = layout.split_signature_input(&mut signature_input);
 
@@ -54,6 +58,10 @@ impl CircuitInputs {
         // Set the first wire in both inputs to one.
         *split_signature_input.implicit_one = FieldP256::ONE;
         *split_hash_input.implicit_one = Field2_128::ONE;
+
+        // Set the issuer public key.
+        *split_signature_input.issuer_public_key_x = mdoc.issuer_public_key_x;
+        *split_signature_input.issuer_public_key_y = mdoc.issuer_public_key_y;
 
         // Smoke test: iterate through multiscalar multiplication witnesses.
         for _ in split_signature_input.credential_ecdsa_witness.iter_msm() {}

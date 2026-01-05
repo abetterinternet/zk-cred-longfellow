@@ -459,6 +459,24 @@ mod tests {
         )
         .unwrap();
 
+        for wrong_length in [
+            circuit.num_public_inputs() - 1,
+            circuit.num_public_inputs() + 1,
+        ] {
+            assert!(
+                LinearConstraints::from_proof(
+                    &circuit,
+                    evaluation.public_inputs(wrong_length),
+                    &mut transcript,
+                    &test_vector_proof,
+                )
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("wrong number of inputs")
+            );
+        }
+
         assert_eq!(
             linear_constraints.rhs,
             test_vector.constraints.linear_constraint_rhs()

@@ -32,7 +32,7 @@ pub struct Polynomial<FE> {
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.3
 pub(crate) fn initialize_transcript<FE>(
     transcript: &mut Transcript,
-    circuit: &Circuit,
+    circuit: &Circuit<FE>,
     public_inputs: &[FE],
 ) -> Result<(), anyhow::Error>
 where

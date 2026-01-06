@@ -328,36 +328,6 @@ impl FieldId {
     }
 }
 
-/// A serialized field element. The encoded length depends on the [`FieldId`].
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub struct SerializedFieldElement(pub Vec<u8>);
-
-impl SerializedFieldElement {
-    // Annoyingly we can't implement Codec for this: encoding or decoding a field element requires
-    // knowledge of the field element in use by the circuit, which means we can't decode without
-    // some context.
-    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
-        u8::encode_fixed_array(&self.0, bytes)
-    }
-
-    pub fn decode(field_id: FieldId, bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
-        Ok(Self(u8::decode_fixed_array(
-            bytes,
-            field_id.encoded_length(),
-        )?))
-    }
-}
-
-impl TryFrom<SerializedFieldElement> for u128 {
-    type Error = anyhow::Error;
-
-    fn try_from(value: SerializedFieldElement) -> Result<Self, Self::Error> {
-        Ok(u128::from_le_bytes(value.0.try_into().map_err(|_| {
-            anyhow!("byte array wrong length for u128")
-        })?))
-    }
-}
-
 pub mod field2_128;
 pub mod fieldp128;
 pub mod fieldp256;
@@ -380,9 +350,9 @@ mod tests {
     use crate::{
         Codec,
         fields::{
-            CodecFieldElement, FieldElement, FieldId, ProofFieldElement, SerializedFieldElement,
-            field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
-            fieldp256_2::FieldP256_2, fieldp256_scalar::FieldP256Scalar,
+            CodecFieldElement, FieldElement, ProofFieldElement, field2_128::Field2_128,
+            fieldp128::FieldP128, fieldp256::FieldP256, fieldp256_2::FieldP256_2,
+            fieldp256_scalar::FieldP256Scalar,
         },
     };
     use num_bigint::BigUint;
@@ -391,22 +361,6 @@ mod tests {
     use std::{io::Cursor, iter::repeat_with, ops::Range};
     use subtle::Choice;
     use wasm_bindgen_test::wasm_bindgen_test;
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn codec_roundtrip_field_p128() {
-        let element = SerializedFieldElement(Vec::from([
-            0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
-            0xfe, 0xff,
-        ]));
-
-        let mut encoded = Vec::new();
-        element.encode(&mut encoded).unwrap();
-
-        let decoded =
-            SerializedFieldElement::decode(FieldId::FP128, &mut Cursor::new(&encoded)).unwrap();
-
-        assert_eq!(element, decoded)
-    }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn field_p128_from_bytes_accept() {
@@ -441,23 +395,6 @@ mod tests {
         ] {
             FieldP128::try_from(invalid_element).expect_err(label);
         }
-    }
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn codec_roundtrip_field_p256() {
-        let element = SerializedFieldElement(Vec::from([
-            0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
-            0xfe, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xfe, 0xff,
-            0xff, 0xff, 0xfe, 0xff,
-        ]));
-
-        let mut encoded = Vec::new();
-        element.encode(&mut encoded).unwrap();
-
-        let decoded =
-            SerializedFieldElement::decode(FieldId::P256, &mut Cursor::new(&encoded)).unwrap();
-
-        assert_eq!(element, decoded)
     }
 
     #[wasm_bindgen_test(unsupported = test)]

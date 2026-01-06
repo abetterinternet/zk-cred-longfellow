@@ -438,14 +438,8 @@ mod tests {
         for attributes in 1..=4 {
             let (sig_circuit, hash_circuit) = load_circuits(attributes);
             let layout = InputLayout::new(CircuitVersion::V6, attributes).unwrap();
-            assert_eq!(
-                layout.signature_input_length(),
-                usize::try_from(sig_circuit.num_inputs.0).unwrap()
-            );
-            assert_eq!(
-                layout.hash_input_length(),
-                usize::try_from(hash_circuit.num_inputs.0).unwrap(),
-            );
+            assert_eq!(layout.signature_input_length(), sig_circuit.num_inputs());
+            assert_eq!(layout.hash_input_length(), hash_circuit.num_inputs());
         }
     }
 }

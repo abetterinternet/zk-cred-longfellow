@@ -75,7 +75,7 @@ impl Transcript {
     /// Generate bindings for the output wires of a circuit.
     pub fn generate_output_wire_bindings<FE: CodecFieldElement>(
         &mut self,
-        circuit: &Circuit,
+        circuit: &Circuit<FE>,
     ) -> Result<Vec<FE>, anyhow::Error> {
         // longfellow-zk allocates two 40 element arrays and then re-uses them for each layer's
         // bindings. This saves allocations, but you have to keep track of the current length of the
@@ -104,6 +104,7 @@ impl Transcript {
 
         Ok(output_wire_bindings)
     }
+
     /// Write a field element to the transcript.
     ///
     /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.1.2>

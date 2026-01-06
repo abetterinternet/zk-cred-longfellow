@@ -3,12 +3,12 @@ use std::{fs, hint::black_box, io::Cursor};
 use zk_cred_longfellow::{
     Codec,
     circuit::Circuit,
-    fields::{FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
+    fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
     ligero::LigeroParameters,
     zk_one_circuit::{prover::Prover, verifier::Verifier},
 };
 
-fn load_circuit(name: &str) -> Circuit {
+fn load_circuit<FE: CodecFieldElement>(name: &str) -> Circuit<FE> {
     let compressed = fs::read(format!("test-vectors/one-circuit/{name}.circuit.zst")).unwrap();
     let bytes = zstd::decode_all(compressed.as_slice()).unwrap();
     Circuit::decode(&mut Cursor::new(&bytes)).unwrap()

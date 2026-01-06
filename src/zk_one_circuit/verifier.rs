@@ -12,16 +12,16 @@ use crate::{
 };
 
 /// Longfellow ZK verifier.
-pub struct Verifier<'a> {
-    pub(super) circuit: &'a Circuit,
+pub struct Verifier<'a, FE> {
+    pub(super) circuit: &'a Circuit<FE>,
     pub(super) witness_length: usize,
     pub(super) quadratic_constraints: Vec<QuadraticConstraint>,
     pub(super) ligero_parameters: LigeroParameters,
 }
 
-impl<'a> Verifier<'a> {
+impl<'a, FE: ProofFieldElement> Verifier<'a, FE> {
     /// Construct a new verifier from a circuit and a choice of Ligero parameters.
-    pub fn new(circuit: &'a Circuit, ligero_parameters: LigeroParameters) -> Self {
+    pub fn new(circuit: &'a Circuit<FE>, ligero_parameters: LigeroParameters) -> Self {
         let witness_layout = WitnessLayout::from_circuit(circuit);
         let quadratic_constraints = quadratic_constraints(circuit);
         Self {
@@ -33,7 +33,7 @@ impl<'a> Verifier<'a> {
     }
 
     /// Verify a Longfellow ZK proof.
-    pub fn verify<FE>(&self, statement: &[FE], proof: &Proof<FE>) -> Result<(), anyhow::Error>
+    pub fn verify(&self, statement: &[FE], proof: &Proof<FE>) -> Result<(), anyhow::Error>
     where
         FE: ProofFieldElement,
     {

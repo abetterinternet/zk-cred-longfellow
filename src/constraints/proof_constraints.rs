@@ -6,7 +6,7 @@
 use crate::{
     circuit::Circuit,
     constraints::symbolic::{SymbolicExpression, Term},
-    fields::ProofFieldElement,
+    fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
         bind::{ElementwiseSum, SumcheckArray, bindeq},
         prover::SumcheckProof,
@@ -46,7 +46,9 @@ pub struct QuadraticConstraint {
 
 /// Construct quadratic constraints from the circuit. Since quadratic constraints are purely in
 /// terms of witness values, they can be determined from nothing but the circuit.
-pub fn quadratic_constraints(circuit: &Circuit) -> Vec<QuadraticConstraint> {
+pub fn quadratic_constraints<FE: CodecFieldElement>(
+    circuit: &Circuit<FE>,
+) -> Vec<QuadraticConstraint> {
     let witness_layout = WitnessLayout::from_circuit(circuit);
 
     (0..circuit.num_layers())
@@ -83,7 +85,7 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
     pub fn from_proof(
-        circuit: &Circuit,
+        circuit: &Circuit<FE>,
         public_inputs: &[FE],
         transcript: &mut Transcript,
         proof: &SumcheckProof<FE>,
@@ -428,7 +430,7 @@ mod tests {
         }
     }
 
-    fn constraints<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit) {
+    fn constraints<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit<FE>) {
         let test_vector_proof = test_vector.sumcheck_proof(&circuit);
 
         let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();

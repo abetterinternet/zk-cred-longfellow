@@ -10,6 +10,7 @@ use crate::{
     transcript::Transcript,
     witness::Witness,
 };
+use anyhow::anyhow;
 use std::mem::swap;
 
 /// Generate a sumcheck proof of evaluation of a circuit.
@@ -45,6 +46,10 @@ impl<'a> SumcheckProver<'a> {
         // Specification interpretation verification: all the outputs should be zero
         for output in evaluation.outputs() {
             assert_eq!(output, &FE::ZERO);
+        }
+
+        if evaluation.inputs().len() != usize::from(self.circuit.num_inputs) {
+            return Err(anyhow!("wrong number of inputs"));
         }
 
         // Choose the bindings for the output layer.
@@ -390,10 +395,50 @@ mod tests {
         assert!(proof_encoded == test_vector.serialized_sumcheck_proof);
     }
 
+    fn prove_input_length_validation<FE: ProofFieldElement>(
+        test_vector: CircuitTestVector,
+        circuit: Circuit,
+    ) {
+        let mut longer_input = test_vector.valid_inputs();
+        longer_input.push(FE::ZERO);
+
+        let evaluation: Evaluation<FE> = circuit.evaluate(&longer_input).unwrap();
+
+        let witness = Witness::fill_witness(
+            WitnessLayout::from_circuit(&circuit),
+            evaluation.private_inputs(circuit.num_public_inputs()),
+            || test_vector.pad(),
+        );
+
+        let mut transcript = Transcript::new(b"test").unwrap();
+
+        transcript
+            .write_byte_array(test_vector.ligero_commitment().as_bytes())
+            .unwrap();
+        initialize_transcript(
+            &mut transcript,
+            &circuit,
+            evaluation.public_inputs(circuit.num_public_inputs()),
+        )
+        .unwrap();
+        let error = SumcheckProver::new(&circuit)
+            .prove(&evaluation, &mut transcript, &witness)
+            .err()
+            .unwrap();
+
+        assert!(error.to_string().contains("wrong number of inputs"));
+    }
+
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b() {
         let (test_vector, circuit) = load_rfc();
         prove::<FieldP128>(test_vector, circuit);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b_input_validation() {
+        let (test_vector, circuit) = load_rfc();
+        prove_input_length_validation::<FieldP128>(test_vector, circuit);
     }
 
     #[ignore = "slow test"]
@@ -401,6 +446,13 @@ mod tests {
     fn longfellow_mac() {
         let (test_vector, circuit) = load_mac();
         prove::<Field2_128>(test_vector, circuit);
+    }
+
+    #[ignore = "slow test"]
+    #[wasm_bindgen_test(unsupported = test)]
+    fn longfellow_mac_input_validation() {
+        let (test_vector, circuit) = load_mac();
+        prove_input_length_validation::<Field2_128>(test_vector, circuit);
     }
 
     #[wasm_bindgen_test(unsupported = test)]

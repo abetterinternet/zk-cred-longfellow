@@ -14,6 +14,7 @@ use crate::{
     transcript::Transcript,
     witness::WitnessLayout,
 };
+use anyhow::anyhow;
 use serde::Deserialize;
 
 /// A term of a linear constraint consisting of a triple (c, j, k), per [4.4.2][1]. This is one
@@ -87,6 +88,10 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
         transcript: &mut Transcript,
         proof: &SumcheckProof<FE>,
     ) -> Result<Self, anyhow::Error> {
+        if public_inputs.len() != circuit.num_public_inputs() {
+            return Err(anyhow!("wrong number of inputs"));
+        }
+
         let mut constraints = Self {
             lhs_terms: Vec::with_capacity(
                 // On each layer, 3 terms for vl, vr, vl * vr
@@ -453,6 +458,24 @@ mod tests {
             &test_vector_proof,
         )
         .unwrap();
+
+        for wrong_length in [
+            circuit.num_public_inputs() - 1,
+            circuit.num_public_inputs() + 1,
+        ] {
+            assert!(
+                LinearConstraints::from_proof(
+                    &circuit,
+                    evaluation.public_inputs(wrong_length),
+                    &mut transcript,
+                    &test_vector_proof,
+                )
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("wrong number of inputs")
+            );
+        }
 
         assert_eq!(
             linear_constraints.rhs,

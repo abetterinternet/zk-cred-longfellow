@@ -22,6 +22,8 @@ use std::{
 };
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
+use super::FieldId;
+
 /// An element of the field GF(2^128).
 ///
 /// This field is constructed using the irreducible polynomial x^128 + x^7 + x^2 + x + 1.
@@ -132,6 +134,8 @@ impl FieldElement for Field2_128 {
 
 impl CodecFieldElement for Field2_128 {
     const NUM_BITS: u32 = 128;
+
+    const FIELD_ID: super::FieldId = FieldId::GF2_128;
 
     fn is_in_subfield(&self) -> bool {
         self.uninject().is_some()

@@ -19,8 +19,6 @@ use std::{
 pub struct Circuit<FE> {
     /// 1 byte version. Currently always 1.
     version: u8,
-    /// The field this circuit uses. (not clear what subfield is used; hard coded to P256?)
-    field: FieldId,
     /// Number of output wires (also `nv` in some places).
     num_outputs: usize,
     /// Number of copies (what's a copy? is this used?)
@@ -51,7 +49,12 @@ fn fmt_id(s: &[u8; 32], f: &mut Formatter<'_>) -> fmt::Result {
 impl<FE: CodecFieldElement> Codec for Circuit<FE> {
     fn decode(bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
         let version = u8::decode(bytes)?;
-        let field = FieldId::decode(bytes)?;
+        let field_id = FieldId::decode(bytes)?;
+        if field_id != FE::FIELD_ID {
+            return Err(anyhow!(
+                "unexpected field id {field_id:?} in encoded circuit"
+            ));
+        }
         let num_outputs = Size::decode(bytes)?.into();
         let num_copies = Size::decode(bytes)?.into();
         let num_public_inputs = Size::decode(bytes)?.into();
@@ -69,7 +72,6 @@ impl<FE: CodecFieldElement> Codec for Circuit<FE> {
 
         Ok(Self {
             version,
-            field,
             num_outputs,
             num_copies,
             num_public_inputs,
@@ -84,7 +86,7 @@ impl<FE: CodecFieldElement> Codec for Circuit<FE> {
 
     fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
         self.version.encode(bytes)?;
-        self.field.encode(bytes)?;
+        FE::FIELD_ID.encode(bytes)?;
         Size::try_from(self.num_outputs)?.encode(bytes)?;
         Size::try_from(self.num_copies)?.encode(bytes)?;
         Size::try_from(self.num_public_inputs)?.encode(bytes)?;
@@ -120,11 +122,6 @@ impl<FE: CodecFieldElement> Circuit<FE> {
             .get(index)
             .copied()
             .ok_or_else(|| anyhow!("index {} not present in constant table", index))
-    }
-
-    /// Identifier for the field this circuit uses.
-    pub fn field_id(&self) -> FieldId {
-        self.field
     }
 
     /// Number of copies in the circuit (always 1).
@@ -518,9 +515,7 @@ pub(crate) mod tests {
     use crate::{
         Codec, Size,
         circuit::{Circuit, CircuitLayer, Evaluation, Quad},
-        fields::{
-            CodecFieldElement, FieldElement, FieldId, field2_128::Field2_128, fieldp128::FieldP128,
-        },
+        fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
     };
     use std::{collections::HashSet, io::Cursor};
@@ -558,13 +553,6 @@ pub(crate) mod tests {
     ) {
         // Verifies that circuits conform to a few invariants that we have interpreted from the
         // specification. Panics if any invariant does not hold for this circuit.
-        //
-        // It would be nice to do this in `Circuit::decode`, but we need to know which field
-        // element is in use.
-        assert_eq!(
-            FieldId::try_from(test_vector.field).unwrap(),
-            circuit.field_id()
-        );
         assert_eq!(Size::from(test_vector.depth - 1), circuit.num_layers());
         assert_eq!(test_vector.depth as usize - 1, circuit.layers.len());
 
@@ -847,7 +835,6 @@ pub(crate) mod tests {
         ];
         Circuit {
             version: 1,
-            field: FieldId::FP128,
             num_outputs: 1,
             num_copies: 0,
             num_public_inputs: 1,

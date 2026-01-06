@@ -21,6 +21,8 @@ use std::{
 };
 use subtle::{ConditionallySelectable, ConstantTimeEq, CtOption};
 
+use super::FieldId;
+
 /// FieldP256 is the field for the NIST P-256 elliptic curve.
 ///
 /// Field elements are serialized in little-endian form, per [Section 7.2.1 of draft-google-cfrg-libzk-00][1].
@@ -204,6 +206,8 @@ impl FieldElement for FieldP256 {
 
 impl CodecFieldElement for FieldP256 {
     const NUM_BITS: u32 = 256;
+
+    const FIELD_ID: super::FieldId = FieldId::P256;
 }
 
 impl ProofFieldElement for FieldP256 {

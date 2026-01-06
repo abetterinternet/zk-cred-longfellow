@@ -85,6 +85,9 @@ pub trait CodecFieldElement:
     /// Number of bits needed to represent a field element.
     const NUM_BITS: u32;
 
+    /// Identifier for the field in encoded messages.
+    const FIELD_ID: FieldId;
+
     /// Number of bytes needed to represent a field element.
     fn num_bytes() -> usize {
         (Self::NUM_BITS as usize).div_ceil(8)

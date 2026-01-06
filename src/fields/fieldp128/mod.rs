@@ -20,6 +20,8 @@ use std::{
 };
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
+use super::FieldId;
+
 /// FieldP128 is the field with modulus 2^128 - 2^108 + 1, described in [Section 7.2 of
 /// draft-google-cfrg-libzk-00][1]. The field does not get a name in the draft, but P128 comes from
 /// the longfellow implementation ([3]).
@@ -133,6 +135,8 @@ impl FieldElement for FieldP128 {
 
 impl CodecFieldElement for FieldP128 {
     const NUM_BITS: u32 = 128;
+
+    const FIELD_ID: super::FieldId = FieldId::FP128;
 }
 
 impl ProofFieldElement for FieldP128 {

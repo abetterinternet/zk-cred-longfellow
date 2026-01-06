@@ -77,8 +77,6 @@ pub(crate) fn load_mac() -> (CircuitTestVector, Circuit<Field2_128>) {
 pub(crate) struct CircuitTestVector {
     #[allow(dead_code)]
     pub(crate) description: String,
-    /// Field used by the circuit.
-    pub(crate) field: u8,
     /// Depth of the circuit. This is wire layers, not gate layers.
     pub(crate) depth: u32,
     /// Total quads in the circuit.

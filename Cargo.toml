@@ -27,7 +27,9 @@ criterion = { version = "0.8.0", features = ["html_reports"] }
 criterion = { version = "0.8.0", default-features = false }
 
 [dev-dependencies]
+hex = { version = "0.4.3", features = ["serde"] }
 num-traits = "0.2.19"
+pretty_assertions = "1.4.1"
 wasm-bindgen-test = "0.3"
 
 [[bench]]

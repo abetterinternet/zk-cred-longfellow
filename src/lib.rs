@@ -6,6 +6,7 @@ pub mod circuit;
 pub mod constraints;
 pub mod fields;
 pub mod ligero;
+pub mod mdoc_zk;
 pub mod sumcheck;
 #[cfg(test)]
 pub mod test_vector;

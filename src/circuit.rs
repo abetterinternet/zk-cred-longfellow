@@ -52,20 +52,13 @@ impl<FE: CodecFieldElement> Codec for Circuit<FE> {
     fn decode(bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
         let version = u8::decode(bytes)?;
         let field = FieldId::decode(bytes)?;
-        let num_outputs = Size::decode(bytes)?.try_into()?;
-        let num_copies = Size::decode(bytes)?.try_into()?;
-        let num_public_inputs = Size::decode(bytes)?.try_into()?;
-        let subfield_boundary = Size::decode(bytes)?.try_into()?;
-        let num_inputs = Size::decode(bytes)?.try_into()?;
-        let num_layers = Size::decode(bytes)?.try_into()?;
-        let num_constants = Size::decode(bytes)?.try_into()?;
-
-        // Decode constant table: first a count of elements, then each element's length is obtained
-        // from the field ID.
-        let mut constant_table = Vec::with_capacity(num_constants);
-        for _ in 0..num_constants.into() {
-            constant_table.push(FE::decode(bytes)?);
-        }
+        let num_outputs = Size::decode(bytes)?.into();
+        let num_copies = Size::decode(bytes)?.into();
+        let num_public_inputs = Size::decode(bytes)?.into();
+        let subfield_boundary = Size::decode(bytes)?.into();
+        let num_inputs = Size::decode(bytes)?.into();
+        let num_layers = Size::decode(bytes)?.into();
+        let constant_table = FE::decode_array(bytes)?;
 
         let layers = CircuitLayer::decode_fixed_array(bytes, num_layers)
             .context("failed to decode layers")?;
@@ -125,7 +118,7 @@ impl<FE: CodecFieldElement> Circuit<FE> {
     pub fn constant(&self, index: usize) -> Result<FE, anyhow::Error> {
         self.constant_table
             .get(index)
-            .map(|c| *c)
+            .copied()
             .ok_or_else(|| anyhow!("index {} not present in constant table", index))
     }
 
@@ -480,12 +473,12 @@ impl Quad {
     fn decode(prev_quad: Option<Quad>, bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
         let prev_quad = prev_quad.unwrap_or_default();
 
-        let gate_index = Size::decode_delta(prev_quad.gate_index.try_into()?, bytes)?.try_into()?;
+        let gate_index = Size::decode_delta(prev_quad.gate_index.try_into()?, bytes)?.into();
         let left_wire_index =
-            Size::decode_delta(prev_quad.left_wire_index.try_into()?, bytes)?.try_into()?;
+            Size::decode_delta(prev_quad.left_wire_index.try_into()?, bytes)?.into();
         let right_wire_index =
-            Size::decode_delta(prev_quad.right_wire_index.try_into()?, bytes)?.try_into()?;
-        let const_table_index = Size::decode(bytes)?.try_into()?;
+            Size::decode_delta(prev_quad.right_wire_index.try_into()?, bytes)?.into();
+        let const_table_index = Size::decode(bytes)?.into();
 
         Ok(Self {
             gate_index,

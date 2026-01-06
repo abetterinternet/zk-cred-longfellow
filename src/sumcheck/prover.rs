@@ -48,7 +48,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
             assert_eq!(output, &FE::ZERO);
         }
 
-        if evaluation.inputs().len() != usize::from(self.circuit.num_inputs()) {
+        if evaluation.inputs().len() != self.circuit.num_inputs() {
             return Err(anyhow!("wrong number of inputs"));
         }
 

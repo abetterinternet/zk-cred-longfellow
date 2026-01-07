@@ -1,5 +1,3 @@
-#![allow(unused)] // TODO: use this to calculate transcript hash.
-
 use crate::mdoc_zk::layout::Sha256BlockWitness;
 use std::iter;
 

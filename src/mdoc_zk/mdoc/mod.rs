@@ -4,13 +4,14 @@ use crate::{
     fields::fieldp256::FieldP256,
     mdoc_zk::{
         ec::decode_point,
-        mdoc::cose::{CoseKey, CoseSign1},
+        mdoc::cose::{CoseKey, CoseSign1, ProtectedHeadersEs256, SigStructure},
+        sha256::run_sha256,
     },
 };
 use anyhow::{Context, anyhow};
-use ciborium::tag;
-use serde::{Deserialize, de::IgnoredAny};
-use std::collections::HashMap;
+use ciborium::{Value, tag};
+use serde::{Deserialize, Serialize, de::IgnoredAny};
+use std::{collections::HashMap, ops::Deref};
 use x509_cert::{
     certificate::{CertificateInner, Raw},
     der::{Decode, SliceReader},
@@ -40,10 +41,8 @@ pub(super) struct Mdoc {
     pub(super) device_public_key_x: Vec<u8>,
     #[allow(unused)]
     pub(super) device_public_key_y: Vec<u8>,
-    #[allow(unused)]
     pub(super) doc_type: String,
-    #[allow(unused)]
-    pub(super) device_namespaces_bytes: Vec<u8>,
+    pub(super) device_name_spaces_bytes: Vec<u8>,
     #[allow(unused)]
     pub(super) device_signature: Vec<u8>,
 
@@ -123,7 +122,7 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
     let (issuer_public_key_x, issuer_public_key_y) = decode_point(public_key_bytes)?
         .ok_or_else(|| anyhow!("issuer public key was the point at infinity"))?;
 
-    let msob = ciborium::from_reader::<MobileSecurityObjectBytes, _>(
+    let msob = ciborium::from_reader::<EncodedCbor, _>(
         document
             .issuer_signed
             .issuer_auth
@@ -150,7 +149,7 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
         .map(|(namespace, items)| {
             (
                 namespace,
-                items.into_iter().map(|item| item.0).collect::<Vec<_>>(),
+                items.into_iter().map(|item| item.0.0).collect::<Vec<_>>(),
             )
         })
         .collect::<HashMap<_, _>>();
@@ -165,7 +164,7 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
         device_public_key_x: mso.device_key_info.device_key.x,
         device_public_key_y: mso.device_key_info.device_key.y,
         doc_type: document.doc_type,
-        device_namespaces_bytes: document.device_signed.name_spaces.0,
+        device_name_spaces_bytes: document.device_signed.name_spaces.0.0,
         device_signature: device_signature.signature,
         attribute_preimages,
         attribute_digests: mso.value_digests,
@@ -200,14 +199,14 @@ struct Document {
 #[serde(rename_all = "camelCase")]
 struct IssuerSigned {
     issuer_auth: CoseSign1,
-    name_spaces: Option<HashMap<String, Vec<tag::Required<Vec<u8>, 24>>>>,
+    name_spaces: Option<HashMap<String, Vec<EncodedCbor>>>,
 }
 
 /// DeviceSigned from ISO 18013-5.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeviceSigned {
-    name_spaces: tag::Required<Vec<u8>, 24>,
+    name_spaces: EncodedCbor,
     device_auth: DeviceAuth,
 }
 
@@ -223,7 +222,11 @@ enum DeviceAuth {
 #[derive(Debug, Deserialize)]
 struct ZkDocument {}
 
-type MobileSecurityObjectBytes = tag::Required<Vec<u8>, 24>;
+/// The encoded-cbor type from the CDDL standard prelude, in RFC 8610.
+///
+/// This is used for MobileSecurityObjectBytes, DeviceNameSpacesBytes, DeviceAuthenticationBytes,
+/// and IssuerSignedItemBytes from ISO 18013-5.
+type EncodedCbor = tag::Required<ByteString, 24>;
 
 /// MobileSecurityObject from ISO 18013-5.
 #[derive(Debug, Deserialize)]
@@ -247,4 +250,124 @@ struct DeviceKeyInfo {
 struct ValidityInfo {
     valid_from: tag::Required<String, 0>,
     valid_until: tag::Required<String, 0>,
+}
+
+/// Compute the hash of the session transcript, for the mdoc signature.
+pub(super) fn compute_session_transcript_hash(
+    mdoc: &Mdoc,
+    transcript: &[u8],
+) -> Result<FieldP256, anyhow::Error> {
+    let session_transcript = ciborium::from_reader::<Value, _>(transcript)
+        .context("could not parse SessionTranscript")?;
+
+    let device_authentication = DeviceAuthentication {
+        session_transcript,
+        doc_type: mdoc.doc_type.clone(),
+        device_name_spaces_bytes: tag::Required(ByteString(mdoc.device_name_spaces_bytes.clone())),
+    };
+    let mut buffer = Vec::new();
+    ciborium::into_writer(&device_authentication, &mut buffer)
+        .context("could not encode DeviceAuthentication")?;
+
+    let device_authentication_bytes: EncodedCbor = tag::Required(ByteString(buffer));
+    let mut payload = ByteString(Vec::new());
+    ciborium::into_writer(&device_authentication_bytes, &mut payload.0)
+        .context("could not encode DeviceAuthenticationBytes")?;
+
+    let mut body_protected = ByteString(Vec::new());
+    ciborium::into_writer(&ProtectedHeadersEs256, &mut body_protected.0)
+        .context("could not encode protected headers")?;
+
+    let sig_structure = SigStructure {
+        body_protected,
+        external_aad: ByteString(Vec::new()),
+        payload,
+    };
+    let mut message = Vec::new();
+    ciborium::into_writer(&sig_structure, &mut message)
+        .context("could not encode Sig_structure")?;
+
+    let mut digest = run_sha256(message.as_slice());
+    // SEC 1 uses big-endian encoding, but fiat-crypto uses little-endian encoding.
+    digest.reverse();
+
+    // TODO: should we reduce this in the scalar field before embedding it in the base field?
+    // This may avoid spurious failures with probability 2^-32.
+    //
+    // Related issue: https://github.com/google/longfellow-zk/issues/120
+    FieldP256::try_from(&digest).context(
+        "could not convert session transcript hash to a field element \
+        (see https://github.com/google/longfellow-zk/issues/120)",
+    )
+}
+
+/// DeviceAuthentication from ISO 18013-5.
+#[derive(Clone, Serialize)]
+#[serde(into = "DeviceAuthenticationTuple")]
+struct DeviceAuthentication {
+    session_transcript: Value,
+    doc_type: String,
+    device_name_spaces_bytes: EncodedCbor,
+}
+
+#[derive(Serialize)]
+struct DeviceAuthenticationTuple(&'static str, Value, String, EncodedCbor);
+
+impl From<DeviceAuthentication> for DeviceAuthenticationTuple {
+    fn from(device_authentication: DeviceAuthentication) -> Self {
+        let DeviceAuthentication {
+            session_transcript,
+            doc_type,
+            device_name_spaces_bytes,
+        } = device_authentication;
+        Self(
+            "DeviceAuthentication",
+            session_transcript,
+            doc_type,
+            device_name_spaces_bytes,
+        )
+    }
+}
+
+/// Helper type that represents a byte string.
+///
+/// This is necessary because `Vec<u8>` gets serialized as a list of unsigned integers by default.
+/// The byte string tag is only emitted by the `serialize_bytes()` serializer method. The only
+/// `Serialize` impls that `serde` provide which use this are for `CStr` and `CString`.
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct ByteString(pub(super) Vec<u8>);
+
+impl Serialize for ByteString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+impl Deref for ByteString {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::mdoc_zk::mdoc::ByteString;
+    use serde_test::{Token, assert_ser_tokens};
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_byte_string() {
+        let byte_string = ByteString(b"hello".to_vec());
+
+        assert_ser_tokens(&byte_string, &[Token::Bytes(b"hello")]);
+
+        let mut buffer = Vec::new();
+        ciborium::into_writer(&byte_string, &mut buffer).unwrap();
+        assert_eq!(buffer, b"\x45hello");
+    }
 }

@@ -7,6 +7,7 @@ use anyhow::anyhow;
 mod ec;
 mod layout;
 mod mdoc;
+mod sha256;
 
 /// Versions of the mdoc_zk circuit interface.
 pub enum CircuitVersion {

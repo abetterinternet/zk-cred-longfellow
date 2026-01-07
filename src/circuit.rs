@@ -1,6 +1,6 @@
 use crate::{
     Codec, Size,
-    fields::{CodecFieldElement, FieldId, SerializedFieldElement},
+    fields::{CodecFieldElement, FieldId},
 };
 use anyhow::{Context, anyhow};
 use educe::Educe;
@@ -16,28 +16,24 @@ use std::{
 /// [2]: https://github.com/google/longfellow-zk/blob/87474f308020535e57a778a82394a14106f8be5b/lib/sumcheck/circuit.h
 #[derive(Clone, PartialEq, Eq, Educe)]
 #[educe(Debug)]
-pub struct Circuit {
+pub struct Circuit<FE> {
     /// 1 byte version. Currently always 1.
-    pub(crate) version: u8,
-    /// The field this circuit uses. (not clear what subfield is used; hard coded to P256?)
-    pub(crate) field: FieldId,
+    version: u8,
     /// Number of output wires (also `nv` in some places).
-    pub(crate) num_outputs: Size,
+    num_outputs: usize,
     /// Number of copies (what's a copy? is this used?)
-    pub(crate) num_copies: Size,
+    num_copies: usize,
     /// Number of public inputs.
-    pub(crate) num_public_inputs: Size,
+    num_public_inputs: usize,
     /// Least input wire not known to be in the subfield (what's the subfield though?)
-    pub(crate) subfield_boundary: Size,
+    subfield_boundary: usize,
     /// Number of inputs, including witnesses. Always >= num_public_inputs, which is the index of
     /// of the first private input.
-    pub(crate) num_inputs: Size,
+    num_inputs: usize,
     /// Number of layers in the circuit.
-    pub(crate) num_layers: Size,
-    /// Array of constants pointed to by the circuit's quads. Encoded as a variable length array of
-    /// [`SerializedFieldElement`], which can then be decoded into a particular [`FieldElement`]
-    /// implementation based on the value of `field`.
-    pub(crate) constant_table: Vec<SerializedFieldElement>,
+    num_layers: usize,
+    /// Array of constants pointed to by the circuit's quads.
+    pub(crate) constant_table: Vec<FE>,
     /// The layers of the circuit. There are num_layers of these, so this gets serialized as a fixed
     /// length array.
     pub(crate) layers: Vec<CircuitLayer>,
@@ -50,26 +46,24 @@ fn fmt_id(s: &[u8; 32], f: &mut Formatter<'_>) -> fmt::Result {
     f.write_str(hex::encode(s).as_str())
 }
 
-impl Codec for Circuit {
+impl<FE: CodecFieldElement> Codec for Circuit<FE> {
     fn decode(bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
         let version = u8::decode(bytes)?;
-        let field = FieldId::decode(bytes)?;
-        let num_outputs = Size::decode(bytes)?;
-        let num_copies = Size::decode(bytes)?;
-        let num_public_inputs = Size::decode(bytes)?;
-        let subfield_boundary = Size::decode(bytes)?;
-        let num_inputs = Size::decode(bytes)?;
-        let num_layers = Size::decode(bytes)?;
-        let num_constants = Size::decode(bytes)?;
-
-        // Decode constant table: first a count of elements, then each element's length is obtained
-        // from the field ID.
-        let mut constant_table = Vec::with_capacity(usize::from(num_constants));
-        for _ in 0..num_constants.into() {
-            constant_table.push(SerializedFieldElement::decode(field, bytes)?);
+        let field_id = FieldId::decode(bytes)?;
+        if field_id != FE::FIELD_ID {
+            return Err(anyhow!(
+                "unexpected field id {field_id:?} in encoded circuit"
+            ));
         }
+        let num_outputs = Size::decode(bytes)?.into();
+        let num_copies = Size::decode(bytes)?.into();
+        let num_public_inputs = Size::decode(bytes)?.into();
+        let subfield_boundary = Size::decode(bytes)?.into();
+        let num_inputs = Size::decode(bytes)?.into();
+        let num_layers = Size::decode(bytes)?.into();
+        let constant_table = FE::decode_array(bytes)?;
 
-        let layers = CircuitLayer::decode_fixed_array(bytes, num_layers.into())
+        let layers = CircuitLayer::decode_fixed_array(bytes, num_layers)
             .context("failed to decode layers")?;
         let mut id = [0u8; 32];
         bytes
@@ -78,7 +72,6 @@ impl Codec for Circuit {
 
         Ok(Self {
             version,
-            field,
             num_outputs,
             num_copies,
             num_public_inputs,
@@ -93,21 +86,15 @@ impl Codec for Circuit {
 
     fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
         self.version.encode(bytes)?;
-        self.field.encode(bytes)?;
-        self.num_outputs.encode(bytes)?;
-        self.num_copies.encode(bytes)?;
-        self.num_public_inputs.encode(bytes)?;
-        self.subfield_boundary.encode(bytes)?;
-        self.num_inputs.encode(bytes)?;
-        self.num_layers.encode(bytes)?;
+        FE::FIELD_ID.encode(bytes)?;
+        Size::try_from(self.num_outputs)?.encode(bytes)?;
+        Size::try_from(self.num_copies)?.encode(bytes)?;
+        Size::try_from(self.num_public_inputs)?.encode(bytes)?;
+        Size::try_from(self.subfield_boundary)?.encode(bytes)?;
+        Size::try_from(self.num_inputs)?.encode(bytes)?;
+        Size::try_from(self.num_layers)?.encode(bytes)?;
 
-        // Encode constant table: first a count of elements, then each element's length is obtained
-        // from the field ID.
-        Size::from(self.constant_table.len() as u32).encode(bytes)?;
-        for constant in &self.constant_table {
-            constant.encode(bytes)?;
-        }
-
+        FE::encode_array(&self.constant_table, bytes)?;
         if self.num_layers() != self.layers.len() {
             return Err(anyhow!("num_layers does not match length of layers array"));
         }
@@ -118,12 +105,11 @@ impl Codec for Circuit {
     }
 }
 
-impl Circuit {
+impl<FE: CodecFieldElement> Circuit<FE> {
     /// The number of bits needed to describe an output wire. Analogous to `Layer::logw`.
     pub fn logw(&self) -> usize {
         // Unwrap safety: usize should be bigger than u32 anywhere we run
         self.num_outputs
-            .0
             .next_power_of_two()
             .ilog2()
             .try_into()
@@ -131,15 +117,21 @@ impl Circuit {
     }
 
     /// Retrieve the requested constant from the circuit's constant table, if it exists.
-    pub fn constant<F: CodecFieldElement>(&self, index: usize) -> Result<F, anyhow::Error> {
-        F::try_from(
-            &self
-                .constant_table
-                .get(index)
-                .ok_or_else(|| anyhow!("index {} not present in constant table", index))?
-                .clone()
-                .0,
-        )
+    pub fn constant(&self, index: usize) -> Result<FE, anyhow::Error> {
+        self.constant_table
+            .get(index)
+            .copied()
+            .ok_or_else(|| anyhow!("index {} not present in constant table", index))
+    }
+
+    /// Number of copies in the circuit (always 1).
+    pub fn num_copies(&self) -> usize {
+        self.num_copies
+    }
+
+    /// Retrieve the circuit's constant table, decoded into field elements.
+    pub fn constants(&self) -> &[FE] {
+        &self.constant_table
     }
 
     /// The number of quads (aka terms?) in this circuit.
@@ -149,7 +141,7 @@ impl Circuit {
 
     /// The number of layers in this circuit.
     pub fn num_layers(&self) -> usize {
-        self.num_layers.into()
+        self.num_layers
     }
 
     /// The sum of each layer's logw.
@@ -157,26 +149,28 @@ impl Circuit {
         self.layers.iter().map(CircuitLayer::logw).sum()
     }
 
+    /// The number of inputs to the circuit.
+    pub fn num_inputs(&self) -> usize {
+        self.num_inputs
+    }
+
     /// The number of public inputs to the circuit.
     pub fn num_public_inputs(&self) -> usize {
-        self.num_public_inputs.into()
+        self.num_public_inputs
     }
 
     /// The number of private inputs to the circuit.
     pub fn num_private_inputs(&self) -> usize {
-        usize::from(self.num_inputs) - self.num_public_inputs()
+        self.num_inputs - self.num_public_inputs()
     }
 
     /// The number of outputs from the ciruit.
     pub fn num_outputs(&self) -> usize {
-        self.num_outputs.into()
+        self.num_outputs
     }
 
     /// Evaluate the circuit with the provided inputs.
-    pub fn evaluate<FE: CodecFieldElement>(
-        &self,
-        inputs: &[FE],
-    ) -> Result<Evaluation<FE>, anyhow::Error> {
+    pub fn evaluate(&self, inputs: &[FE]) -> Result<Evaluation<FE>, anyhow::Error> {
         // There are n layers of gates, but with the inputs, we have n + 1 layers of wires.
         let mut wires = Vec::with_capacity(self.layers.len() + 1);
 
@@ -293,7 +287,7 @@ impl Circuit {
     /// Because Q and Z are disjoint, this amounts to traversing the layer's quads, identifying Z
     /// quads (the ones whose value is zero) and setting their value to beta. This is then compiled
     /// into a three-dimensional array indexed by gate index, left wire index, and right wire index.
-    pub fn combined_quad<FE: CodecFieldElement>(
+    pub fn combined_quad(
         &self,
         layer_index: usize,
         beta: FE,
@@ -449,10 +443,10 @@ impl CircuitLayer {
 /// [3]: https://github.com/google/longfellow-zk/blob/87474f308020535e57a778a82394a14106f8be5b/lib/sumcheck/quad.h
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 pub struct Quad {
-    gate_index: Size,
-    left_wire_index: Size,
-    right_wire_index: Size,
-    const_table_index: Size,
+    gate_index: usize,
+    left_wire_index: usize,
+    right_wire_index: usize,
+    const_table_index: usize,
 }
 
 impl Quad {
@@ -462,12 +456,12 @@ impl Quad {
     fn encode(&self, prev_quad: Option<Quad>, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
         let prev_quad = prev_quad.unwrap_or_default();
 
-        self.gate_index.encode_delta(prev_quad.gate_index, bytes)?;
-        self.left_wire_index
-            .encode_delta(prev_quad.left_wire_index, bytes)?;
-        self.right_wire_index
-            .encode_delta(prev_quad.right_wire_index, bytes)?;
-        self.const_table_index.encode(bytes)?;
+        Size::try_from(self.gate_index)?.encode_delta(prev_quad.gate_index.try_into()?, bytes)?;
+        Size::try_from(self.left_wire_index)?
+            .encode_delta(prev_quad.left_wire_index.try_into()?, bytes)?;
+        Size::try_from(self.right_wire_index)?
+            .encode_delta(prev_quad.right_wire_index.try_into()?, bytes)?;
+        Size::try_from(self.const_table_index)?.encode(bytes)?;
 
         Ok(())
     }
@@ -476,10 +470,12 @@ impl Quad {
     fn decode(prev_quad: Option<Quad>, bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
         let prev_quad = prev_quad.unwrap_or_default();
 
-        let gate_index = Size::decode_delta(prev_quad.gate_index, bytes)?;
-        let left_wire_index = Size::decode_delta(prev_quad.left_wire_index, bytes)?;
-        let right_wire_index = Size::decode_delta(prev_quad.right_wire_index, bytes)?;
-        let const_table_index = Size::decode(bytes)?;
+        let gate_index = Size::decode_delta(prev_quad.gate_index.try_into()?, bytes)?.into();
+        let left_wire_index =
+            Size::decode_delta(prev_quad.left_wire_index.try_into()?, bytes)?.into();
+        let right_wire_index =
+            Size::decode_delta(prev_quad.right_wire_index.try_into()?, bytes)?.into();
+        let const_table_index = Size::decode(bytes)?.into();
 
         Ok(Self {
             gate_index,
@@ -491,17 +487,17 @@ impl Quad {
 
     /// The position of ths gate in its layer, corresponding to `gate_number` in the specification.
     fn gate_index(&self) -> usize {
-        self.gate_index.into()
+        self.gate_index
     }
 
     /// Index of the left-hand wire feeding into this gate.
     fn left_wire_index(&self) -> usize {
-        self.left_wire_index.into()
+        self.left_wire_index
     }
 
     /// Index of the right-hand wire feeding into this gate.
     fn right_wire_index(&self) -> usize {
-        self.right_wire_index.into()
+        self.right_wire_index
     }
 
     /// Index into the circuit's constant table. The value at that index is the quad's value. If the
@@ -510,7 +506,7 @@ impl Quad {
     ///
     /// [1]: https://www.ietf.org/archive/id/draft-google-cfrg-libzk-00.html#section-5.3.3
     fn const_table_index(&self) -> usize {
-        self.const_table_index.into()
+        self.const_table_index
     }
 }
 
@@ -519,10 +515,7 @@ pub(crate) mod tests {
     use crate::{
         Codec, Size,
         circuit::{Circuit, CircuitLayer, Evaluation, Quad},
-        fields::{
-            CodecFieldElement, FieldElement, FieldId, SerializedFieldElement,
-            field2_128::Field2_128, fieldp128::FieldP128,
-        },
+        fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
     };
     use std::{collections::HashSet, io::Cursor};
@@ -531,17 +524,17 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn roundtrip_quad() {
         let quad = Quad {
-            gate_index: Size(1),
-            left_wire_index: Size(2),
-            right_wire_index: Size(3),
-            const_table_index: Size(4),
+            gate_index: 1,
+            left_wire_index: 2,
+            right_wire_index: 3,
+            const_table_index: 4,
         };
 
         let next_quad = Quad {
-            gate_index: Size(5),
-            left_wire_index: Size(6),
-            right_wire_index: Size(7),
-            const_table_index: Size(8),
+            gate_index: 5,
+            left_wire_index: 6,
+            right_wire_index: 7,
+            const_table_index: 8,
         };
 
         let mut encoded = Vec::new();
@@ -556,15 +549,11 @@ pub(crate) mod tests {
     }
 
     fn roundtrip_circuit_test_vector<FE: CodecFieldElement>(
-        (test_vector, circuit): (CircuitTestVector, Circuit),
+        (test_vector, circuit): (CircuitTestVector, Circuit<FE>),
     ) {
         // Verifies that circuits conform to a few invariants that we have interpreted from the
         // specification. Panics if any invariant does not hold for this circuit.
-        //
-        // It would be nice to do this in `Circuit::decode`, but we need to know which field
-        // element is in use.
-        assert_eq!(FieldId::try_from(test_vector.field).unwrap(), circuit.field);
-        assert_eq!(Size::from(test_vector.depth - 1), circuit.num_layers);
+        assert_eq!(Size::from(test_vector.depth - 1), circuit.num_layers());
         assert_eq!(test_vector.depth as usize - 1, circuit.layers.len());
 
         let mut quads_count = 0;
@@ -573,8 +562,8 @@ pub(crate) mod tests {
             let mut z_quad_gates = HashSet::new();
 
             for (quad_index, quad) in layer.quads.iter().enumerate() {
-                assert!(quad.left_wire_index < layer.num_wires);
-                assert!(quad.right_wire_index < layer.num_wires);
+                assert!(quad.left_wire_index < layer.num_wires());
+                assert!(quad.right_wire_index < layer.num_wires());
                 assert!(quad.const_table_index < circuit.constant_table.len());
 
                 let next_layer_num_wires = if layer_index == 0 {
@@ -594,7 +583,7 @@ pub(crate) mod tests {
                 }
 
                 // Force parsing of the constants
-                let quad_value = circuit.constant::<FE>(quad.const_table_index()).unwrap();
+                let quad_value = circuit.constant(quad.const_table_index()).unwrap();
                 if quad_value.is_zero().into() {
                     z_quad_gates.insert(quad.gate_index);
                 } else {
@@ -628,12 +617,12 @@ pub(crate) mod tests {
 
     fn evaluate_circuit_true<FE: CodecFieldElement>(
         test_vector: CircuitTestVector,
-        circuit: Circuit,
+        circuit: Circuit<FE>,
     ) {
         let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
         // Output size should match circuit serialization and values should all be zero
-        assert_eq!(circuit.num_outputs, evaluation.wires[0].len());
+        assert_eq!(circuit.num_outputs(), evaluation.wires[0].len());
         for output in evaluation.outputs() {
             assert_eq!(*output, FE::ZERO);
         }
@@ -660,7 +649,7 @@ pub(crate) mod tests {
 
     fn evaluate_circuit_false<FE: CodecFieldElement>(
         test_vector: CircuitTestVector,
-        circuit: Circuit,
+        circuit: Circuit<FE>,
     ) {
         // Evaluate with other values. At least one output element should be nonzero.
         assert!(
@@ -736,18 +725,14 @@ pub(crate) mod tests {
     /// // Propagate x^2 - 3x + 2 to output.
     /// V[0][0] = 1 * V[1][1] * V[1][0]
     /// ```
-    fn make_assertion_test_circuit() -> Circuit {
-        let constants = [
+    fn make_assertion_test_circuit() -> Circuit<FieldP128> {
+        let constant_table = vec![
             FieldP128::ZERO,
             FieldP128::ONE,
             FieldP128::from(2),
             -FieldP128::from(2), // constant table index 3
             -FieldP128::from(3), // constant table index 4
         ];
-        let constant_table = constants
-            .into_iter()
-            .map(|constant| SerializedFieldElement(constant.get_encoded().unwrap()))
-            .collect();
         let layers = vec![
             CircuitLayer {
                 logw: Size(2),
@@ -755,10 +740,10 @@ pub(crate) mod tests {
                 quads: vec![Quad {
                     // Propagate x^2 - 3x + 2 to output.
                     // V[0][0] = 1 * V[1][1] * V[1][0]
-                    gate_index: Size(0),
-                    left_wire_index: Size(1),
-                    right_wire_index: Size(0),
-                    const_table_index: Size(1),
+                    gate_index: 0,
+                    left_wire_index: 1,
+                    right_wire_index: 0,
+                    const_table_index: 1,
                 }],
             },
             CircuitLayer {
@@ -768,32 +753,32 @@ pub(crate) mod tests {
                     // Propagate 1 to next layer.
                     // V[1][0] = 1 * V[2][0] * V[2][0]
                     Quad {
-                        gate_index: Size(0),
-                        left_wire_index: Size(0),
-                        right_wire_index: Size(0),
-                        const_table_index: Size(1),
+                        gate_index: 0,
+                        left_wire_index: 0,
+                        right_wire_index: 0,
+                        const_table_index: 1,
                     },
                     // Propagate x^2 - 3x + 2 to next layer.
                     // V[1][1] = 1 * V[2][1] * V[2][0]
                     Quad {
-                        gate_index: Size(1),
-                        left_wire_index: Size(1),
-                        right_wire_index: Size(0),
-                        const_table_index: Size(1),
+                        gate_index: 1,
+                        left_wire_index: 1,
+                        right_wire_index: 0,
+                        const_table_index: 1,
                     },
                     // Assert x - 2 = 0. (occupying gate #2 on this layer)
                     // 0 = V[2][2] * V[2][0] + V[2][3] * V[2][0]
                     Quad {
-                        gate_index: Size(2),
-                        left_wire_index: Size(2),
-                        right_wire_index: Size(0),
-                        const_table_index: Size(0),
+                        gate_index: 2,
+                        left_wire_index: 2,
+                        right_wire_index: 0,
+                        const_table_index: 0,
                     },
                     Quad {
-                        gate_index: Size(2),
-                        left_wire_index: Size(3),
-                        right_wire_index: Size(0),
-                        const_table_index: Size(0),
+                        gate_index: 2,
+                        left_wire_index: 3,
+                        right_wire_index: 0,
+                        const_table_index: 0,
                     },
                 ],
             },
@@ -804,59 +789,58 @@ pub(crate) mod tests {
                     // Propagate 1 to next layer.
                     // V[2][0] = 1 * V[3][0] * V[3][0]
                     Quad {
-                        gate_index: Size(0),
-                        left_wire_index: Size(0),
-                        right_wire_index: Size(0),
-                        const_table_index: Size(1),
+                        gate_index: 0,
+                        left_wire_index: 0,
+                        right_wire_index: 0,
+                        const_table_index: 1,
                     },
                     // Calculate x^2 - 3x + 2.
                     // V[2][1] = 1 * V[3][1] * V[3][1] + -3 * V[3][1] * V[3][0] + 2 * V[3][0] * V[3][0]
                     Quad {
-                        gate_index: Size(1),
-                        left_wire_index: Size(1),
-                        right_wire_index: Size(1),
-                        const_table_index: Size(1),
+                        gate_index: 1,
+                        left_wire_index: 1,
+                        right_wire_index: 1,
+                        const_table_index: 1,
                     },
                     Quad {
-                        gate_index: Size(1),
-                        left_wire_index: Size(1),
-                        right_wire_index: Size(0),
-                        const_table_index: Size(4),
+                        gate_index: 1,
+                        left_wire_index: 1,
+                        right_wire_index: 0,
+                        const_table_index: 4,
                     },
                     Quad {
-                        gate_index: Size(1),
-                        left_wire_index: Size(0),
-                        right_wire_index: Size(0),
-                        const_table_index: Size(2),
+                        gate_index: 1,
+                        left_wire_index: 0,
+                        right_wire_index: 0,
+                        const_table_index: 2,
                     },
                     // Propagate x to next layer (for assertion).
                     // V[2][2] = 1 * V[3][1] * V[3][0]
                     Quad {
-                        gate_index: Size(2),
-                        left_wire_index: Size(1),
-                        right_wire_index: Size(0),
-                        const_table_index: Size(1),
+                        gate_index: 2,
+                        left_wire_index: 1,
+                        right_wire_index: 0,
+                        const_table_index: 1,
                     },
                     // Calculate -2 (for assertion).
                     // V[2][3] = -2 * V[3][0] * V[3][0]
                     Quad {
-                        gate_index: Size(3),
-                        left_wire_index: Size(0),
-                        right_wire_index: Size(0),
-                        const_table_index: Size(3),
+                        gate_index: 3,
+                        left_wire_index: 0,
+                        right_wire_index: 0,
+                        const_table_index: 3,
                     },
                 ],
             },
         ];
         Circuit {
             version: 1,
-            field: FieldId::FP128,
-            num_outputs: Size(1),
-            num_copies: Size(0),
-            num_public_inputs: Size(1),
-            subfield_boundary: Size(1),
-            num_inputs: Size(1),
-            num_layers: Size(layers.len().try_into().unwrap()),
+            num_outputs: 1,
+            num_copies: 0,
+            num_public_inputs: 1,
+            subfield_boundary: 1,
+            num_inputs: 1,
+            num_layers: layers.len(),
             constant_table,
             layers,
             id: [0; 32],

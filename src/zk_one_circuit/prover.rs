@@ -22,16 +22,16 @@ use crate::{
 use anyhow::anyhow;
 
 /// Longfellow ZK prover.
-pub struct Prover<'a> {
-    sumcheck_prover: SumcheckProver<'a>,
+pub struct Prover<'a, FE> {
+    sumcheck_prover: SumcheckProver<'a, FE>,
     witness_layout: WitnessLayout,
     quadratic_constraints: Vec<QuadraticConstraint>,
     ligero_parameters: LigeroParameters,
 }
 
-impl<'a> Prover<'a> {
+impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
     /// Construct a new prover from a circuit and a choice of Ligero parameters.
-    pub fn new(circuit: &'a Circuit, ligero_parameters: LigeroParameters) -> Self {
+    pub fn new(circuit: &'a Circuit<FE>, ligero_parameters: LigeroParameters) -> Self {
         let sumcheck_prover = SumcheckProver::new(circuit);
         let witness_layout = WitnessLayout::from_circuit(circuit);
         let quadratic_constraints = quadratic_constraints(circuit);
@@ -48,10 +48,7 @@ impl<'a> Prover<'a> {
     /// The `inputs` argument represents all inputs to the circuit defining the theorem being
     /// proven. This includes both the statement, or public inputs, and the witness, or private
     /// inputs. The definition of the circuit determines which inputs are which.
-    pub fn prove<FE>(&self, session_id: &[u8], inputs: &[FE]) -> Result<Proof<FE>, anyhow::Error>
-    where
-        FE: ProofFieldElement,
-    {
+    pub fn prove(&self, session_id: &[u8], inputs: &[FE]) -> Result<Proof<FE>, anyhow::Error> {
         // Evaluate circuit.
         let circuit = self.sumcheck_prover.circuit();
         let evaluation = circuit.evaluate(inputs)?;
@@ -155,7 +152,7 @@ where
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.5
     pub fn decode(
-        verifier: &Verifier,
+        verifier: &Verifier<F>,
         bytes: &mut std::io::Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
         let layout = TableauLayout::new(

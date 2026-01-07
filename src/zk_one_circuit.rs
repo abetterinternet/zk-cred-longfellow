@@ -19,7 +19,7 @@ mod tests {
 
     fn test_vector_end_to_end<FE: ProofFieldElement>(
         test_vector: CircuitTestVector,
-        circuit: Circuit,
+        circuit: Circuit<FE>,
     ) {
         // Here, we just load the test vector file to get the Ligero parameters,
         // and discard the proof. We generate a fresh proof, using real

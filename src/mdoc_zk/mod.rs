@@ -121,7 +121,7 @@ pub(super) mod tests {
     use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    pub(super) fn load_circuits(attributes: u8) -> (Circuit, Circuit) {
+    pub(super) fn load_circuits(attributes: u8) -> (Circuit<FieldP256>, Circuit<Field2_128>) {
         let data = match attributes {
             1 => include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice(),
             2 => include_bytes!("../../test-vectors/mdoc_zk/6_2_b4bb6f01b7043f4f51d8302a30b36e3d4d2d0efc3c24557ab9212ad524a9764e").as_slice(),

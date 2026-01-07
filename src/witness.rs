@@ -2,7 +2,7 @@
 
 use crate::{
     circuit::{Circuit, CircuitLayer},
-    fields::FieldElement,
+    fields::{CodecFieldElement, FieldElement},
     sumcheck::Polynomial,
 };
 use std::ops::Range;
@@ -27,7 +27,7 @@ pub struct WitnessLayout {
 }
 
 impl WitnessLayout {
-    pub fn from_circuit(circuit: &Circuit) -> Self {
+    pub fn from_circuit<FE: CodecFieldElement>(circuit: &Circuit<FE>) -> Self {
         Self::new(
             circuit.num_private_inputs(),
             circuit.layers.iter().map(CircuitLayer::logw).collect(),

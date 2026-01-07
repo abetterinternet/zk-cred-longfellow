@@ -34,6 +34,16 @@ impl From<Size> for usize {
     }
 }
 
+impl TryFrom<usize> for Size {
+    type Error = anyhow::Error;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        u32::try_from(value)
+            .context("usize too big for u32")
+            .map(Self)
+    }
+}
+
 impl Codec for Size {
     fn decode(bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
         Ok(Self(

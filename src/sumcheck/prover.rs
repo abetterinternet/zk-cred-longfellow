@@ -15,8 +15,8 @@ use std::mem::swap;
 
 /// Generate a sumcheck proof of evaluation of a circuit.
 #[derive(Clone, Debug)]
-pub struct SumcheckProver<'a> {
-    circuit: &'a Circuit,
+pub struct SumcheckProver<'a, FE> {
+    circuit: &'a Circuit<FE>,
 }
 
 /// Sumcheck proof plus some extra data useful for validation.
@@ -30,14 +30,14 @@ pub struct ProverResult<FE> {
     pub transcript: Transcript,
 }
 
-impl<'a> SumcheckProver<'a> {
-    pub fn new(circuit: &'a Circuit) -> Self {
+impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
+    pub fn new(circuit: &'a Circuit<FE>) -> Self {
         Self { circuit }
     }
 
     /// Construct a padded proof of the transcript of the given evaluation of the circuit and return
     /// the prover messages needed for the verifier to reconstruct the transcript.
-    pub fn prove<FE: ProofFieldElement>(
+    pub fn prove(
         &self,
         evaluation: &Evaluation<FE>,
         transcript: &mut Transcript,
@@ -48,7 +48,7 @@ impl<'a> SumcheckProver<'a> {
             assert_eq!(output, &FE::ZERO);
         }
 
-        if evaluation.inputs().len() != usize::from(self.circuit.num_inputs) {
+        if evaluation.inputs().len() != self.circuit.num_inputs() {
             return Err(anyhow!("wrong number of inputs"));
         }
 
@@ -215,7 +215,7 @@ impl<'a> SumcheckProver<'a> {
     }
 
     /// Return the circuit used by the prover.
-    pub fn circuit(&self) -> &Circuit {
+    pub fn circuit(&self) -> &Circuit<FE> {
         self.circuit
     }
 }
@@ -230,7 +230,7 @@ impl<FE: CodecFieldElement> SumcheckProof<FE> {
     /// Decode a proof from the bytes. This can't be an implementation of [`Codec`][crate::Codec]
     /// because we need the circuit this is a proof of to know how many layers there are.
     pub fn decode(
-        circuit: &Circuit,
+        circuit: &Circuit<FE>,
         bytes: &mut std::io::Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
         let mut proof_layers = Vec::with_capacity(circuit.num_layers());
@@ -343,7 +343,6 @@ impl<FE: CodecFieldElement> ProofLayer<FE> {
 mod tests {
     use super::*;
     use crate::{
-        Size,
         fields::{field2_128::Field2_128, fieldp128::FieldP128},
         sumcheck::initialize_transcript,
         test_vector::{CircuitTestVector, load_mac, load_rfc},
@@ -352,8 +351,8 @@ mod tests {
     use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn prove<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit) {
-        assert_eq!(circuit.num_copies, Size(1));
+    fn prove<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit<FE>) {
+        assert_eq!(circuit.num_copies(), 1);
 
         let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();
 
@@ -397,7 +396,7 @@ mod tests {
 
     fn prove_input_length_validation<FE: ProofFieldElement>(
         test_vector: CircuitTestVector,
-        circuit: Circuit,
+        circuit: Circuit<FE>,
     ) {
         let mut longer_input = test_vector.valid_inputs();
         longer_input.push(FE::ZERO);

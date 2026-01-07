@@ -4,7 +4,7 @@ use crate::{
     Codec,
     circuit::Circuit,
     constraints::proof_constraints::QuadraticConstraint,
-    fields::{CodecFieldElement, FieldElement},
+    fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
     ligero::{LigeroCommitment, LigeroParameters, prover::LigeroProof, tableau::TableauLayout},
     sumcheck::prover::SumcheckProof,
 };
@@ -63,12 +63,12 @@ macro_rules! decode_test_vector {
 }
 
 /// Load the test vector for the "rfc" circuit.
-pub(crate) fn load_rfc() -> (CircuitTestVector, Circuit) {
+pub(crate) fn load_rfc() -> (CircuitTestVector, Circuit<FieldP128>) {
     decode_test_vector!("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b")
 }
 
 /// Load the test vector for the "mac" circuit.
-pub(crate) fn load_mac() -> (CircuitTestVector, Circuit) {
+pub(crate) fn load_mac() -> (CircuitTestVector, Circuit<Field2_128>) {
     decode_test_vector!("longfellow-mac-circuit-66aeaf09a9cc98e36873e868307ac07279d5f7e0-1")
 }
 
@@ -77,8 +77,6 @@ pub(crate) fn load_mac() -> (CircuitTestVector, Circuit) {
 pub(crate) struct CircuitTestVector {
     #[allow(dead_code)]
     pub(crate) description: String,
-    /// Field used by the circuit.
-    pub(crate) field: u8,
     /// Depth of the circuit. This is wire layers, not gate layers.
     pub(crate) depth: u32,
     /// Total quads in the circuit.
@@ -113,12 +111,12 @@ pub(crate) struct CircuitTestVector {
 }
 
 impl CircuitTestVector {
-    pub(crate) fn decode(
+    pub(crate) fn decode<FE: CodecFieldElement>(
         json: &[u8],
         compressed_circuit: &[u8],
         sumcheck_proof: &[u8],
         ligero_proof: &[u8],
-    ) -> (Self, Circuit) {
+    ) -> (Self, Circuit<FE>) {
         let mut test_vector: Self = serde_json::from_slice(json).unwrap();
 
         test_vector.serialized_circuit = zstd::decode_all(compressed_circuit).unwrap();
@@ -169,7 +167,7 @@ impl CircuitTestVector {
 
     pub(crate) fn sumcheck_proof<FE: CodecFieldElement>(
         &self,
-        circuit: &Circuit,
+        circuit: &Circuit<FE>,
     ) -> SumcheckProof<FE> {
         SumcheckProof::decode(circuit, &mut Cursor::new(&self.serialized_sumcheck_proof)).unwrap()
     }

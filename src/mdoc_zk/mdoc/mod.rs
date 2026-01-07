@@ -38,9 +38,9 @@ pub(super) struct Mdoc {
 
     // Authentication of the mdoc.
     #[allow(unused)]
-    pub(super) device_public_key_x: Vec<u8>,
+    pub(super) device_public_key_x: FieldP256,
     #[allow(unused)]
-    pub(super) device_public_key_y: Vec<u8>,
+    pub(super) device_public_key_y: FieldP256,
     pub(super) doc_type: String,
     pub(super) device_name_spaces_bytes: Vec<u8>,
     #[allow(unused)]
@@ -154,6 +154,20 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
         })
         .collect::<HashMap<_, _>>();
 
+    // RFC 8152 encodes coordinates for EC2 keys according to SEC 1, in big-endian form.
+    let mut device_public_key_x_bytes = <[u8; 32]>::try_from(mso.device_key_info.device_key.x)
+        .ok()
+        .context("device public key x-coordinate is of the wrong length")?;
+    device_public_key_x_bytes.reverse();
+    let device_public_key_x = FieldP256::try_from(device_public_key_x_bytes.as_slice())
+        .context("device public key x-coordinate is invalid")?;
+    let mut device_public_key_y_bytes = <[u8; 32]>::try_from(mso.device_key_info.device_key.y)
+        .ok()
+        .context("device public key y-coordinate is of the wrong length")?;
+    device_public_key_y_bytes.reverse();
+    let device_public_key_y = FieldP256::try_from(device_public_key_y_bytes.as_slice())
+        .context("device public key y-coordinate is invalid")?;
+
     Ok(Mdoc {
         issuer_public_key_x,
         issuer_public_key_y,
@@ -161,8 +175,8 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
         issuer_signature: document.issuer_signed.issuer_auth.signature,
         valid_from: mso.validity_info.valid_from.0,
         valid_until: mso.validity_info.valid_until.0,
-        device_public_key_x: mso.device_key_info.device_key.x,
-        device_public_key_y: mso.device_key_info.device_key.y,
+        device_public_key_x,
+        device_public_key_y,
         doc_type: document.doc_type,
         device_name_spaces_bytes: document.device_signed.name_spaces.0.0,
         device_signature: device_signature.signature,

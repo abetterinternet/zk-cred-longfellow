@@ -2,12 +2,14 @@ use crate::{
     Codec,
     fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
     mdoc_zk::{
+        bit_plucker::BitPlucker,
         layout::InputLayout,
         mdoc::{compute_credential_hash, compute_session_transcript_hash, parse_device_response},
     },
 };
 use anyhow::anyhow;
 
+mod bit_plucker;
 mod ec;
 mod layout;
 mod mdoc;
@@ -44,7 +46,7 @@ impl CircuitInputs {
         transcript: &[u8],
         attributes: &[Attribute],
         _time: &str,
-        _mac_prover_key_shares: &[Field2_128; 6],
+        mac_prover_key_shares: &[Field2_128; 6],
     ) -> Result<Self, anyhow::Error> {
         let layout = InputLayout::new(
             version,
@@ -100,6 +102,25 @@ impl CircuitInputs {
         // Smoke test: iterate through multiscalar multiplication witnesses.
         for _ in split_signature_input.credential_ecdsa_witness.iter_msm() {}
         for _ in split_signature_input.device_ecdsa_witness.iter_msm() {}
+
+        // Serialize MAC prover key shares to bytes.
+        let mut mac_prover_key_shares_buffer =
+            Vec::with_capacity(mac_prover_key_shares.len() * Field2_128::num_bytes());
+        Field2_128::encode_fixed_array(
+            mac_prover_key_shares.as_slice(),
+            &mut mac_prover_key_shares_buffer,
+        )?;
+
+        // Set signature circuit MAC witnesses, interleaving key shares and messages.
+        let sig_mac_bit_plucker = BitPlucker::<2, FieldP256>::new();
+        for ((key_shares_chunk, message), out) in mac_prover_key_shares_buffer
+            .chunks_exact(32)
+            .zip(mac_messages_buffer.chunks_exact(32))
+            .zip(split_signature_input.mac_witnesses.chunks_exact_mut(256))
+        {
+            sig_mac_bit_plucker.encode_byte_array(key_shares_chunk, &mut out[..128]);
+            sig_mac_bit_plucker.encode_byte_array(message, &mut out[128..]);
+        }
 
         // Smoke test: iterate through SHA-256 block witnesses.
         for _ in split_hash_input.sha_256_witness_credential.iter_blocks() {}

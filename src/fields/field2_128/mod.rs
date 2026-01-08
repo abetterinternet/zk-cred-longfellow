@@ -45,7 +45,7 @@ impl Field2_128 {
     /// 16 elements, so we can't inject anything bigger than u16.
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
-    fn inject(value: u16) -> Self {
+    pub fn inject(value: u16) -> Self {
         // It's safe and reasonable to inject any u16 because the basis has 16 elements.
         const BITS: usize = u16::BITS as usize;
         assert_eq!(subfield_basis().len(), BITS);
@@ -57,7 +57,7 @@ impl Field2_128 {
     /// This is similar to [`Self::inject()`], but skips certain loop iterations. This can be used
     /// as an optimization when encoding values that are statically known to be far smaller than
     /// [`u16::MAX`].
-    fn inject_bits<const BITS: usize>(mut value: u16) -> Self {
+    pub fn inject_bits<const BITS: usize>(mut value: u16) -> Self {
         let mut injected = Self::ZERO;
         for basis_element in &subfield_basis()[..BITS] {
             let bit = Choice::from((value & 1) as u8);
@@ -74,7 +74,7 @@ impl Field2_128 {
     /// The representation is a u16, which is interpreted as a vector of bits that can be dotted
     /// with the subfield basis to get the GF(2^128) representation, but is also the encoding of the
     /// field element.
-    fn uninject(&self) -> Option<u16> {
+    pub fn uninject(&self) -> Option<u16> {
         let decomposition = subfield_basis_lu_decomposition();
 
         let mut remainder = self.0;

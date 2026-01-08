@@ -13,7 +13,7 @@ build and install.
 ```sh
 opam install coq=8.20.0
 eval $(opam env)
-git checkout d24de1638e5b7659000cd1faf3875b6ea4597811
+git checkout fc8ce4b3ced2e8a24773b708666a74d132a8425e
 git submodule update --init --recursive
 git clean -xdf
 git submodule foreach --recursive git clean -xdf

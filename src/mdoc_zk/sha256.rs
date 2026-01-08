@@ -20,6 +20,7 @@ const K: [u32; 64] = [
 /// Pads the input to SHA-256 in-place.
 fn pad_input(input: &mut Vec<u8>) {
     let length_bytes = input.len();
+    // Unwrap safety: SHA-2 spec limits message length to 2^64-1 bits, so the byte count will fit into u64.
     let length_bits = u64::try_from(length_bytes).unwrap() * 8;
     input.push(0x80);
     let zero_bytes = 63 - (length_bytes + 8) % 64;
@@ -33,6 +34,7 @@ pub(super) fn run_sha256(input: &[u8]) -> [u8; 32] {
     pad_input(&mut padded_input);
     let mut hash_value = INITIAL_HASH_VALUE;
     for chunk in padded_input.chunks_exact(64) {
+        // Unwrap safety: chunks_exact above guarantees the length is correct.
         process_block(chunk.try_into().unwrap(), &mut hash_value);
     }
     serialize_hash_value(&hash_value)
@@ -88,6 +90,7 @@ fn message_schedule(message: &[u8; 64]) -> [u32; 64] {
 
     // Parse the message.
     for (mi, chunk) in schedule[..16].iter_mut().zip(message.chunks_exact(4)) {
+        // Unwrap safety: chunks_exact above guarantees the length is correct.
         *mi = u32::from_be_bytes(chunk.try_into().unwrap());
     }
 

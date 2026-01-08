@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::mdoc_zk::layout::Sha256BlockWitness;
 use std::iter;
 
@@ -55,13 +56,13 @@ fn process_block(message_block: &[u8; 64], hash_value: &mut [u32; 8]) {
     hash_value[7] = hash_value[7].wrapping_add(h);
 }
 
-#[allow(unused)]
+#[cfg(test)]
 /// Compute one block of SHA-256 and record witness values.
 pub(super) fn witness_block(
     message_block: &[u8; 64],
     hash_value: &mut [u32; 8],
-    witness: &mut Sha256BlockWitness<'_>,
-    bit_plucker: &(),
+    _witness: &mut Sha256BlockWitness<'_>,
+    _bit_plucker: &(),
 ) {
     let message_schedule = message_schedule(message_block);
     // TODO: record computed message schedule values in witness.

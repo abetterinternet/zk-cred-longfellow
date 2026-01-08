@@ -25,7 +25,6 @@ pub(super) struct Mdoc {
     // Issuer signature information.
     pub(super) issuer_public_key_x: FieldP256,
     pub(super) issuer_public_key_y: FieldP256,
-    #[allow(unused)]
     pub(super) issuer_signature_payload: Vec<u8>,
     #[allow(unused)]
     pub(super) issuer_signature: Vec<u8>,
@@ -37,9 +36,7 @@ pub(super) struct Mdoc {
     pub(super) valid_until: String,
 
     // Authentication of the mdoc.
-    #[allow(unused)]
     pub(super) device_public_key_x: FieldP256,
-    #[allow(unused)]
     pub(super) device_public_key_y: FieldP256,
     pub(super) doc_type: String,
     pub(super) device_name_spaces_bytes: Vec<u8>,
@@ -366,6 +363,35 @@ impl Deref for ByteString {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
+
+/// Compute the hash of the credential, for the issuer signature.
+pub(super) fn compute_credential_hash(mdoc: &Mdoc) -> Result<FieldP256, anyhow::Error> {
+    let mut body_protected = ByteString(Vec::new());
+    ciborium::into_writer(&ProtectedHeadersEs256, &mut body_protected.0)
+        .context("could not encode protected headers")?;
+
+    let sig_structure = SigStructure {
+        body_protected,
+        external_aad: ByteString(Vec::new()),
+        payload: ByteString(mdoc.issuer_signature_payload.clone()),
+    };
+    let mut message = Vec::new();
+    ciborium::into_writer(&sig_structure, &mut message)
+        .context("could not encode Sig_structure")?;
+
+    let mut digest = run_sha256(message.as_slice());
+    // SEC 1 uses big-endian encoding, but fiat-crypto uses little-endian encoding.
+    digest.reverse();
+
+    // TODO: should we reduce this in the scalar field before embedding it in the base field?
+    // This may avoid spurious failures with probability 2^-32.
+    //
+    // Related issue: https://github.com/google/longfellow-zk/issues/120
+    FieldP256::try_from(&digest).context(
+        "could not convert credential hash to a field element \
+        (see https://github.com/google/longfellow-zk/issues/120)",
+    )
 }
 
 #[cfg(test)]

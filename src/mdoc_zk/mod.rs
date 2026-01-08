@@ -2,7 +2,7 @@ use crate::{
     fields::{FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
     mdoc_zk::{
         layout::InputLayout,
-        mdoc::{compute_session_transcript_hash, parse_device_response},
+        mdoc::{compute_credential_hash, compute_session_transcript_hash, parse_device_response},
     },
 };
 use anyhow::anyhow;
@@ -70,6 +70,14 @@ impl CircuitInputs {
         // Set the session transcript hash.
         *split_signature_input.e_session_transcript =
             compute_session_transcript_hash(&mdoc, transcript)?;
+
+        // Set the hash of the credential.
+        let credential_hash = compute_credential_hash(&mdoc)?;
+        *split_signature_input.e_credential = credential_hash;
+
+        // Set the device public key.
+        *split_signature_input.device_public_key_x = mdoc.device_public_key_x;
+        *split_signature_input.device_public_key_y = mdoc.device_public_key_y;
 
         // Smoke test: iterate through multiscalar multiplication witnesses.
         for _ in split_signature_input.credential_ecdsa_witness.iter_msm() {}

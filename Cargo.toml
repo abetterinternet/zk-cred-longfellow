@@ -34,6 +34,8 @@ assert_matches = "1.5.0"
 hex = { version = "0.4.3", features = ["serde"] }
 num-traits = "0.2.19"
 pretty_assertions = "1.4.1"
+serde_test = "1.0.177"
+sha2 = "0.10.9"
 wasm-bindgen-test = "0.3"
 
 [[bench]]

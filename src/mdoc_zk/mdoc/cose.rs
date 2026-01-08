@@ -1,12 +1,14 @@
 //! Parsing of COSE CBOR structures.
 
+use crate::mdoc_zk::mdoc::ByteString;
 use serde::{
-    Deserialize,
+    Deserialize, Serialize,
     de::{Error, IgnoredAny, MapAccess, SeqAccess, Visitor},
+    ser::SerializeMap,
 };
 use std::fmt;
 
-/// COSE_Sign1 from RFC 8152.
+/// COSE_Sign1 from RFC 9052.
 #[derive(Debug, Deserialize)]
 #[serde(from = "CoseSign1Tuple")]
 pub(super) struct CoseSign1 {
@@ -101,6 +103,8 @@ enum CoseLabel {
 ///
 /// See <https://www.iana.org/assignments/cose/cose.xhtml#header-parameters>.
 mod header_parameters {
+    /// The label for the alg header parameter.
+    pub(super) const ALG: i64 = 1;
     /// The label for the x5chain header parameter.
     pub(super) const X5CHAIN: i64 = 33;
 }
@@ -296,11 +300,56 @@ mod elliptic_curves {
     pub(super) const P256: i64 = 1;
 }
 
+/// Sig_structure from RFC 9052.
+#[derive(Clone, Serialize)]
+#[serde(into = "SigStructureTuple")]
+pub(super) struct SigStructure {
+    pub(super) body_protected: ByteString,
+    pub(super) external_aad: ByteString,
+    pub(super) payload: ByteString,
+}
+
+#[derive(Serialize)]
+struct SigStructureTuple(&'static str, ByteString, ByteString, ByteString);
+
+impl From<SigStructure> for SigStructureTuple {
+    fn from(sig_structure: SigStructure) -> Self {
+        let SigStructure {
+            body_protected,
+            external_aad,
+            payload,
+        } = sig_structure;
+        Self("Signature1", body_protected, external_aad, payload)
+    }
+}
+
+/// Protected headers encoding just an algorithm identifier, with value ES256.
+pub(super) struct ProtectedHeadersEs256;
+
+impl Serialize for ProtectedHeadersEs256 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(1))?;
+        map.serialize_entry(&header_parameters::ALG, &algorithms::EC256)?;
+        map.end()
+    }
+}
+
+/// Labels for COSE algorithms.
+///
+/// See <https://www.iana.org/assignments/cose/cose.xhtml#algorithms>.
+mod algorithms {
+    /// The label for the ECDSA w/ SHA-256 algorithm.
+    pub(super) const EC256: i64 = -7;
+}
+
 #[cfg(test)]
 mod tests {
     use crate::mdoc_zk::mdoc::{
         CoseKey, CoseSign1,
-        cose::{CoseLabel, CoseUnprotectedHeaders, CoseX509},
+        cose::{CoseLabel, CoseUnprotectedHeaders, CoseX509, ProtectedHeadersEs256},
     };
     use assert_matches::assert_matches;
     use ciborium::{Value, cbor};
@@ -443,5 +492,12 @@ mod tests {
         ciborium::from_reader::<T, _>(buffer.as_slice())
             .err()
             .unwrap()
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_protected_headers_es256() {
+        let mut buffer = Vec::new();
+        ciborium::into_writer(&ProtectedHeadersEs256, &mut buffer).unwrap();
+        assert_eq!(buffer, b"\xa1\x01\x26");
     }
 }

@@ -97,7 +97,7 @@ pub(crate) const fn subfield_basis_lu_decomposition() -> SubfieldBasisLowerUpper
 /// [`Field2_128`]. Also "W^hat" in [FS24 section 3.2][1], or the normalized subspace vanishing
 /// polynomials.
 ///
-/// Element [i][j] of this array represents W^hat_i(beta_j).
+/// Element \[i\]\[j\] of this array represents W^hat_i(beta_j).
 ///
 /// [1]: https://eprint.iacr.org/2024/2010.pdf#subsection.3.2
 pub(crate) const fn twiddle_array()
@@ -396,7 +396,7 @@ pub(crate) const fn twiddle_array()
     ]
 }
 
-/// Access element [x][y] of `twiddle_array()`
+/// Access element \[x\]\[y\] of `twiddle_array()`
 pub(crate) fn twiddle_array_at(x: u32, y: u32) -> Field2_128 {
     // unwrap safety: u32 will fit into a usize anywhere we are deploying
     twiddle_array()[usize::try_from(x).expect("u32 too big for usize?")]

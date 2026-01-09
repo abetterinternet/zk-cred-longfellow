@@ -3,11 +3,15 @@ use crate::{
     fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
     mdoc_zk::{
         bit_plucker::BitPlucker,
-        layout::InputLayout,
-        mdoc::{compute_credential_hash, compute_session_transcript_hash, parse_device_response},
+        ec::{AffinePoint, fill_ecdsa_witness},
+        layout::{EcdsaWitness, InputLayout},
+        mdoc::{
+            compute_credential_hash, compute_session_transcript_hash, hash_to_field_element,
+            parse_device_response,
+        },
     },
 };
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 
 mod bit_plucker;
 mod ec;
@@ -42,7 +46,7 @@ impl CircuitInputs {
     pub fn new(
         version: CircuitVersion,
         mdoc_device_response: &[u8],
-        _issuer_public_key: [FieldP256; 2],
+        issuer_public_key: [FieldP256; 2],
         transcript: &[u8],
         attributes: &[Attribute],
         _time: &str,
@@ -73,22 +77,34 @@ impl CircuitInputs {
         *split_signature_input.issuer_public_key_y = mdoc.issuer_public_key_y;
 
         // Set the session transcript hash.
+        let session_transcript_hash = compute_session_transcript_hash(&mdoc, transcript)?;
         *split_signature_input.e_session_transcript =
-            compute_session_transcript_hash(&mdoc, transcript)?;
+            hash_to_field_element(session_transcript_hash).context(
+                "could not convert session transcript hash to a field element \
+                (see https://github.com/google/longfellow-zk/issues/120)",
+            )?;
 
         // Set the hash of the credential.
         let credential_hash = compute_credential_hash(&mdoc)?;
-        *split_signature_input.e_credential = credential_hash;
+        *split_signature_input.e_credential = hash_to_field_element(credential_hash).context(
+            "could not convert credential hash to a field element \
+            (see https://github.com/google/longfellow-zk/issues/120)",
+        )?;
 
         // Set the device public key.
-        *split_signature_input.device_public_key_x = mdoc.device_public_key_x;
-        *split_signature_input.device_public_key_y = mdoc.device_public_key_y;
+        let device_public_key_coordinates = mdoc
+            .device_public_key
+            .coordinates()
+            .ok_or_else(|| anyhow!("device public key is the point at infinity"))?;
+        *split_signature_input.device_public_key_x = device_public_key_coordinates[0];
+        *split_signature_input.device_public_key_y = device_public_key_coordinates[1];
 
         // Re-encode MAC messages as pairs of GF(2^128) elements.
         let mut mac_messages_buffer = Vec::with_capacity(6 * Field2_128::num_bytes());
-        credential_hash.encode(&mut mac_messages_buffer)?;
-        mdoc.device_public_key_x.encode(&mut mac_messages_buffer)?;
-        mdoc.device_public_key_y.encode(&mut mac_messages_buffer)?;
+        split_signature_input
+            .e_credential
+            .encode(&mut mac_messages_buffer)?;
+        FieldP256::encode_fixed_array(&device_public_key_coordinates, &mut mac_messages_buffer)?;
         let mut mac_messages = [Field2_128::ZERO; 6];
         for (mac_message, chunk) in mac_messages
             .iter_mut()
@@ -99,9 +115,19 @@ impl CircuitInputs {
             *mac_message = Field2_128::try_from(chunk).unwrap();
         }
 
-        // Smoke test: iterate through multiscalar multiplication witnesses.
-        for _ in split_signature_input.credential_ecdsa_witness.iter_msm() {}
-        for _ in split_signature_input.device_ecdsa_witness.iter_msm() {}
+        // Set ECDSA witnesses.
+        fill_ecdsa_witness(
+            &mut split_signature_input.credential_ecdsa_witness,
+            AffinePoint::new(issuer_public_key[0], issuer_public_key[1]),
+            mdoc.issuer_signature,
+            credential_hash,
+        )?;
+        fill_ecdsa_witness(
+            &mut split_signature_input.device_ecdsa_witness,
+            mdoc.device_public_key,
+            mdoc.device_signature,
+            session_transcript_hash,
+        )?;
 
         // Serialize MAC prover key shares to bytes.
         let mut mac_prover_key_shares_buffer =

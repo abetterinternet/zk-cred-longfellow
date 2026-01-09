@@ -6,6 +6,7 @@ use crate::{circuit::Circuit, fields::CodecFieldElement, transcript::Transcript}
 
 pub mod bind;
 pub mod prover;
+pub mod sparse;
 
 /// A polynomial of degree 2, represented by its evaluations at points `p0` (the field's additive
 /// identity, aka 0) and `p2` (the field's multiplicative identity added to itself, aka 1 + 1) (see

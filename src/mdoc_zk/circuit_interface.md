@@ -123,7 +123,10 @@ witness size (which is composed of the circuit witness and logarithmic-size
 Sumcheck transcript padding) and the Sumcheck proof and transcript scale
 linearly with the circuit depth and logarithmically with the size of of each
 circuit layer, this can be a worthwhile tradeoff. The optimal tradeoff depends
-on the size and structure of the rest of the circuit. In practice, the encoding
+on the size and structure of the rest of the circuit.
+Note that this tradeoff is only worthwhile for private circuit inputs, and not
+public circuit inputs.
+In practice, the encoding
 step maps each chunk of N bits to one of 2^N possible field elements, and the
 circuit component evaluates multiple interpolating polynomials to map the packed
 field elements to unpacked field elements representing the original bits. The
@@ -133,7 +136,7 @@ formula `inject(2 * bits) - inject(2^N - 1)`; the comments indicate this was
 chosen to be compatible with a now-removed Lagrange polynomial basis used
 elsewhere.
 
-## Signature Circuit Inputs
+## Signature Circuit Inputs, P-256 Base Field
 
 ### Public Inputs (Statement)
 
@@ -152,7 +155,8 @@ coordinate.
 
 The hash of the message that the device-bound key signs is provided as a single
 field element input. While this value, as used in ECDSA, lives in the curve’s
-scalar field, we are instead embedding it in the base field for this input.
+scalar field, this input is instead computed by mapping the hash to an integer,
+and then mapping it into the base field.
 
 #### MAC Tags
 
@@ -183,8 +187,8 @@ GF(2^128) element that is authenticated.
 The hash of the credential (or rather, the Sig\_structure object wrapping the
 MSO) is provided on one input wire. As with the other ECDSA signature hash
 value, this value lives in the scalar field for the purposes of signature
-verification, but it is re-embedded into the base field to be placed in a
-circuit input.
+verification, but this circuit input is in the base field. The hash is mapped
+to an integer, and then mapped into the base field.
 
 #### Device Public Key
 
@@ -196,7 +200,8 @@ occupying one wire each.
 The ECDSA signature verification circuit relies on many intermediate values
 being provided in the witness, in order to reduce the circuit depth of the
 verification circuit. The first set of signature witness values are for
-verification of the issuer’s signature over the credential.
+verification of the issuer’s signature over the credential, using the issuer's
+public key.
 
 ##### Signature Components and Inverses
 
@@ -224,16 +229,18 @@ verification routine.
 A table of eight precomputed curve points is used during the multi-scalar
 multiplication verification. These values represent the sums of none, some, or
 all of G, the curve generator, Q, the public key point, or R, which is computed
-during standard signature verification. When the circuit verifies each step of
+during standard signature verification.
+Note that these sums are computed in the elliptic curve group.
+When the circuit verifies each step of
 the multi-scalar multiplication loop, it looks up one of these eight table
 values, depending on the bits of the three scalars, and adds it to the
 accumulator after doubling it.
 
 Two of these table entries are fixed, O and G. Two more are already provided
 elsewhere as public or private circuit inputs, Q and R. The remaining four table
-entries, which are each sums of two or three points, are provided here in the
-next eight input wires. For each point, the x-coordinate and y-coordinate are
-successive inputs.
+entries, which are each sums of two or three elliptic curve points, are provided
+here in the next eight input wires. For each point, the x-coordinate and
+y-coordinate are successive inputs.
 
 * G \+ Q
 * G \+ R
@@ -242,6 +249,11 @@ successive inputs.
 
 ##### Multi-scalar Multiplication Intermediate Values
 
+Next are the witnesses for the multi-scalar multiplication used to verify the
+signature. This is the last step of Algorithm 4 from
+[the Longfellow paper](https://eprint.iacr.org/2024/2010.pdf#subsection.4.1),
+computing G * e + Q * r - R * s. Here, e is the hash of the message, and r and s
+are the two components of the signature.
 The next circuit inputs alternate between table indices, determined by the bits
 of e, r, and \-s, and three projective coordinates of the intermediate elliptic
 curve points computed by the loop. Note that the negation \-s is computed in the
@@ -266,7 +278,7 @@ The table index inputs have the following values:
 #### ECDSA Signature Witness, Device Binding
 
 All of the above ECDSA signature verification witnesses are repeated again, this
-time for the device binding signature.
+time for the device binding signature and the device's public key.
 
 #### MAC Witnesses
 
@@ -298,7 +310,7 @@ foreign field arithmetic. It is trivial to reconstruct the original field
 element from the bit decomposition, and then assert that the other witness input
 matches.
 
-## Hash Circuit Inputs
+## Hash Circuit Inputs, GF(2^128)
 
 ### Public Inputs (Statement)
 

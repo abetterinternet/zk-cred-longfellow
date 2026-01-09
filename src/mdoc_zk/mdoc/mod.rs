@@ -3,7 +3,7 @@
 use crate::{
     fields::fieldp256::FieldP256,
     mdoc_zk::{
-        ec::decode_point,
+        ec::{AffinePoint, Signature},
         mdoc::cose::{CoseKey, CoseSign1, ProtectedHeadersEs256, SigStructure},
         sha256::run_sha256,
     },
@@ -26,8 +26,7 @@ pub(super) struct Mdoc {
     pub(super) issuer_public_key_x: FieldP256,
     pub(super) issuer_public_key_y: FieldP256,
     pub(super) issuer_signature_payload: Vec<u8>,
-    #[allow(unused)]
-    pub(super) issuer_signature: Vec<u8>,
+    pub(super) issuer_signature: Signature,
 
     // Validity information.
     #[allow(unused)]
@@ -36,12 +35,10 @@ pub(super) struct Mdoc {
     pub(super) valid_until: String,
 
     // Authentication of the mdoc.
-    pub(super) device_public_key_x: FieldP256,
-    pub(super) device_public_key_y: FieldP256,
+    pub(super) device_public_key: AffinePoint,
     pub(super) doc_type: String,
     pub(super) device_name_spaces_bytes: Vec<u8>,
-    #[allow(unused)]
-    pub(super) device_signature: Vec<u8>,
+    pub(super) device_signature: Signature,
 
     // Attributes.
     #[allow(unused)]
@@ -116,7 +113,8 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
         .subject_public_key
         .as_bytes()
         .ok_or_else(|| anyhow!("public key length is not octet aligned"))?;
-    let (issuer_public_key_x, issuer_public_key_y) = decode_point(public_key_bytes)?
+    let [issuer_public_key_x, issuer_public_key_y] = AffinePoint::decode(public_key_bytes)?
+        .coordinates()
         .ok_or_else(|| anyhow!("issuer public key was the point at infinity"))?;
 
     let msob = ciborium::from_reader::<EncodedCbor, _>(
@@ -164,19 +162,24 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
     device_public_key_y_bytes.reverse();
     let device_public_key_y = FieldP256::try_from(device_public_key_y_bytes.as_slice())
         .context("device public key y-coordinate is invalid")?;
+    let device_public_key = AffinePoint::new(device_public_key_x, device_public_key_y);
+
+    let issuer_signature = Signature::decode(&document.issuer_signed.issuer_auth.signature)
+        .context("invalid issuer signature")?;
+    let device_signature =
+        Signature::decode(&device_signature.signature).context("invalid device signature")?;
 
     Ok(Mdoc {
         issuer_public_key_x,
         issuer_public_key_y,
         issuer_signature_payload: document.issuer_signed.issuer_auth.payload.unwrap(),
-        issuer_signature: document.issuer_signed.issuer_auth.signature,
+        issuer_signature,
         valid_from: mso.validity_info.valid_from.0,
         valid_until: mso.validity_info.valid_until.0,
-        device_public_key_x,
-        device_public_key_y,
+        device_public_key,
         doc_type: document.doc_type,
         device_name_spaces_bytes: document.device_signed.name_spaces.0.0,
-        device_signature: device_signature.signature,
+        device_signature,
         attribute_preimages,
         attribute_digests: mso.value_digests,
     })
@@ -267,7 +270,7 @@ struct ValidityInfo {
 pub(super) fn compute_session_transcript_hash(
     mdoc: &Mdoc,
     transcript: &[u8],
-) -> Result<FieldP256, anyhow::Error> {
+) -> Result<[u8; 32], anyhow::Error> {
     let session_transcript = ciborium::from_reader::<Value, _>(transcript)
         .context("could not parse SessionTranscript")?;
 
@@ -298,18 +301,7 @@ pub(super) fn compute_session_transcript_hash(
     ciborium::into_writer(&sig_structure, &mut message)
         .context("could not encode Sig_structure")?;
 
-    let mut digest = run_sha256(message.as_slice());
-    // SEC 1 uses big-endian encoding, but fiat-crypto uses little-endian encoding.
-    digest.reverse();
-
-    // TODO: should we reduce this in the scalar field before embedding it in the base field?
-    // This may avoid spurious failures with probability 2^-32.
-    //
-    // Related issue: https://github.com/google/longfellow-zk/issues/120
-    FieldP256::try_from(&digest).context(
-        "could not convert session transcript hash to a field element \
-        (see https://github.com/google/longfellow-zk/issues/120)",
-    )
+    Ok(run_sha256(message.as_slice()))
 }
 
 /// DeviceAuthentication from ISO 18013-5.
@@ -366,7 +358,7 @@ impl Deref for ByteString {
 }
 
 /// Compute the hash of the credential, for the issuer signature.
-pub(super) fn compute_credential_hash(mdoc: &Mdoc) -> Result<FieldP256, anyhow::Error> {
+pub(super) fn compute_credential_hash(mdoc: &Mdoc) -> Result<[u8; 32], anyhow::Error> {
     let mut body_protected = ByteString(Vec::new());
     ciborium::into_writer(&ProtectedHeadersEs256, &mut body_protected.0)
         .context("could not encode protected headers")?;
@@ -380,7 +372,11 @@ pub(super) fn compute_credential_hash(mdoc: &Mdoc) -> Result<FieldP256, anyhow::
     ciborium::into_writer(&sig_structure, &mut message)
         .context("could not encode Sig_structure")?;
 
-    let mut digest = run_sha256(message.as_slice());
+    Ok(run_sha256(message.as_slice()))
+}
+
+/// Convert a SHA-256 hash from an ECDSA signature into a base field element for use as a circuit input.
+pub(super) fn hash_to_field_element(mut digest: [u8; 32]) -> Result<FieldP256, anyhow::Error> {
     // SEC 1 uses big-endian encoding, but fiat-crypto uses little-endian encoding.
     digest.reverse();
 
@@ -388,10 +384,7 @@ pub(super) fn compute_credential_hash(mdoc: &Mdoc) -> Result<FieldP256, anyhow::
     // This may avoid spurious failures with probability 2^-32.
     //
     // Related issue: https://github.com/google/longfellow-zk/issues/120
-    FieldP256::try_from(&digest).context(
-        "could not convert credential hash to a field element \
-        (see https://github.com/google/longfellow-zk/issues/120)",
-    )
+    FieldP256::try_from(&digest)
 }
 
 #[cfg(test)]

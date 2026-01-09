@@ -238,7 +238,7 @@ pub(super) struct EcdsaWitness<'a> {
     pub(super) r_x: &'a mut FieldP256,
     pub(super) r_y: &'a mut FieldP256,
     pub(super) r_x_inverse: &'a mut FieldP256,
-    pub(super) s_inverse: &'a mut FieldP256,
+    pub(super) neg_s_inverse: &'a mut FieldP256,
     pub(super) q_x_inverse: &'a mut FieldP256,
     pub(super) sum_g_q: &'a mut [FieldP256; 2],
     pub(super) sum_g_r: &'a mut [FieldP256; 2],
@@ -262,7 +262,7 @@ impl<'a> EcdsaWitness<'a> {
         let (r_x, witnesses) = witnesses.split_first_mut().unwrap();
         let (r_y, witnesses) = witnesses.split_first_mut().unwrap();
         let (r_x_inverse, witnesses) = witnesses.split_first_mut().unwrap();
-        let (s_inverse, witnesses) = witnesses.split_first_mut().unwrap();
+        let (neg_s_inverse, witnesses) = witnesses.split_first_mut().unwrap();
         let (q_x_inverse, witnesses) = witnesses.split_first_mut().unwrap();
 
         let (sum_g_q, witnesses) = witnesses.split_at_mut(2);
@@ -274,7 +274,7 @@ impl<'a> EcdsaWitness<'a> {
             r_x,
             r_y,
             r_x_inverse,
-            s_inverse,
+            neg_s_inverse,
             q_x_inverse,
             sum_g_q: sum_g_q.try_into().unwrap(),
             sum_g_r: sum_g_r.try_into().unwrap(),

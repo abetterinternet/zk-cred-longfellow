@@ -142,10 +142,14 @@ elsewhere.
 
 #### Implicit 1
 
+Field elements: 1
+
 The first input is an implicit 1 value. This is used internally to represent
 gates other than wire-wire multiplications as quad gates.
 
 #### Issuer Public Key
+
+Field elements: 2
 
 The two coordinates of the issuer’s public key are provided as inputs, occupying
 one wire each. The x coordinate of the curve point is first, followed by the y
@@ -153,12 +157,16 @@ coordinate.
 
 #### Hash of Session Transcript
 
+Field elements: 1
+
 The hash of the message that the device-bound key signs is provided as a single
 field element input. While this value, as used in ECDSA, lives in the curve’s
 scalar field, this input is instead computed by mapping the hash to an integer,
 and then mapping it into the base field.
 
 #### MAC Tags
+
+Field elements: 3 \* 2 \* 128 \= 768
 
 The rest of the public inputs are related to the information-theoretic MAC
 linking common witness values across circuits. Note that the MAC function is
@@ -171,9 +179,11 @@ credential signature, and the two coordinates of the device public key. Since
 the P-256 base field is twice as large as GF(2^128), each shared witness value
 is interpreted as a 32-byte string, split in two, and then interpreted as two
 GF(2^128) field elements. Separate MACs are computed on each GF(2^128) field
-element. In total, the MAC tags take up 3 \* 2 \* 128 \= 768 inputs.
+element.
 
 #### MAC Verifier Key Share
+
+Field elements: 128
 
 Then, the verifier’s share of the MAC key is provided as 128 wires, decomposing
 another GF(2^128) element. Note that the same verifier MAC key share is used in
@@ -184,6 +194,8 @@ GF(2^128) element that is authenticated.
 
 #### Hash of Credential
 
+Field elements: 1
+
 The hash of the credential (or rather, the Sig\_structure object wrapping the
 MSO) is provided on one input wire. As with the other ECDSA signature hash
 value, this value lives in the scalar field for the purposes of signature
@@ -192,10 +204,14 @@ to an integer, and then mapped into the base field.
 
 #### Device Public Key
 
+Field elements: 2
+
 The two coordinates (x and y) of the device’s public key are provided as inputs,
 occupying one wire each.
 
 #### ECDSA Signature Witness, Credential
+
+Field elements: 5 \+ 8 \+ 256 \+ 255 \* 3 \= 1034
 
 The ECDSA signature verification circuit relies on many intermediate values
 being provided in the witness, in order to reduce the circuit depth of the
@@ -204,6 +220,8 @@ verification of the issuer’s signature over the credential, using the issuer's
 public key.
 
 ##### Signature Components and Inverses
+
+Field elements: 5
 
 Several values derived from the signature are added as single witness inputs.
 Some inverses of values in the P-256 base field are included as well, for the
@@ -225,6 +243,8 @@ verification routine.
   the P-256 base field.
 
 ##### Precomputed Curve Point Sums
+
+Field elements: 8
 
 A table of eight precomputed curve points is used during the multi-scalar
 multiplication verification. These values represent the sums of none, some, or
@@ -248,6 +268,8 @@ y-coordinate are successive inputs.
 * G \+ Q \+ R
 
 ##### Multi-scalar Multiplication Intermediate Values
+
+Field elements: 256 \+ 255 \* 3 \= 1021
 
 Next are the witnesses for the multi-scalar multiplication used to verify the
 signature. This is the last step of Algorithm 4 from
@@ -277,10 +299,14 @@ The table index inputs have the following values:
 
 #### ECDSA Signature Witness, Device Binding
 
+Field elements: 5 \+ 8 \+ 256 \+ 255 \* 3 \= 1034
+
 All of the above ECDSA signature verification witnesses are repeated again, this
 time for the device binding signature and the device's public key.
 
 #### MAC Witnesses
+
+Field elements: 3 \* (128 \+ 128) \= 768
 
 Next, prover MAC keys and messages are provided in inputs. The MACs cover the
 hash used in the credential signature, and the two coordinates of the device
@@ -316,10 +342,14 @@ matches.
 
 #### Implicit 1
 
+Field elements: 1
+
 The first input is an implicit 1 value. This is used internally to represent
 gates other than wire-wire multiplications as quad gates.
 
 #### Attributes
+
+Field elements: attributes \* (96 \* 8 \+ 8) \= attributes \* 776
 
 The attributes disclosed in the credential presentation are the first public
 inputs. The number of inputs will depend on the number of attributes supported
@@ -340,12 +370,15 @@ wires, with one bit assigned to each.
 
 #### Time
 
+Field elements: 20 \* 8 \= 160
+
 The current time is represented in RFC 3339 format, with four digit years, UTC
 time, and no time zone offset. This format takes 20 bytes. The time is encoded
-in this form, and then its bits are assigned to one input wire per bit, taking a
-total of 160 input wires.
+in this form, and then its bits are assigned to one input wire per bit.
 
 #### MAC Tags
+
+Field elements: 3 \* 2 \= 6
 
 Six input wires are assigned to the six MAC tags used for consistency checking.
 As described above, two tags cover each P-256 base field element. The messages
@@ -354,21 +387,29 @@ and y-coordinate of the device public key.
 
 #### MAC Verifier Key Share
 
+Field elements: 1
+
 The last public input is a single wire for the verifier’s share of the MAC key.
 
 ### Private Inputs (Witness)
 
 #### Hash of Credential
 
+Field elements: 256
+
 The hash of the credential, as used in the issuer’s signature, has its bits
 assigned to 256 input wires.
 
 #### Device Public Key
 
+Field elements: 2 \* 256 \= 512
+
 The coordinates of the device public key are bit decomposed and assigned to 256
 input wires each, first the x-coordinate, then the y-coordinate.
 
 #### Number of SHA-256 Blocks, Credential
+
+Field elements: 8
 
 The number of blocks in the SHA-256 calculation for the issuer’s signature over
 the credential is stored in bit decomposed form in eight input wires. This is
@@ -379,14 +420,18 @@ compares to the expected final hash output.
 
 #### Padded SHA-256 Input, Credential
 
+Field elements: (35 \* 64 \- 18) \* 8 \= 17776
+
 The hash input used in the credential signature, with the SHA-256 padding
 appended, is included in the input wires next. Blocks after the final block are
 filled with zero bytes. The entire byte buffer is encoded as one bit per input
 wire. A total of 35 blocks are supported, however 18 bytes from the
-Sig\_structure prefix are known constants, and excluded from input wires. This
-accounts for (35 \* 64 \- 18\) \* 8 \= 17776 input wires.
+Sig\_structure prefix are known constants, and excluded from input wires.
 
 #### Intermediate SHA-256 Witness Values
+
+Field elements: 35 \* (48 \* 32 \+ 64 \* 2 \+ 8 \* 32) / 4 \= 35 \* 1472 \=
+51520
 
 For each of the 35 SHA-256 blocks, multiple intermediate values are provided.
 Each array of multiple 32-bit values is stored in input wires using
@@ -395,6 +440,8 @@ values are grouped first by block number, then three arrays of 32-bit integers
 per block are written in each group.
 
 ##### Message Schedule
+
+Field elements per SHA-256 block: 48 \* 32 / 4 \= 384
 
 The SHA-256 message schedule starts with a message block, and the remainder is
 defined through a recurrence relation. The full message schedule is made up of
@@ -405,6 +452,8 @@ bits per wire) so that the message schedule expansion can be verified in
 parallel with other verifications, to minimize the circuit depth.
 
 ##### State Values, E and A
+
+Field elements per SHA-256 block: 64 \* 2 \* 32 / 4 \= 1024
 
 Each block of input is processed over 64 rounds. In each round, the eight 32-bit
 state variables, a, b, c, d, e, f, g, and h, are updated. Six of the updates
@@ -419,6 +468,8 @@ decomposed and then packed, 4 bits to a wire.
 
 ##### Intermediate Hash Value
 
+Field elements per SHA-256 block: 8 \* 32 / 4 \= 64
+
 After the hash state goes through 64 rounds, the state values are added to the
 intermediate hash value from the last round (or the initial hash value,
 depending on the round) to produce a new intermediate hash value. The
@@ -427,11 +478,15 @@ witnesses on the next input wires, packed with 4 bits to a wire.
 
 #### CBOR Offsets
 
+Field elements: 4 \* 12 \= 48
+
 The following input wires describe offsets into the mdoc MSO byte string. Each
 offset is represented as a 12-bit integer, with one bit assigned to each of
 twelve input wires.
 
 ##### validFrom
+
+Field elements: 12
 
 This offset points to the start of the `validFrom` key-value pair inside the
 credential, nested inside the `validityInfo` object. The offset should point to
@@ -439,18 +494,27 @@ the CBOR prefix in front of the field name.
 
 ##### validUntil
 
+Field elements: 12
+
 The next offset is to the `validUntil` key-value pair, inside the `validityInfo`
 object.
 
 ##### deviceKeyInfo
 
+Field elements: 12
+
 The next offset is to the `deviceKeyInfo` key-value pair at the top level.
 
 ##### valueDigests
 
+Field elements: 12
+
 The next offset is to the `valueDigests` key-value pair at the top level.
 
 #### Attribute Witnesses
+
+Field elements: attributes * (2 \* 64 \* 8 \+ 2 \* 1472 \+ 12 \+ 12 \+ 12 \+ 12
+\+ 12) \= attributes * 4028
 
 Multiple values are provided for each of the attributes disclosed in the
 credential presentation. These wires are grouped first by the attribute, and
@@ -458,13 +522,16 @@ then appear as follows.
 
 ##### Attribute Hash Preimage
 
+Field elements per attribute: 2 \* 64 \* 8 \= 1024
+
 The complete `IssuerSignedItemBytes` input, plus SHA-256 padding, is provided as
 a witness. This is two SHA-256 blocks long, and each bit is assigned to an input
-wire, for a total of 2 \* 64 \* 8 \= 1024 bits, and 1024 input wires. The
-circuit assumes that the `IssuerSignedItemBytes` always requires two SHA-256
-blocks to hash.
+wire. The circuit assumes that the `IssuerSignedItemBytes` always requires two
+SHA-256 blocks to hash.
 
 ##### Intermediate SHA-256 Witness Values
+
+Field elements per attribute: 2 \* 1472 \= 2944
 
 As with the credential hash earlier, additional input wires provide witness
 values for the expanded message schedule, per-round state values, and
@@ -474,11 +541,15 @@ as before.
 
 ##### CBOR Offset of Digest
 
+Field elements per attribute: 12
+
 Next, a 12-bit offset into the MSO is encoded into twelve input wires. This
 should point to the type prefix of the byte string inside `valueDigests` for
 this attribute.
 
 ##### CBOR Offset and Length in Preimage
+
+Field elements per attribute: 12 \+ 12 \= 24
 
 Next, a 12-bit offset and 12-bit length are encoded, pointing to the offset of
 the `elementIdentifier` and `elementValue` inside the attribute hash preimage.
@@ -490,12 +561,16 @@ attribute. Both the offset and length are encoded with one bit per input wire.
 
 ##### Unused Offset and Length
 
+Field elements per attribute: 12 \+ 12 \= 24
+
 Two more 12-bit fields are encoded, again an offset and a length, but they are
 unused. This is likely an artifact of prior circuit interfaces, which provided
 the `elementIdentifier` and `elementValue` values separately, and did not
 include them in one byte string spanning multiple CBOR items.
 
 #### MAC Prover Key Shares
+
+Field elements: 3 \* 2 \= 6
 
 The above witness inputs were all in the subfield, which allows for more
 efficient encoding of the Ligero proof when operating on all-subfield rows.

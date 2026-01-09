@@ -212,8 +212,10 @@ verification routine.
 * ry, the y-coordinate of the point R computed during the standard verification
   routine.
 * rx\-1, the multiplicative inverse of rx above, over the P-256 base field.
-* s\-1, the multiplicative inverse of s, the second component of the signature,
-  computed over the P-256 base field.
+* The multiplicative inverse of negative s, from the signature. The negation is
+  performed in the P-256 scalar field, then the result is reinterpreted as a
+  base field element, and the multiplicative inverse is performed in the P-256
+  base field.
 * Qx\-1, the multiplicative inverse of the x-coordinate of the public key, over
   the P-256 base field.
 

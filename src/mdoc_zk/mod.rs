@@ -1,12 +1,15 @@
 use crate::{
-    fields::{FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
+    Codec,
+    fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
     mdoc_zk::{
+        bit_plucker::BitPlucker,
         layout::InputLayout,
-        mdoc::{compute_session_transcript_hash, parse_device_response},
+        mdoc::{compute_credential_hash, compute_session_transcript_hash, parse_device_response},
     },
 };
 use anyhow::anyhow;
 
+mod bit_plucker;
 mod ec;
 mod layout;
 mod mdoc;
@@ -30,6 +33,8 @@ pub struct CircuitInputs {
     layout: InputLayout,
     signature_input: Vec<FieldP256>,
     hash_input: Vec<Field2_128>,
+    #[allow(unused)]
+    mac_messages: [Field2_128; 6],
 }
 
 impl CircuitInputs {
@@ -41,7 +46,7 @@ impl CircuitInputs {
         transcript: &[u8],
         attributes: &[Attribute],
         _time: &str,
-        _mac_prover_key_shares: &[Field2_128; 6],
+        mac_prover_key_shares: &[Field2_128; 6],
     ) -> Result<Self, anyhow::Error> {
         let layout = InputLayout::new(
             version,
@@ -71,9 +76,51 @@ impl CircuitInputs {
         *split_signature_input.e_session_transcript =
             compute_session_transcript_hash(&mdoc, transcript)?;
 
+        // Set the hash of the credential.
+        let credential_hash = compute_credential_hash(&mdoc)?;
+        *split_signature_input.e_credential = credential_hash;
+
+        // Set the device public key.
+        *split_signature_input.device_public_key_x = mdoc.device_public_key_x;
+        *split_signature_input.device_public_key_y = mdoc.device_public_key_y;
+
+        // Re-encode MAC messages as pairs of GF(2^128) elements.
+        let mut mac_messages_buffer = Vec::with_capacity(6 * Field2_128::num_bytes());
+        credential_hash.encode(&mut mac_messages_buffer)?;
+        mdoc.device_public_key_x.encode(&mut mac_messages_buffer)?;
+        mdoc.device_public_key_y.encode(&mut mac_messages_buffer)?;
+        let mut mac_messages = [Field2_128::ZERO; 6];
+        for (mac_message, chunk) in mac_messages
+            .iter_mut()
+            .zip(mac_messages_buffer.chunks_exact(Field2_128::num_bytes()))
+        {
+            // Unwrap safety: This conversion is infallible, since the chunk is of the correct
+            // length, and all 128-bit strings represent a valid GF(2^128) element.
+            *mac_message = Field2_128::try_from(chunk).unwrap();
+        }
+
         // Smoke test: iterate through multiscalar multiplication witnesses.
         for _ in split_signature_input.credential_ecdsa_witness.iter_msm() {}
         for _ in split_signature_input.device_ecdsa_witness.iter_msm() {}
+
+        // Serialize MAC prover key shares to bytes.
+        let mut mac_prover_key_shares_buffer =
+            Vec::with_capacity(mac_prover_key_shares.len() * Field2_128::num_bytes());
+        Field2_128::encode_fixed_array(
+            mac_prover_key_shares.as_slice(),
+            &mut mac_prover_key_shares_buffer,
+        )?;
+
+        // Set signature circuit MAC witnesses, interleaving key shares and messages.
+        let sig_mac_bit_plucker = BitPlucker::<2, FieldP256>::new();
+        for ((key_shares_chunk, message), out) in mac_prover_key_shares_buffer
+            .chunks_exact(32)
+            .zip(mac_messages_buffer.chunks_exact(32))
+            .zip(split_signature_input.mac_witnesses.chunks_exact_mut(256))
+        {
+            sig_mac_bit_plucker.encode_byte_array(key_shares_chunk, &mut out[..128]);
+            sig_mac_bit_plucker.encode_byte_array(message, &mut out[128..]);
+        }
 
         // Smoke test: iterate through SHA-256 block witnesses.
         for _ in split_hash_input.sha_256_witness_credential.iter_blocks() {}
@@ -88,6 +135,7 @@ impl CircuitInputs {
             layout,
             signature_input,
             hash_input,
+            mac_messages,
         })
     }
 
@@ -246,8 +294,17 @@ pub(super) mod tests {
             &mac_prover_key_shares,
         )
         .unwrap();
-        // TODO: actually compute MAC tags
-        let mac_tags = [Field2_128::ZERO; 6];
+
+        let mut mac_tags = [Field2_128::ZERO; 6];
+        for ((mac_message, mac_prover_key_share), mac_tag) in inputs
+            .mac_messages
+            .iter()
+            .zip(&mac_prover_key_shares)
+            .zip(mac_tags.iter_mut())
+        {
+            let mac_key = mac_verifier_key_share + mac_prover_key_share;
+            *mac_tag = mac_key * mac_message;
+        }
         inputs.update_macs(mac_verifier_key_share, mac_tags);
 
         let expected_signature_input = test_vector

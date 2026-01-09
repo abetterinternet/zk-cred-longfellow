@@ -25,7 +25,6 @@ pub(super) struct Mdoc {
     // Issuer signature information.
     pub(super) issuer_public_key_x: FieldP256,
     pub(super) issuer_public_key_y: FieldP256,
-    #[allow(unused)]
     pub(super) issuer_signature_payload: Vec<u8>,
     #[allow(unused)]
     pub(super) issuer_signature: Vec<u8>,
@@ -37,10 +36,8 @@ pub(super) struct Mdoc {
     pub(super) valid_until: String,
 
     // Authentication of the mdoc.
-    #[allow(unused)]
-    pub(super) device_public_key_x: Vec<u8>,
-    #[allow(unused)]
-    pub(super) device_public_key_y: Vec<u8>,
+    pub(super) device_public_key_x: FieldP256,
+    pub(super) device_public_key_y: FieldP256,
     pub(super) doc_type: String,
     pub(super) device_name_spaces_bytes: Vec<u8>,
     #[allow(unused)]
@@ -154,6 +151,20 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
         })
         .collect::<HashMap<_, _>>();
 
+    // RFC 8152 encodes coordinates for EC2 keys according to SEC 1, in big-endian form.
+    let mut device_public_key_x_bytes = <[u8; 32]>::try_from(mso.device_key_info.device_key.x)
+        .ok()
+        .context("device public key x-coordinate is of the wrong length")?;
+    device_public_key_x_bytes.reverse();
+    let device_public_key_x = FieldP256::try_from(device_public_key_x_bytes.as_slice())
+        .context("device public key x-coordinate is invalid")?;
+    let mut device_public_key_y_bytes = <[u8; 32]>::try_from(mso.device_key_info.device_key.y)
+        .ok()
+        .context("device public key y-coordinate is of the wrong length")?;
+    device_public_key_y_bytes.reverse();
+    let device_public_key_y = FieldP256::try_from(device_public_key_y_bytes.as_slice())
+        .context("device public key y-coordinate is invalid")?;
+
     Ok(Mdoc {
         issuer_public_key_x,
         issuer_public_key_y,
@@ -161,8 +172,8 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
         issuer_signature: document.issuer_signed.issuer_auth.signature,
         valid_from: mso.validity_info.valid_from.0,
         valid_until: mso.validity_info.valid_until.0,
-        device_public_key_x: mso.device_key_info.device_key.x,
-        device_public_key_y: mso.device_key_info.device_key.y,
+        device_public_key_x,
+        device_public_key_y,
         doc_type: document.doc_type,
         device_name_spaces_bytes: document.device_signed.name_spaces.0.0,
         device_signature: device_signature.signature,
@@ -352,6 +363,35 @@ impl Deref for ByteString {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
+
+/// Compute the hash of the credential, for the issuer signature.
+pub(super) fn compute_credential_hash(mdoc: &Mdoc) -> Result<FieldP256, anyhow::Error> {
+    let mut body_protected = ByteString(Vec::new());
+    ciborium::into_writer(&ProtectedHeadersEs256, &mut body_protected.0)
+        .context("could not encode protected headers")?;
+
+    let sig_structure = SigStructure {
+        body_protected,
+        external_aad: ByteString(Vec::new()),
+        payload: ByteString(mdoc.issuer_signature_payload.clone()),
+    };
+    let mut message = Vec::new();
+    ciborium::into_writer(&sig_structure, &mut message)
+        .context("could not encode Sig_structure")?;
+
+    let mut digest = run_sha256(message.as_slice());
+    // SEC 1 uses big-endian encoding, but fiat-crypto uses little-endian encoding.
+    digest.reverse();
+
+    // TODO: should we reduce this in the scalar field before embedding it in the base field?
+    // This may avoid spurious failures with probability 2^-32.
+    //
+    // Related issue: https://github.com/google/longfellow-zk/issues/120
+    FieldP256::try_from(&digest).context(
+        "could not convert credential hash to a field element \
+        (see https://github.com/google/longfellow-zk/issues/120)",
+    )
 }
 
 #[cfg(test)]

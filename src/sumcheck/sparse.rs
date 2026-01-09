@@ -43,11 +43,12 @@
 //!  [g, h, i]]
 //! ```
 //!
-//! Here all elemetns have gate_index = 0, and in practice this is case when we're binding the
-//! quad in the inner sumcheck loop.
+//! Here all elements have `gate_index = 0`, and in practice this is case when we're binding the
+//! quad in the inner sumcheck loop, because we will already have bound the outer dimension down to
+//! one element.
 //!
-//! The most straightforward representation is to sort lexicographically by `(g, l, r)`, in that
-//! order:
+//! The most straightforward way to lay out the sparse array is to sort lexicographically by
+//! `(g, l, r)`, in that order:
 //!
 //! ```no_compile
 //! g: 0 l: 00 r: 00 v: a
@@ -63,9 +64,9 @@
 //!
 //! We show indices in binary for reasons that will become clear soon.
 //!
-//! But this is no good: we bind on l first, so we want `[0, 1, 0]` to be immediately after
-//! [0, 0, 0]. Here, we have [0, 0, 1] and [0, 0, 2] in between. So we might instead sort by
-//! `(g, l, r)`:
+//! But this is no good: we bind on `l` first, so we want `[0, 1, 0]` to be immediately after
+//! `[0, 0, 0]`. Here, we have `[0, 0, 1]` and `[0, 0, 2]` in between. So we might instead sort by
+//! `(g, r, l)`:
 //!
 //! ```no_compile
 //! g: 0 l: 00 r: 00 v: a
@@ -80,7 +81,7 @@
 //! ```
 //!
 //! This is better: now we can bind on `l` because `[0, 0, 0]` and `[0, 1, 0]` are adjacent.
-//! [0, 2, 0] doesn't come after [0, 1, 0], but that's okay, because it doesn't appear anywhere in
+//! `[0, 2, 0]` doesn't come after [0, 1, 0], but that's okay, because it doesn't appear anywhere in
 //! the sparse array. After binding to the left wires, the array will look like:
 //!
 //! ```no_compile
@@ -93,7 +94,8 @@
 //! ```
 
 //! (We stop including the values `v` because now they start to become complex expressions that
-//! distract more than they help.)
+//! distract more than they help. It suffices to remember that the sparse array is no longer ordered
+//! in the natural order of the dense array.)
 //!
 //! But now we're stuck, because `[0, 0, 0]` and `[0, 0, 1]` are not adjacent, so we can't bind on
 //! `r`. But notice that the bound array is about half the size it was before. Can we sort the
@@ -101,7 +103,7 @@
 //! between the adjacent elements in the `r` dimension? Yes, by sorting by the interleaved bits of
 //! `r` and `l`, in that order!
 //!
-//! e.g., `l = 0011` and `r = 1100` becomes `10100101`.
+//! e.g., interleaving `l = 0011` and `r = 1100` yields `10100101`.
 //!
 //! Here's the initial array, reordered by the interleaving of `r` and `l`.
 //!

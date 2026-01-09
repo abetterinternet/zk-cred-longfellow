@@ -258,9 +258,9 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
         // We interleave into a u128 because that's big enough to fit all the bits of two usizes on
         // any platform we're likely to deploy to.
         fn interleave(right: usize, left: usize) -> u128 {
-            if usize::BITS > 64 {
-                panic!("usize on this platform is too big to interleave into u128")
-            }
+            // Ensure that this platform's usize is small enough for two to fit in u128
+            static_assertions::const_assert!(usize::BITS * 2 <= u128::BITS);
+
             let mut interleaved = 0u128;
             for bit in (0..usize::BITS).rev() {
                 let mask = 1 << bit;
@@ -284,7 +284,7 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
 
 impl<FE: FieldElement> From<Vec<SparseQuadElement<FE>>> for SparseSumcheckArray<FE> {
     fn from(mut contents: Vec<SparseQuadElement<FE>>) -> Self {
-        contents.sort();
+        contents.sort_unstable();
         Self {
             contents,
             next_bind: Hand::Left,
@@ -358,7 +358,7 @@ impl<FE: FieldElement> PartialEq<Vec<Vec<FE>>> for SparseSumcheckArray<FE> {
 impl<FE: FieldElement> SparseSumcheckArray<FE> {
     /// Bind this array to `binding` in the dimension indicated by `hand`, in-place. That is, if
     /// `hand == Hand::Left`, bind `self[g, 2i, r]` and `self[g, 2i+1, r]` into `self[g, i, r]` for
-    /// all g, r. If `hand == Hand::Right`, bind `self[g, l, 2i]` and`self[g, l, 2i+i]` into
+    /// all g, r. If `hand == Hand::Right`, bind `self[g, l, 2i]` and `self[g, l, 2i+i]` into
     /// `self[g, l, i]`.
     ///
     /// This can only be used once the `gate_index` dimension has been bound down to a single

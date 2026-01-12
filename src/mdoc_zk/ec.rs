@@ -1,7 +1,7 @@
 //! Elliptic curve cryptography utilities.
 
 use crate::{
-    Codec,
+    Codec, Sha256Digest,
     fields::{
         CodecFieldElement, FieldElement, fieldp256::FieldP256, fieldp256_scalar::FieldP256Scalar,
     },
@@ -385,9 +385,10 @@ impl Scalar for FieldP256Scalar {
 /// Treat the output of SHA-256 as a scalar for an elliptic curve group.
 ///
 /// This treats the hash as a big-endian integer, following the convention of ECDSA.
-impl Scalar for [u8; 32] {
+impl Scalar for Sha256Digest {
     fn bits(&self) -> impl Iterator<Item = Choice> {
-        self.iter()
+        self.0
+            .iter()
             .flat_map(|byte| (0..8).rev().map(move |i| Choice::from((byte >> i) & 1)))
     }
 }
@@ -536,6 +537,7 @@ fn embed_scalar_in_base_field(scalar: FieldP256Scalar) -> FieldP256 {
 #[cfg(test)]
 mod tests {
     use crate::{
+        Sha256Digest,
         fields::{FieldElement, fieldp256_scalar::FieldP256Scalar},
         mdoc_zk::ec::{AffinePoint, P256_G, ProjectivePoint, Signature},
     };
@@ -678,17 +680,17 @@ mod tests {
         let g_affine = AffinePoint::new(P256_G[0], P256_G[1]);
         let g = ProjectivePoint::from(g_affine);
 
-        let unity_scmul = g.scalar_mult([
+        let unity_scmul = g.scalar_mult(Sha256Digest([
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 1,
-        ]);
+        ]));
         assert_eq!(AffinePoint::from(unity_scmul), g_affine);
 
         let two_g = g + g;
-        let double_scmul = g.scalar_mult([
+        let double_scmul = g.scalar_mult(Sha256Digest([
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 2,
-        ]);
+        ]));
         assert_eq!(AffinePoint::from(double_scmul), AffinePoint::from(two_g));
 
         let result_1 = g.scalar_mult(-FieldP256Scalar::ONE);
@@ -697,11 +699,11 @@ mod tests {
             AffinePoint::infinity()
         );
 
-        let result_2 = g.scalar_mult([
+        let result_2 = g.scalar_mult(Sha256Digest([
             0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2,
             0xfc, 0x63, 0x25, 0x50,
-        ]);
+        ]));
         assert_eq!(
             AffinePoint::from(result_2 + g_affine),
             AffinePoint::infinity()

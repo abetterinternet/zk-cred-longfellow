@@ -2,10 +2,14 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4
 
-use crate::{fields::CodecFieldElement, ligero::tableau::TableauLayout, transcript::Transcript};
-use anyhow::Context;
+use crate::{
+    Codec, Sha256Digest, fields::CodecFieldElement, ligero::tableau::TableauLayout,
+    transcript::Transcript,
+};
+use anyhow::{Context, anyhow};
 use merkle::Node;
 use serde::Deserialize;
+use std::io;
 
 pub mod merkle;
 pub mod prover;
@@ -37,7 +41,7 @@ pub struct LigeroParameters {
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LigeroCommitment([u8; 32]);
+pub struct LigeroCommitment(Sha256Digest);
 
 impl TryFrom<&[u8]> for LigeroCommitment {
     type Error = anyhow::Error;
@@ -45,30 +49,64 @@ impl TryFrom<&[u8]> for LigeroCommitment {
         let commitment: [u8; 32] = value
             .try_into()
             .context("byte slice wrong size for commitment")?;
-        Ok(LigeroCommitment(commitment))
+        Ok(LigeroCommitment(Sha256Digest(commitment)))
     }
 }
 
 impl From<Node> for LigeroCommitment {
     fn from(value: Node) -> Self {
-        Self(<[u8; 32]>::from(value))
+        Self(Sha256Digest::from(value))
     }
 }
 
 impl LigeroCommitment {
     /// The commitment as a slice of bytes.
     pub fn as_bytes(&self) -> &[u8] {
-        &self.0
+        &self.0.0
     }
 
     pub fn into_bytes(&self) -> [u8; 32] {
-        self.0
+        self.0.0
     }
 
     /// A fake but well-formed commitment for tests.
     #[cfg(test)]
     pub fn test_commitment() -> Self {
         Self::try_from([1u8; 32].as_slice()).unwrap()
+    }
+}
+
+impl Codec for LigeroCommitment {
+    fn decode(bytes: &mut io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        Ok(Self(Sha256Digest::decode(bytes)?))
+    }
+
+    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        self.0.encode(bytes)
+    }
+}
+
+/// A 32-byte nonce used in hash commitments.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Nonce(pub [u8; 32]);
+
+impl AsRef<[u8]> for Nonce {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl Codec for Nonce {
+    fn decode(bytes: &mut io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        let bytes: [u8; 32] = u8::decode_fixed_array(bytes, 32)?
+            .try_into()
+            .map_err(|_| anyhow!("failed to convert byte vec to array"))?;
+
+        Ok(Self(bytes))
+    }
+
+    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        u8::encode_fixed_array(self.0.as_slice(), bytes)
     }
 }
 

@@ -9,7 +9,7 @@ use crate::{
     },
     fields::{CodecFieldElement, ProofFieldElement},
     ligero::{
-        LigeroChallenges,
+        LigeroChallenges, Nonce,
         merkle::{InclusionProof, MerkleTree},
         tableau::{Tableau, TableauLayout},
         write_hash_of_a, write_proof,
@@ -17,6 +17,7 @@ use crate::{
     transcript::Transcript,
 };
 use anyhow::{Context, anyhow};
+use std::io;
 
 const MAX_RUN_LENGTH: usize = 1 << 25;
 
@@ -251,7 +252,7 @@ pub struct LigeroProof<FieldElement> {
     pub low_degree_test_proof: Vec<FieldElement>,
     pub dot_proof: Vec<FieldElement>,
     pub quadratic_proof: (Vec<FieldElement>, Vec<FieldElement>),
-    pub merkle_tree_nonces: Vec<[u8; 32]>,
+    pub merkle_tree_nonces: Vec<Nonce>,
     pub tableau_columns: Vec<Vec<FieldElement>>,
     pub inclusion_proof: InclusionProof,
 }
@@ -265,7 +266,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
     pub fn decode(
         layout: &TableauLayout,
-        bytes: &mut std::io::Cursor<&[u8]>,
+        bytes: &mut io::Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
         let low_degree_test_proof = FE::decode_fixed_array(bytes, layout.block_size())?;
         let dot_proof = FE::decode_fixed_array(bytes, layout.dblock())?;
@@ -273,8 +274,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
             FE::decode_fixed_array(bytes, layout.num_requested_columns())?,
             FE::decode_fixed_array(bytes, layout.dblock() - layout.block_size())?,
         );
-        let merkle_tree_nonces =
-            <[u8; 32]>::decode_fixed_array(bytes, layout.num_requested_columns())?;
+        let merkle_tree_nonces = Nonce::decode_fixed_array(bytes, layout.num_requested_columns())?;
 
         // Columns are serialized as one or more runs, each of which is a length-prefixed vector. A
         // run may contain field or subfield elements.
@@ -336,7 +336,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
         FE::encode_fixed_array(&self.dot_proof, bytes)?;
         FE::encode_fixed_array(&self.quadratic_proof.0, bytes)?;
         FE::encode_fixed_array(&self.quadratic_proof.1, bytes)?;
-        <[u8; 32]>::encode_fixed_array(&self.merkle_tree_nonces, bytes)?;
+        Nonce::encode_fixed_array(&self.merkle_tree_nonces, bytes)?;
 
         let column_elements: Vec<_> = self.tableau_columns.iter().flat_map(|v| v.iter()).collect();
         let mut column_elements_written = 0;
@@ -424,8 +424,8 @@ mod tests {
 
         // Fix the nonce to match what longfellow-zk will do: all zeroes, but set the first byte to
         // what the fixed RNG yields.
-        let mut merkle_tree_nonce = [0; 32];
-        merkle_tree_nonce[0] = test_vector.pad as u8;
+        let mut merkle_tree_nonce = Nonce([0; 32]);
+        merkle_tree_nonce.0[0] = test_vector.pad as u8;
         let merkle_tree = tableau
             .commit_with_merkle_tree_nonce_generator(|| merkle_tree_nonce)
             .unwrap();

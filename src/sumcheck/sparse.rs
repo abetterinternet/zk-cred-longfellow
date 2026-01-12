@@ -196,7 +196,7 @@ impl<'a, FE: FieldElement> SparseQuadElement<FE> {
         opposite_hand_wire: usize,
         coefficient: FE,
     ) -> Self {
-        assert_ne!(
+        debug_assert_ne!(
             coefficient,
             FE::ZERO,
             "sparse array should not contain elements with zero coefficient",
@@ -224,8 +224,8 @@ impl<'a, FE: FieldElement> SparseQuadElement<FE> {
     /// Returns `Some` if `other` is the next wire in the indicated handedness, but same in the
     /// other dimensions (`g` and the opposite hand).
     ///
-    /// e.g. `[0, 1, 0]` is the next `Hand::Left` wire to `[0, 0, 0]`, but not to `[0, 0, 1]`.
-    /// `[2, 1, 1]` is the next `Hand::Right` wire to `[2, 1, 0]` but not to `[2, 2, 0]`.
+    /// e.g. `[0, 1, 0]` is the next `Hand::Left` wire after `[0, 0, 0]`, but not after `[0, 0, 1]`.
+    /// `[2, 1, 1]` is the next `Hand::Right` wire after `[2, 1, 0]` but not after `[2, 2, 0]`.
     fn is_next_wire(
         &self,
         hand: Hand,
@@ -270,15 +270,15 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
 
             interleaved
         }
-        // Using the `Ord` impl on `[T]` gives us lexicographic ordering over the slice elements.
-        [
-            self.gate_index as u128,
+        // Using the `Ord` impl on `(T)` gives us lexicographic ordering over the slice elements.
+        (
+            self.gate_index,
             interleave(self.right_wire_index, self.left_wire_index),
-        ]
-        .cmp(&[
-            other.gate_index as u128,
-            interleave(other.right_wire_index, other.left_wire_index),
-        ])
+        )
+            .cmp(&(
+                other.gate_index,
+                interleave(other.right_wire_index, other.left_wire_index),
+            ))
     }
 }
 
@@ -391,25 +391,27 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
             // If element 2i+1 is in the array, it will be immediately after element 2i. See the
             // module level doccomment for an explanation of how we sort the sparse array to impose
             // this invariant.
-            let (coeff_2i, coeff_2i_plus_1) = if let Some(next) = curr.is_next_wire(hand, next)
-                && curr.hand_wire(hand).is_multiple_of(2)
-            {
-                // curr and next are 2i and 2i+1, respectively
-                assert_eq!(
-                    next.gate_index, 0,
-                    "sparse array should have been bound down to 2D before binding a hand",
-                );
-                read += 2;
-                (curr.coefficient, next.coefficient)
+            read += 1;
+            let (coeff_2i, coeff_2i_plus_1) = if curr.hand_wire(hand).is_multiple_of(2) {
+                // curr is 2i
+                (
+                    curr.coefficient,
+                    if let Some(next) = curr.is_next_wire(hand, next) {
+                        // next is 2i+1. Advance read index again.
+                        assert_eq!(
+                            next.gate_index, 0,
+                            "sparse array should have been bound down to 2D before binding a hand",
+                        );
+                        read += 1;
+                        next.coefficient
+                    } else {
+                        // sparse array does not contain 2i+1
+                        FE::ZERO
+                    },
+                )
             } else {
-                read += 1;
-                if curr.hand_wire(hand).is_multiple_of(2) {
-                    // curr is 2i, sparse array does not contain 2i+1
-                    (curr.coefficient, FE::ZERO)
-                } else {
-                    // curr is 2i+1, sparse array does not contain 2i
-                    (FE::ZERO, curr.coefficient)
-                }
+                // curr is 2i+1, sparse array does not contain 2i
+                (FE::ZERO, curr.coefficient)
             };
 
             // Don't bother writing elements with zero coefficient

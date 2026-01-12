@@ -6,7 +6,7 @@ use crate::{
     Codec, Sha256Digest, fields::CodecFieldElement, ligero::tableau::TableauLayout,
     transcript::Transcript,
 };
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use merkle::Node;
 use serde::Deserialize;
 use std::io;
@@ -43,16 +43,6 @@ pub struct LigeroParameters {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LigeroCommitment(Sha256Digest);
 
-impl TryFrom<&[u8]> for LigeroCommitment {
-    type Error = anyhow::Error;
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let commitment: [u8; 32] = value
-            .try_into()
-            .context("byte slice wrong size for commitment")?;
-        Ok(LigeroCommitment(Sha256Digest(commitment)))
-    }
-}
-
 impl From<Node> for LigeroCommitment {
     fn from(value: Node) -> Self {
         Self(Sha256Digest::from(value))
@@ -72,7 +62,7 @@ impl LigeroCommitment {
     /// A fake but well-formed commitment for tests.
     #[cfg(test)]
     pub fn test_commitment() -> Self {
-        Self::try_from([1u8; 32].as_slice()).unwrap()
+        Self::from(Node::from(Sha256Digest([1u8; 32])))
     }
 }
 

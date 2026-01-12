@@ -5,7 +5,10 @@ use crate::{
     circuit::Circuit,
     constraints::proof_constraints::QuadraticConstraint,
     fields::{CodecFieldElement, field2_128::Field2_128, fieldp128::FieldP128},
-    ligero::{LigeroCommitment, LigeroParameters, prover::LigeroProof, tableau::TableauLayout},
+    ligero::{
+        LigeroCommitment, LigeroParameters, merkle::Node, prover::LigeroProof,
+        tableau::TableauLayout,
+    },
     sumcheck::prover::SumcheckProof,
 };
 use serde::Deserialize;
@@ -143,8 +146,7 @@ impl<FE: CodecFieldElement> CircuitTestVector<FE> {
     }
 
     pub(crate) fn ligero_commitment(&self) -> LigeroCommitment {
-        LigeroCommitment::try_from(hex::decode(&self.ligero_commitment).unwrap().as_slice())
-            .unwrap()
+        LigeroCommitment::from(Node::from_hex(&self.ligero_commitment).unwrap())
     }
 
     pub(crate) fn valid_inputs(&self) -> &[FE] {

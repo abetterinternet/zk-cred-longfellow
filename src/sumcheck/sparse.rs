@@ -442,3 +442,127 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{field_element_tests, fields::CodecFieldElement, sumcheck::bind::tests::field_vec};
+    use rand::{Rng, SeedableRng, TryRngCore, random};
+    use rand_chacha::ChaCha20Rng;
+    #[cfg(panic = "unwind")]
+    use std::panic::catch_unwind;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    fn bind_wrong_hand<FE: FieldElement>() {
+        #[cfg(panic = "unwind")]
+        catch_unwind(|| {
+            let mut sparse = SparseSumcheckArray::from(vec![field_vec::<FE>(&[0])]);
+            sparse.bind_hand(Hand::Right, FE::ONE)
+        })
+        .unwrap_err();
+
+        #[cfg(panic = "unwind")]
+        catch_unwind(|| {
+            let mut sparse = SparseSumcheckArray::from(vec![field_vec::<FE>(&[0])]);
+            sparse.bind_hand(Hand::Left, FE::ONE);
+            sparse.bind_hand(Hand::Left, FE::ONE);
+        })
+        .unwrap_err();
+    }
+
+    field_element_tests!(bind_wrong_hand);
+
+    fn sparse_bind_equivalence<FE: FieldElement>() {
+        let dense = vec![
+            field_vec::<FE>(&[0, 5, 10, 15, 20]),
+            field_vec::<FE>(&[1, 6, 11, 16, 21]),
+            field_vec::<FE>(&[2, 7, 12, 17, 22]),
+            field_vec::<FE>(&[3, 8, 13, 18, 23]),
+            field_vec::<FE>(&[4, 9, 14, 19, 24]),
+        ];
+        let mut sparse = SparseSumcheckArray::from(dense.clone());
+
+        // Bind to something non-trivial so that neither the A[2i] or A[2i+1] terms reduce to 0
+        let three = FE::ONE + FE::ONE + FE::ONE;
+        let four = three + FE::ONE;
+        let five = four + FE::ONE;
+
+        // Check that binding the left hand, right hand and then left hand of a sparse array is
+        // equivalent to binding the dense array, transposing it, binding it again, transposing it
+        // again, and binding it a final time.
+        let bound = dense.bind(&[three]);
+        sparse.bind_hand(Hand::Left, three);
+        sparse.compare_bound_array(Hand::Left, &bound);
+
+        let bound_twice = bound.transpose().bind(&[four]);
+        sparse.bind_hand(Hand::Right, four);
+        sparse.compare_bound_array(Hand::Right, &bound_twice);
+
+        let bound_thrice = bound_twice.transpose().bind(&[five]);
+        sparse.bind_hand(Hand::Left, five);
+        sparse.compare_bound_array(Hand::Left, &bound_thrice);
+    }
+
+    field_element_tests!(sparse_bind_equivalence);
+
+    fn large_sparse_array_bind_equivalence<FE: CodecFieldElement>(array_size: usize) {
+        // Randomly generate a large array that is 99.99% sparse and check that it behaves
+        // equivalently to a dense array of the same size.
+        // Generate a random seed from OS rng, then use that as a seed to a ChaCha20Rng so that on
+        // failure, we can record the seed and reproduce the test case.
+        fn sample_fe<FE: CodecFieldElement>(rng: &mut ChaCha20Rng) -> FE {
+            FE::sample_from_source(|num_bytes| {
+                let mut bytes = vec![0; num_bytes];
+                rng.try_fill_bytes(&mut bytes).unwrap();
+
+                bytes
+            })
+        }
+
+        let seed = random();
+        println!("seed = {seed}");
+        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+
+        let mut dense = std::iter::repeat_with(|| {
+            std::iter::repeat_with(|| {
+                if rng.random_bool(0.9999) {
+                    return FE::ZERO;
+                }
+                sample_fe(&mut rng)
+            })
+            .take(array_size)
+            .collect::<Vec<_>>()
+        })
+        .take(array_size)
+        .collect::<Vec<_>>();
+
+        let mut sparse = SparseSumcheckArray::from(dense.clone());
+
+        let binding = sample_fe(&mut rng);
+
+        for iteration in 0..array_size.ilog2() {
+            let hand = if iteration.is_multiple_of(2) {
+                Hand::Left
+            } else {
+                Hand::Right
+            };
+
+            dense = dense.bind(&[binding]);
+            sparse.bind_hand(hand, binding);
+            sparse.compare_bound_array(hand, &dense);
+            dense = dense.transpose();
+        }
+    }
+
+    fn large_sparse_array_bind_equivalence_power_of_two_array_size<FE: CodecFieldElement>() {
+        large_sparse_array_bind_equivalence::<FE>(512);
+    }
+
+    field_element_tests!(large_sparse_array_bind_equivalence_power_of_two_array_size);
+
+    fn large_sparse_array_bind_equivalence_odd_array_size<FE: CodecFieldElement>() {
+        large_sparse_array_bind_equivalence::<FE>(617);
+    }
+
+    field_element_tests!(large_sparse_array_bind_equivalence_odd_array_size);
+}

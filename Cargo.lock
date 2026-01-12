@@ -1111,6 +1111,7 @@ dependencies = [
  "num-traits",
  "pretty_assertions",
  "rand",
+ "rand_chacha",
  "serde",
  "serde_json",
  "serde_test",

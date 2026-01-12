@@ -277,16 +277,13 @@ pub fn bindeq<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::{
-        field_element_tests,
-        sumcheck::sparse::{Hand, SparseSumcheckArray},
-    };
+    use crate::field_element_tests;
     use std::iter::Iterator;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn field_vec<FE: FieldElement>(values: &[u128]) -> Vec<FE> {
+    pub(crate) fn field_vec<FE: FieldElement>(values: &[u128]) -> Vec<FE> {
         values.iter().map(|v| FE::from_u128(*v)).collect()
     }
 
@@ -432,39 +429,6 @@ mod tests {
     }
 
     field_element_tests!(two_dimension_bind_one);
-
-    fn two_dimension_bind_sparse_equivalence<FE: FieldElement>() {
-        let original = vec![
-            field_vec::<FE>(&[0, 5, 10, 15, 20]),
-            field_vec::<FE>(&[1, 6, 11, 16, 21]),
-            field_vec::<FE>(&[2, 7, 12, 17, 22]),
-            field_vec::<FE>(&[3, 8, 13, 18, 23]),
-            field_vec::<FE>(&[4, 9, 14, 19, 24]),
-        ];
-        let mut sparse = SparseSumcheckArray::from(original.clone());
-
-        // Bind to something non-trivial so that neither the A[2i] or A[2i+1] terms reduce to 0
-        let three = FE::ONE + FE::ONE + FE::ONE;
-        let four = three + FE::ONE;
-        let five = four + FE::ONE;
-
-        // Check that binding the left hand, right hand and then left hand of a sparse array is
-        // equivalent to binding the dense array, transposing it, binding it again, transposing it
-        // again, and binding it a final time.
-        let bound = original.bind(&[three]);
-        sparse.bind_hand(Hand::Left, three);
-        sparse.compare_bound_array(Hand::Left, &bound);
-
-        let bound_twice = bound.transpose().bind(&[four]);
-        sparse.bind_hand(Hand::Right, four);
-        sparse.compare_bound_array(Hand::Right, &bound_twice);
-
-        let bound_thrice = bound_twice.transpose().bind(&[five]);
-        sparse.bind_hand(Hand::Left, five);
-        sparse.compare_bound_array(Hand::Left, &bound_thrice);
-    }
-
-    field_element_tests!(two_dimension_bind_sparse_equivalence);
 
     fn two_dimension_bind_zero<FE: FieldElement>() {
         let original = vec![

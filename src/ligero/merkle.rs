@@ -42,7 +42,7 @@ impl From<Sha256Digest> for Node {
 
 impl From<Sha256> for Node {
     fn from(hash: Sha256) -> Self {
-        Self(Sha256Digest(<[u8; 32]>::from(hash.finalize())))
+        Self(Sha256Digest::from(hash.finalize()))
     }
 }
 
@@ -157,8 +157,8 @@ impl MerkleTree {
         let mut sha256 = Sha256::new();
         sha256.update(left.0.0);
         sha256.update(right.0.0);
-        let array: [u8; 32] = sha256.finalize().into();
-        Node::from(Sha256Digest(array))
+        let array = sha256.finalize();
+        Node::from(Sha256Digest::from(array))
     }
 
     /// Build the tree up from the leaves to the root.

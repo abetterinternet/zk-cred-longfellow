@@ -28,7 +28,7 @@ word_by_word_montgomery \
     64 \
     '0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551' \
     to_montgomery from_montgomery \
-    from_bytes \
+    to_bytes from_bytes \
     add sub opp \
     mul square \
     selectznz

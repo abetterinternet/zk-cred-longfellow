@@ -1,17 +1,21 @@
-use crate::fields::{
-    FieldElement, addition_chains,
-    fieldp256_scalar::ops::{
-        fiat_p256_scalar_add, fiat_p256_scalar_from_bytes, fiat_p256_scalar_from_montgomery,
-        fiat_p256_scalar_montgomery_domain_field_element, fiat_p256_scalar_mul,
-        fiat_p256_scalar_non_montgomery_domain_field_element, fiat_p256_scalar_opp,
-        fiat_p256_scalar_selectznz, fiat_p256_scalar_square, fiat_p256_scalar_sub,
-        fiat_p256_scalar_to_montgomery,
+use crate::{
+    Codec,
+    fields::{
+        FieldElement, addition_chains,
+        fieldp256_scalar::ops::{
+            fiat_p256_scalar_add, fiat_p256_scalar_from_bytes, fiat_p256_scalar_from_montgomery,
+            fiat_p256_scalar_montgomery_domain_field_element, fiat_p256_scalar_mul,
+            fiat_p256_scalar_non_montgomery_domain_field_element, fiat_p256_scalar_opp,
+            fiat_p256_scalar_selectznz, fiat_p256_scalar_square, fiat_p256_scalar_sub,
+            fiat_p256_scalar_to_bytes, fiat_p256_scalar_to_montgomery,
+        },
     },
 };
 use anyhow::{Context, anyhow};
 use std::{
     cmp::Ordering,
     fmt::{self, Debug},
+    io::{self, Read},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 use subtle::{ConditionallySelectable, ConstantTimeEq};
@@ -151,6 +155,25 @@ impl TryFrom<&[u8]> for FieldP256Scalar {
         let array_reference =
             <&[u8; 32]>::try_from(value).context("failed to decode FieldP256Scalar")?;
         Self::try_from(array_reference)
+    }
+}
+
+impl Codec for FieldP256Scalar {
+    fn decode(bytes: &mut io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        let mut buffer = [0u8; 32];
+        bytes
+            .read_exact(&mut buffer)
+            .context("failed to read FieldP256Scalar element")?;
+        Self::try_from(&buffer)
+    }
+
+    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+        let mut non_montgomery = fiat_p256_scalar_non_montgomery_domain_field_element([0; 4]);
+        fiat_p256_scalar_from_montgomery(&mut non_montgomery, &self.0);
+        let mut out = [0u8; 32];
+        fiat_p256_scalar_to_bytes(&mut out, &non_montgomery.0);
+        bytes.extend_from_slice(&out);
+        Ok(())
     }
 }
 

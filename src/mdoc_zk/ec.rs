@@ -520,7 +520,7 @@ pub(super) fn fill_ecdsa_witness(
     *witness.neg_s_inverse = embed_scalar_in_base_field(-s).mul_inv();
     *witness.q_x_inverse = qx.mul_inv();
 
-    // TODO: multi-scalar multiplication
+    multi_scalar_multiplication(witness, g, hash, public_key, r, r_point_aff, -s)?;
 
     Ok(())
 }
@@ -532,6 +532,43 @@ fn embed_scalar_in_base_field(scalar: FieldP256Scalar) -> FieldP256 {
     // Unwrap safety: this will succeed because the slice is the right size, and the size of the
     // scalar field is smaller than the base field.
     FieldP256::try_from(encoded.as_slice()).unwrap()
+}
+
+/// Perform the multi-scalar multiplication G*e + Q*r - R*s, and record related witnesses.
+fn multi_scalar_multiplication(
+    witness: &mut EcdsaWitness<'_>,
+    g: AffinePoint,
+    _e: Sha256Digest,
+    q: AffinePoint,
+    _r_scalar: FieldP256Scalar,
+    r_point: AffinePoint,
+    _neg_s: FieldP256Scalar,
+) -> Result<(), anyhow::Error> {
+    // Construct table points.
+    let g_plus_q_proj = ProjectivePoint::from(g) + q;
+    let g_plus_q_aff = AffinePoint::from(g_plus_q_proj);
+    let g_plus_r_proj = ProjectivePoint::from(g) + r_point;
+    let g_plus_r_aff = AffinePoint::from(g_plus_r_proj);
+    let q_plus_r_proj = ProjectivePoint::from(q) + r_point;
+    let q_plus_r_aff = AffinePoint::from(q_plus_r_proj);
+    let g_plus_q_plus_r_proj = g_plus_q_proj + r_point;
+    let g_plus_q_plus_r_aff = AffinePoint::from(g_plus_q_plus_r_proj);
+
+    // Record coordinates of table points.
+    *witness.sum_g_q = g_plus_q_aff
+        .coordinates()
+        .ok_or_else(|| anyhow!("invalid public key (G + Q = O)"))?;
+    *witness.sum_g_r = g_plus_r_aff
+        .coordinates()
+        .ok_or_else(|| anyhow!("invalid signature (G + R = 0)"))?;
+    *witness.sum_q_r = q_plus_r_aff
+        .coordinates()
+        .ok_or_else(|| anyhow!("invalid signature (Q + R = 0)"))?;
+    *witness.sum_g_q_r = g_plus_q_plus_r_aff
+        .coordinates()
+        .ok_or_else(|| anyhow!("invalid signature (G + Q + R = 0)"))?;
+
+    Ok(())
 }
 
 #[cfg(test)]

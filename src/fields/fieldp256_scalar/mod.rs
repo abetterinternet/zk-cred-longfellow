@@ -1,5 +1,5 @@
 use crate::{
-    Codec,
+    Codec, Sha256Digest,
     fields::{
         FieldElement, addition_chains,
         fieldp256_scalar::ops::{
@@ -78,15 +78,15 @@ impl FieldP256Scalar {
     ///
     /// The `hash` argument is treated as a big-endian encoding of an integer, per SEC 1 section
     /// 2.3.8.
-    pub fn from_hash(hash: [u8; 32]) -> Self {
+    pub fn from_hash(hash: Sha256Digest) -> Self {
         const MODULUS_HIGH: u128 = 0xffffffff00000000ffffffffffffffff;
         const MODULUS_LOW: u128 = 0xbce6faada7179e84f3b9cac2fc632551;
 
         // Interpret the hash as a big-endian 256-bit number.
         //
         // Unwrap safety: these indices are statically in-range.
-        let high = u128::from_be_bytes(hash[..16].try_into().unwrap());
-        let low = u128::from_be_bytes(hash[16..].try_into().unwrap());
+        let high = u128::from_be_bytes(hash.0[..16].try_into().unwrap());
+        let low = u128::from_be_bytes(hash.0[16..].try_into().unwrap());
 
         // Perform a conditional subtraction.
         let (result_low, borrow) = low.overflowing_sub(MODULUS_LOW);
@@ -324,7 +324,10 @@ mod ops;
 
 #[cfg(test)]
 mod tests {
-    use crate::fields::{FieldElement, fieldp256_scalar::FieldP256Scalar};
+    use crate::{
+        Sha256Digest,
+        fields::{FieldElement, fieldp256_scalar::FieldP256Scalar},
+    };
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -338,21 +341,21 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn from_hash() {
         assert_eq!(
-            FieldP256Scalar::from_hash([
+            FieldP256Scalar::from_hash(Sha256Digest([
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 1
-            ]),
+            ])),
             FieldP256Scalar::ONE
         );
         assert_eq!(
-            FieldP256Scalar::from_hash([
+            FieldP256Scalar::from_hash(Sha256Digest([
                 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0,
-            ]),
+            ])),
             FieldP256Scalar::from_u128(1 << 127).square() * FieldP256Scalar::from_u128(2)
         );
         assert_eq!(
-            FieldP256Scalar::from_hash([0xff; 32]),
+            FieldP256Scalar::from_hash(Sha256Digest([0xff; 32])),
             FieldP256Scalar::try_from(&[
                 0xae, 0xda, 0x9c, 0x03, 0x3d, 0x35, 0x46, 0x0c, 0x7b, 0x61, 0xe8, 0x58, 0x52, 0x05,
                 0x19, 0x43, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff,

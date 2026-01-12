@@ -485,7 +485,7 @@ pub(super) fn fill_ecdsa_witness(
     witness: &mut EcdsaWitness<'_>,
     public_key: AffinePoint,
     signature: Signature,
-    hash: [u8; 32],
+    hash: Sha256Digest,
 ) -> Result<(), anyhow::Error> {
     let [qx, _qy] = public_key
         .coordinates()

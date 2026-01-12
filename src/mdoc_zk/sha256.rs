@@ -1,3 +1,4 @@
+use crate::Sha256Digest;
 #[cfg(test)]
 use crate::mdoc_zk::layout::Sha256BlockWitness;
 use std::iter;
@@ -29,7 +30,7 @@ fn pad_input(input: &mut Vec<u8>) {
 }
 
 /// Compute the SHA-256 hash of an input.
-pub(super) fn run_sha256(input: &[u8]) -> [u8; 32] {
+pub(super) fn run_sha256(input: &[u8]) -> Sha256Digest {
     let mut padded_input = input.to_vec();
     pad_input(&mut padded_input);
     let mut hash_value = INITIAL_HASH_VALUE;
@@ -124,9 +125,9 @@ fn round(state: &mut [u32; 8], k_t: u32, w_t: u32) {
     *a = t1.wrapping_add(t2);
 }
 
-fn serialize_hash_value(hash_value: &[u32; 8]) -> [u8; 32] {
-    let mut output = [0; 32];
-    for (h, chunk) in hash_value.iter().zip(output.chunks_exact_mut(4)) {
+fn serialize_hash_value(hash_value: &[u32; 8]) -> Sha256Digest {
+    let mut output = Sha256Digest([0; 32]);
+    for (h, chunk) in hash_value.iter().zip(output.0.chunks_exact_mut(4)) {
         chunk.copy_from_slice(&h.to_be_bytes());
     }
     output
@@ -172,8 +173,8 @@ mod tests {
     fn test_digest() {
         let input = b"One two three four five six seven eight nine ten eleven twelve thirteen";
         let hash = run_sha256(input);
-        let expected_hash = Sha256::digest(input);
-        assert_eq!(hash.as_slice(), expected_hash.as_slice());
+        let expected_hash = Sha256::digest(input).into();
+        assert_eq!(hash, expected_hash);
     }
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -182,8 +183,8 @@ mod tests {
         for i in 0..=input.len() {
             let input = &input[0..i];
             let hash = run_sha256(input);
-            let expected_hash = Sha256::digest(input);
-            assert_eq!(hash.as_slice(), expected_hash.as_slice(), "length {i}");
+            let expected_hash = Sha256::digest(input).into();
+            assert_eq!(hash, expected_hash, "length {i}");
         }
     }
 

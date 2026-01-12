@@ -335,9 +335,93 @@ pub(super) mod tests {
             layout.split_signature_input(&mut inputs.signature_input().to_vec()),
             layout.split_signature_input(&mut expected_signature_input.clone())
         );
+
+        // We need to split comparison of the hash inputs up by top-level field, otherwise it will
+        // hit an allocation error when trying to write the diff.
+        let mut hash_actual = inputs.hash_input().to_vec();
+        let hash_actual_split = layout.split_hash_input(&mut hash_actual);
+        let mut hash_expected = expected_hash_input.clone();
+        let hash_expected_split = layout.split_hash_input(&mut hash_expected);
         pretty_assertions::assert_eq!(
-            layout.split_hash_input(&mut inputs.hash_input().to_vec()),
-            layout.split_hash_input(&mut expected_hash_input.clone())
+            hash_actual_split.implicit_one,
+            hash_expected_split.implicit_one,
+            "implicit one"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.attribute_inputs,
+            hash_expected_split.attribute_inputs,
+            "attribute inputs"
+        );
+        pretty_assertions::assert_eq!(hash_actual_split.time, hash_expected_split.time, "time");
+        pretty_assertions::assert_eq!(
+            hash_actual_split.mac_tags,
+            hash_expected_split.mac_tags,
+            "mac tags"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.mac_verifier_key_share,
+            hash_expected_split.mac_verifier_key_share,
+            "mac verifier key share"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.e_credential,
+            hash_expected_split.e_credential,
+            "e, credential"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.device_public_key_x,
+            hash_expected_split.device_public_key_x,
+            "device public key x"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.device_public_key_y,
+            hash_expected_split.device_public_key_y,
+            "device public key y"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.sha_256_block_count,
+            hash_expected_split.sha_256_block_count,
+            "sha-256 block count"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.sha_256_input,
+            hash_expected_split.sha_256_input,
+            "sha-256 input"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.sha_256_witness_credential,
+            hash_expected_split.sha_256_witness_credential,
+            "sha-256 witness, credential"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.valid_from_offset,
+            hash_expected_split.valid_from_offset,
+            "validFrom offset"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.valid_until_offset,
+            hash_expected_split.valid_until_offset,
+            "validUntil offset"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.device_key_info_offset,
+            hash_expected_split.device_key_info_offset,
+            "deviceKeyInfo offset"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.value_digests_offset,
+            hash_expected_split.value_digests_offset,
+            "valueDigests offset"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.attribute_witnesses,
+            hash_expected_split.attribute_witnesses,
+            "attribute witnesses"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.mac_prover_key_shares,
+            hash_expected_split.mac_prover_key_shares,
+            "mac prover key shares"
         );
 
         assert_eq!(inputs.signature_input(), expected_signature_input);

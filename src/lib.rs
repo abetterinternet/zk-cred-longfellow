@@ -1,5 +1,6 @@
 use anyhow::{Context, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use crypto_common::{generic_array::GenericArray, typenum::U32};
 use std::{
     fmt::{self, Display},
     io::{self, Cursor},
@@ -269,6 +270,18 @@ impl Codec for Sha256Digest {
 
     fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
         u8::encode_fixed_array(self.0.as_slice(), bytes)
+    }
+}
+
+impl From<[u8; 32]> for Sha256Digest {
+    fn from(value: [u8; 32]) -> Self {
+        Self(value)
+    }
+}
+
+impl From<GenericArray<u8, U32>> for Sha256Digest {
+    fn from(value: GenericArray<u8, U32>) -> Self {
+        Self(value.into())
     }
 }
 

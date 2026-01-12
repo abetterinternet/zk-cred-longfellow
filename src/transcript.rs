@@ -5,7 +5,7 @@
 
 use std::fmt::Debug;
 
-use crate::{circuit::Circuit, fields::CodecFieldElement, sumcheck::Polynomial};
+use crate::{Sha256Digest, circuit::Circuit, fields::CodecFieldElement, sumcheck::Polynomial};
 use aes::{
     Aes256,
     cipher::{BlockEncrypt, KeyInit},
@@ -194,7 +194,7 @@ impl Transcript {
             // Clone the SHA256 state so we can finalize it
             let fsprf_seed = self.fsprf_seed.clone().finalize();
             // TODO: handle fallible initialization here
-            FiatShamirPseudoRandomFunction::new(fsprf_seed.as_slice())
+            FiatShamirPseudoRandomFunction::new(&Sha256Digest::from(fsprf_seed))
                 .expect("failed to init FSPRF")
         })
     }
@@ -289,8 +289,8 @@ pub struct FiatShamirPseudoRandomFunction {
 
 impl FiatShamirPseudoRandomFunction {
     /// Initialize the FSPRF with the provided key, which must be the correct length for AES256.
-    pub fn new(seed: &[u8]) -> Result<Self, anyhow::Error> {
-        let cipher = Aes256::new_from_slice(seed).context("bad key length")?;
+    pub fn new(seed: &Sha256Digest) -> Result<Self, anyhow::Error> {
+        let cipher = Aes256::new_from_slice(&seed.0).context("bad key length")?;
 
         Ok(Self {
             cipher,

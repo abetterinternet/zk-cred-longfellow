@@ -8,10 +8,7 @@ use crate::{
     constraints::symbolic::{SymbolicExpression, Term},
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
-        bind::{
-            ElementwiseSum, SumcheckArray, bindeq,
-            sparse::{Hand, SparseSumcheckArray},
-        },
+        bind::{ElementwiseSum, SumcheckArray, bindeq, sparse::Hand},
         prover::SumcheckProof,
     },
     transcript::Transcript,
@@ -131,7 +128,7 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
             let beta = transcript.generate_challenge(1)?[0];
 
             // The combined quad, aka QZ[g, l, r], a three dimensional array.
-            let (combined_quad, _) = circuit.combined_quad(layer_index, beta)?;
+            let (combined_quad, mut sparse_quad) = circuit.combined_quad(layer_index, beta)?;
 
             // Bind the combined quad to G.
             let mut bound_quad = combined_quad
@@ -142,9 +139,10 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
             // dimension.
             let mut bound_quad = bound_quad.remove(0);
 
-            // Copy the bound quad into a sparse array so we can verify its equivalence to the dense
+            // Also do the binding in a sparse array so we can verify its equivalence to the dense
             // array.
-            let mut sparse_bound_quad = SparseSumcheckArray::from(bound_quad.clone());
+            sparse_quad.bindv_gate(&bindings[0], &bindings[1], alpha);
+            sparse_quad.compare_bound_array(Hand::Left, &bound_quad);
 
             // Allocate room for the new bindings this layer will generate
             let mut new_bindings = [
@@ -234,8 +232,8 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
                     bound_quad = bound_quad.bind(&challenge);
 
                     // Verify that binding to sparse array is equivalent
-                    sparse_bound_quad.bind_hand(hand, challenge[0]);
-                    sparse_bound_quad.compare_bound_array(hand, &bound_quad);
+                    sparse_quad.bind_hand(hand, challenge[0]);
+                    sparse_quad.compare_bound_array(hand, &bound_quad);
 
                     bound_quad = bound_quad.transpose();
                 }

@@ -1,6 +1,19 @@
 //! Implements a sparse array specialized for Sumcheck. The entries of the array are quads,
 //! indexed by gate number, left wire index and right wire index, and whose value is a coefficient.
 //!
+//! # Binding to the gate dimension in sparse sumcheck arrays
+//!
+//! Sumcheck as laid out in [draft-google-cfrg-libzk-01 section 6][1] requires computing a combined
+//! quad for each layer of the circuit, then binding it to the layer's challenges:
+//!
+//! ```no_compile
+//! QUAD = bindv(QZ, G[0]) + alpha * bindv(QZ, G[1])
+//! ```
+//!
+//! This is the only time we need `bindv` as described in [draft-google-cfrg-libzk-01 section,
+//! 6.1][2], and so we provide a specialized implementation in [`SparseSumcheckArray::bindv_gate`].
+//! See that item for further discussion.
+//!
 //! # Binding to left and right wires in sparse sumcheck arrays
 //!
 //! Sumcheck as laid out in [draft-google-cfrg-libzk-01 section 6][1] requires repeatedly binding
@@ -144,8 +157,12 @@
 //! ```
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6
+//! [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
 
-use crate::{fields::FieldElement, sumcheck::bind::SumcheckArray};
+use crate::{
+    fields::FieldElement,
+    sumcheck::bind::{SumcheckArray, bindeq},
+};
 use std::cmp::Ordering;
 
 /// A sparse 3D array indexed by `g` (gate number), `l` (input left wire index) and `r` (input right
@@ -356,6 +373,11 @@ impl<FE: FieldElement> PartialEq<Vec<Vec<FE>>> for SparseSumcheckArray<FE> {
 }
 
 impl<FE: FieldElement> SparseSumcheckArray<FE> {
+    /// Access the contents of the sparse array.
+    pub fn contents(&self) -> &[SparseQuadElement<FE>] {
+        &self.contents
+    }
+
     /// Bind this array to `binding` in the dimension indicated by `hand`, in-place. That is, if
     /// `hand == Hand::Left`, bind `self[g, 2i, r]` and `self[g, 2i+1, r]` into `self[g, i, r]` for
     /// all g, r. If `hand == Hand::Right`, bind `self[g, l, 2i]` and `self[g, l, 2i+i]` into
@@ -434,6 +456,74 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
         self.contents.truncate(write);
     }
 
+    /// Treating self as the combined quad for a sumcheck layer, compute the bound quad:
+    /// `Q = bindv(QZ, G[0]) + alpha * bindv(QZ, G[1])`.
+    ///
+    /// We could use a strategy similar to [`Self::bind_hand`], but [6.2][1] gives us a faster
+    /// strategy:
+    ///
+    /// ```no_compile
+    ///      bindv(V, X) = SUM_{j} bindv(EQ, X)[j] V[j]
+    /// ```
+    ///
+    /// Substituting into our expression for `Q`:
+    ///
+    /// ```no_compile
+    ///      Q = SUM_{j} bindv(EQ, G[0])[j] QZ[j] + alpha * bindv(EQ, G[1])[j] QZ[j]
+    ///        = SUM_{j} QZ[j] * (bindv(EQ, G[0])[j] + alpha * bindv(EQ, G[1])[j]))
+    /// ```
+    ///
+    /// This lets us compute `Q` with far fewer multiplications than repeatedly binding the array to
+    /// successive elements of the bindings.
+    ///
+    /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.2
+    pub fn bindv_gate(&mut self, bindings_0: &[FE], bindings_1: &[FE], alpha: FE) {
+        // Check that bindings are long enough to reduce the gate_index dimension of the bound quad
+        // to a single element
+        debug_assert_eq!(bindings_0.len(), bindings_1.len());
+        debug_assert_eq!(
+            bindings_0.len(),
+            self.contents
+                .iter()
+                .map(|e| e.gate_index)
+                .max()
+                .unwrap()
+                .next_power_of_two()
+                .ilog2() as usize,
+            "bindings are not long enough to reduce gate dimension to a single element",
+        );
+
+        // First compute bindv(EQ, G[0])[j] + alpha * bindv(EQ, G[1])[j])
+        let mut bindeq_0 = bindeq(bindings_0);
+        for (bindeq_0, bindeq_1) in bindeq_0.iter_mut().zip(bindeq(bindings_1).iter()) {
+            *bindeq_0 += alpha * bindeq_1;
+        }
+
+        // Dot product with self, the combined quad
+        for element in self.contents.iter_mut() {
+            element.coefficient *= bindeq_0[element.gate_index];
+            element.gate_index = 0;
+        }
+
+        self.contents.sort_unstable();
+
+        // Compact entries with duplicate index
+        let mut write = 1;
+        for read in 1..self.contents.len() {
+            let read_item = self.contents[read];
+            if read_item.left_wire_index == self.contents[write - 1].left_wire_index
+                && read_item.right_wire_index == self.contents[write - 1].right_wire_index
+            {
+                self.contents[write - 1].coefficient += read_item.coefficient;
+            } else {
+                self.contents[write] = read_item;
+                write += 1;
+            }
+        }
+
+        self.contents.truncate(write);
+    }
+
     /// Compare the sparse array to a dense array, accounting for whether the dense array has been
     /// transposed
     pub fn compare_bound_array(&self, hand: Hand, dense: &Vec<Vec<FE>>) {
@@ -448,7 +538,11 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{field_element_tests, fields::CodecFieldElement, sumcheck::bind::tests::field_vec};
+    use crate::{
+        field_element_tests,
+        fields::CodecFieldElement,
+        sumcheck::bind::{ElementwiseSum, tests::field_vec},
+    };
     use rand::{Rng, SeedableRng, TryRngCore, random};
     use rand_chacha::ChaCha20Rng;
     #[cfg(panic = "unwind")]
@@ -507,40 +601,49 @@ mod tests {
 
     field_element_tests!(sparse_bind_equivalence);
 
-    fn large_sparse_array_bind_equivalence<FE: CodecFieldElement>(array_size: usize) {
-        // Randomly generate a large array that is 99.99% sparse and check that it behaves
-        // equivalently to a dense array of the same size.
-        // Generate a random seed from OS rng, then use that as a seed to a ChaCha20Rng so that on
-        // failure, we can record the seed and reproduce the test case.
-        fn sample_fe<FE: CodecFieldElement>(rng: &mut ChaCha20Rng) -> FE {
+    /// Portably deterministic RNG that generates field elements with some percentage of values being
+    /// zero.
+    struct TestVectorRng {
+        rng: ChaCha20Rng,
+    }
+
+    impl TestVectorRng {
+        fn new(seed: u64) -> Self {
+            Self {
+                rng: ChaCha20Rng::seed_from_u64(seed),
+            }
+        }
+
+        fn sample<FE: CodecFieldElement>(&mut self, sparseness: f64) -> FE {
+            if self.rng.random_bool(sparseness) {
+                return FE::ZERO;
+            }
             FE::sample_from_source(|num_bytes| {
                 let mut bytes = vec![0; num_bytes];
-                rng.try_fill_bytes(&mut bytes).unwrap();
+                self.rng.try_fill_bytes(&mut bytes).unwrap();
 
                 bytes
             })
         }
 
+        fn sample_n<FE: CodecFieldElement>(&mut self, n: usize, sparseness: f64) -> Vec<FE> {
+            std::iter::repeat_with(|| self.sample(sparseness))
+                .take(n)
+                .collect()
+        }
+    }
+
+    fn large_sparse_array_bind_equivalence<FE: CodecFieldElement>(array_size: usize) {
         let seed = random();
         println!("seed = {seed}");
-        let mut rng = ChaCha20Rng::seed_from_u64(seed);
-
-        let mut dense = std::iter::repeat_with(|| {
-            std::iter::repeat_with(|| {
-                if rng.random_bool(0.9999) {
-                    return FE::ZERO;
-                }
-                sample_fe(&mut rng)
-            })
+        let mut rng = TestVectorRng::new(seed);
+        let mut dense = std::iter::repeat_with(|| rng.sample_n(array_size, 0.9999))
             .take(array_size)
-            .collect::<Vec<_>>()
-        })
-        .take(array_size)
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>();
 
         let mut sparse = SparseSumcheckArray::from(dense.clone());
 
-        let binding = sample_fe(&mut rng);
+        let binding: FE = rng.sample(0.0);
 
         // Reduce the arrays down to a single element, checking that they're equivalent at each
         // iteration.
@@ -575,4 +678,52 @@ mod tests {
     }
 
     field_element_tests!(large_sparse_array_bind_equivalence_odd_array_size);
+
+    fn three_dimension_bindv_equivalence<FE: CodecFieldElement>(array_size: usize) {
+        let seed = random();
+        println!("seed = {seed}");
+        let mut rng = TestVectorRng::new(seed);
+
+        let dense = std::iter::repeat_with(|| {
+            std::iter::repeat_with(|| rng.sample_n::<FE>(array_size, 0.9999))
+                .take(array_size)
+                .collect::<Vec<_>>()
+        })
+        .take(array_size)
+        .collect::<Vec<_>>();
+
+        let mut sparse = SparseSumcheckArray::from(dense.clone());
+        let binding_len = array_size.next_power_of_two().ilog2() as usize;
+
+        let bindings_0 = rng.sample_n(binding_len, 0.0);
+        let bindings_1 = rng.sample_n(binding_len, 0.0);
+        let alpha = rng.sample(0.0);
+
+        sparse.bindv_gate(&bindings_0, &bindings_1, alpha);
+
+        let dense_bound = dense
+            .bind(&bindings_0)
+            .elementwise_sum(&dense.bind(&bindings_1).scale(alpha));
+
+        for element in sparse.contents() {
+            assert_eq!(element.gate_index, 0);
+        }
+        for item in dense_bound.iter().skip(1) {
+            assert!(item.is_empty());
+        }
+
+        sparse.compare_bound_array(Hand::Left, &dense_bound[0]);
+    }
+
+    fn three_dimension_bindv_equivalence_power_of_two_array_size<FE: CodecFieldElement>() {
+        three_dimension_bindv_equivalence::<FE>(64);
+    }
+
+    field_element_tests!(three_dimension_bindv_equivalence_power_of_two_array_size);
+
+    fn three_dimension_bindv_equivalence_odd_array_size<FE: CodecFieldElement>() {
+        three_dimension_bindv_equivalence::<FE>(99);
+    }
+
+    field_element_tests!(three_dimension_bindv_equivalence_odd_array_size);
 }

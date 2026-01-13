@@ -27,8 +27,11 @@ pub trait SumcheckArray<FieldElement>: Sized {
     /// passing a slice containing a single element.
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
-    // TODO: provide in-place version?
     fn bind(&self, binding: &[FieldElement]) -> Self;
+
+    /// Same as `Self::bind`, but (1) does the binding in place and (2) the binding can only be a
+    /// single field element.
+    fn bind_in_place(&mut self, binding: FieldElement);
 
     /// Multiply each element in the array by the scalar.
     // TODO: provide in-place version?
@@ -70,6 +73,23 @@ impl<FE: FieldElement> SumcheckArray<FE> for Vec<FE> {
         }
 
         bound
+    }
+
+    fn bind_in_place(&mut self, binding: FE) {
+        assert!(
+            self.len() > 1,
+            "binding over a vector that's already reduced to a single element"
+        );
+
+        // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+        // The back half of B[i] will always be zero so we can skip computing those elements
+        let new_len = self.len().div_ceil(2);
+        for index in 0..new_len {
+            self[index] = (FE::ONE - binding) * self.element(2 * index)
+                + binding * self.element(2 * index + 1);
+        }
+
+        self.truncate(new_len);
     }
 
     fn scale(&self, scalar: FE) -> Self {
@@ -126,6 +146,38 @@ impl<FE: FieldElement> SumcheckArray<FE> for Vec<Vec<FE>> {
         }
 
         bound
+    }
+
+    fn bind_in_place(&mut self, binding: FE) {
+        // Specification interpretation verification: we expect to be binding down to a single
+        // element, but no further.
+        assert!(
+            self.len() > 1,
+            "binding over a dimension that's already reduced to a single element",
+        );
+
+        // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+        // The back half of B[i] will always be zero so we can skip computing those elements
+        let new_len = self.len().div_ceil(2);
+        for index in 0..new_len {
+            // First term: (1 - x) * A[2 * i]
+            // Grab the 2i-th row, scale its elements by 1 - x
+            let first_term: Vec<_> = self
+                .get(2 * index)
+                .unwrap_or(&Vec::new())
+                .scale(FE::ONE - binding);
+
+            // Second term: x * A[2 * i + 1]
+            // Grab the (2i + 1)th row, scale its elements by x
+            let second_term = self
+                .get(2 * index + 1)
+                .unwrap_or(&Vec::new())
+                .scale(binding);
+
+            self[index] = first_term.elementwise_sum(&second_term);
+        }
+
+        self.truncate(new_len);
     }
 
     fn scale(&self, scalar: FE) -> Self {
@@ -204,6 +256,42 @@ impl<FE: FieldElement> SumcheckArray<FE> for Vec<Vec<Vec<FE>>> {
         }
 
         bound
+    }
+
+    fn bind_in_place(&mut self, binding: FE) {
+        // Specification interpretation verification: we expect to be binding down to a single
+        // element, but no further.
+        assert!(
+            self.len() > 1,
+            "binding over a dimension that's already reduced to a single element",
+        );
+
+        // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+        // The back half of B[i] will always be zero so we can skip computing those elements
+        let new_len = self.len().div_ceil(2);
+        for index in 0..new_len {
+            // First term: (1 - x) * A[2 * i]
+            // Grab the 2i-th "row", scale its elements by 1 - x
+            let first_term: Vec<_> = self
+                .get(2 * index)
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|row| row.scale(FE::ONE - binding))
+                .collect();
+
+            // Second term: x * A[2 * i + 1]
+            // Grab the (2i + 1)th "row", scale its elements by x
+            let second_term: Vec<_> = self
+                .get(2 * index + 1)
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|row| row.scale(binding))
+                .collect();
+
+            self[index] = first_term.elementwise_sum(&second_term);
+        }
+
+        self.truncate(new_len);
     }
 
     fn scale(&self, scalar: FE) -> Self {
@@ -308,29 +396,37 @@ pub(crate) mod tests {
     field_element_tests!(one_dimension_bind_nothing);
 
     fn one_dimension_bind_one<FE: FieldElement>() {
-        let original = field_vec::<FE>(&[0, 1, 2, 3, 4]);
+        let mut original = field_vec::<FE>(&[0, 1, 2, 3, 4]);
         let bound = original.bind(&[FE::ONE]);
 
         // Elements beyond index 1, including ones beyond the length of the original array, should
         // be 0
         check_field_vec(&field_vec::<FE>(&[1, 3, 0, 0, 0, 0]), &bound);
+
+        // Check that binding in place is equivalent
+        original.bind_in_place(FE::ONE);
+        assert_eq!(bound, original);
     }
 
     field_element_tests!(one_dimension_bind_one);
 
     fn one_dimension_bind_zero<FE: FieldElement>() {
-        let original = field_vec::<FE>(&[0, 1, 2, 3, 4]);
+        let mut original = field_vec::<FE>(&[0, 1, 2, 3, 4]);
         let bound = original.bind(&[FE::ZERO]);
 
         check_field_vec(&field_vec::<FE>(&[0, 2, 4, 0, 0]), &bound);
 
         // Indices beyond the length of the original array should be 0
         assert_eq!(bound.element(original.len()), FE::ZERO);
+
+        // Check that binding in place is equivalent
+        original.bind_in_place(FE::ZERO);
+        assert_eq!(bound, original);
     }
 
     field_element_tests!(one_dimension_bind_zero);
 
-    fn one_dimension_bind_five<FE: FieldElement>(original: Vec<FE>) {
+    fn one_dimension_bind_five<FE: FieldElement>(mut original: Vec<FE>) {
         // Bind to some value besides zero or one so that both terms of
         //   B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
         // will be nonzero
@@ -362,11 +458,15 @@ pub(crate) mod tests {
 
                 second_term - first_term
             })
-            .zip(bound)
+            .zip(&bound)
             .enumerate()
         {
-            assert_eq!(expected, bound, "mismatch at index {index}");
+            assert_eq!(expected, *bound, "mismatch at index {index}");
         }
+
+        // Check that binding in place is equivalent
+        original.bind_in_place(five);
+        assert_eq!(original, bound);
     }
 
     fn one_dimension_bind_five_even_length<FE: FieldElement>() {
@@ -406,7 +506,7 @@ pub(crate) mod tests {
     field_element_tests!(one_dimension_bindv);
 
     fn two_dimension_bind_one<FE: FieldElement>() {
-        let original = vec![
+        let mut original = vec![
             field_vec::<FE>(&[0, 5, 10, 15, 20]),
             field_vec::<FE>(&[1, 6, 11, 16, 21]),
             field_vec::<FE>(&[2, 7, 12, 17, 22]),
@@ -428,12 +528,16 @@ pub(crate) mod tests {
         for i in 2..(original.len() + 1) {
             assert_eq!(bound.element([i, i]), FE::ZERO);
         }
+
+        // Check that binding in place is equivalent
+        original.bind_in_place(FE::ONE);
+        assert_eq!(bound, original);
     }
 
     field_element_tests!(two_dimension_bind_one);
 
     fn two_dimension_bind_zero<FE: FieldElement>() {
-        let original = vec![
+        let mut original = vec![
             field_vec::<FE>(&[0, 5, 10, 15, 20]),
             field_vec::<FE>(&[1, 6, 11, 16, 21]),
             field_vec::<FE>(&[2, 7, 12, 17, 22]),
@@ -443,6 +547,10 @@ pub(crate) mod tests {
 
         let bound = original.bind(&[FE::ZERO]);
         assert_eq!(bound.element([2, 2]), FE::from_u128(14));
+
+        // Check that binding in place is equivalent
+        original.bind_in_place(FE::ZERO);
+        assert_eq!(bound, original);
     }
 
     field_element_tests!(two_dimension_bind_zero);
@@ -516,7 +624,7 @@ pub(crate) mod tests {
     field_element_tests!(two_dimension_bindv);
 
     fn three_dimension_bind_one<FE: FieldElement>() {
-        let original = vec![
+        let mut original = vec![
             vec![field_vec(&[0; 5]); 2],
             vec![field_vec(&[1; 5]); 2],
             vec![field_vec(&[2; 5]); 2],
@@ -544,6 +652,10 @@ pub(crate) mod tests {
 
         // Indices outside the array should be zero
         assert_eq!(bound.element([original.len(), 0, 0]), FE::ZERO);
+
+        // Check that binding in place is equivalent
+        original.bind_in_place(FE::ONE);
+        assert_eq!(bound, original);
     }
 
     field_element_tests!(three_dimension_bind_one);

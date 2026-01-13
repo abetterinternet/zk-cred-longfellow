@@ -561,7 +561,7 @@ mod tests {
         // verify that we reduced all the way down to a single element as expected
         assert_eq!(dense.len(), 1);
         assert_eq!(dense[0].len(), 1);
-        assert_eq!(sparse.contents().len(), 1);
+        assert_eq!(sparse.contents.len(), 1);
     }
 
     fn large_sparse_array_bind_equivalence_power_of_two_array_size<FE: CodecFieldElement>() {

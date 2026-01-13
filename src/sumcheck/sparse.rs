@@ -542,7 +542,10 @@ mod tests {
 
         let binding = sample_fe(&mut rng);
 
-        for iteration in 0..array_size.ilog2() {
+        // Reduce the arrays down to a single element, checking that they're equivalent at each
+        // iteration.
+        // We need ceil(log_2(dimension_len)) iterations for each dimension.
+        for iteration in 0..(array_size.next_power_of_two().ilog2() * 2) {
             let hand = if iteration.is_multiple_of(2) {
                 Hand::Left
             } else {
@@ -554,6 +557,11 @@ mod tests {
             sparse.compare_bound_array(hand, &dense);
             dense = dense.transpose();
         }
+
+        // verify that we reduced all the way down to a single element as expected
+        assert_eq!(dense.len(), 1);
+        assert_eq!(dense[0].len(), 1);
+        assert_eq!(sparse.contents().len(), 1);
     }
 
     fn large_sparse_array_bind_equivalence_power_of_two_array_size<FE: CodecFieldElement>() {

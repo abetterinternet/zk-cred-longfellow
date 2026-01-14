@@ -12,10 +12,7 @@ use crate::{
     },
 };
 use anyhow::{Context, anyhow};
-use serde::{
-    Deserialize, Serialize,
-    de::Error,
-};
+use serde::{Deserialize, Serialize, de::Error};
 use std::{
     cmp::Ordering,
     fmt::{self, Debug},

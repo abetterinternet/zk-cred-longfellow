@@ -5,7 +5,10 @@ use crate::{
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
         Polynomial,
-        bind::{ElementwiseSum, SumcheckArray},
+        bind::{
+            ElementwiseSum, SumcheckArray,
+            sparse::{Hand, SparseSumcheckArray},
+        },
     },
     transcript::Transcript,
     witness::Witness,
@@ -66,7 +69,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
             let beta = transcript.generate_challenge(1)?[0];
 
             // The combined quad, aka QZ[g, l, r], a three dimensional array.
-            let combined_quad = self.circuit.combined_quad(layer_index, beta)?;
+            let (combined_quad, _) = self.circuit.combined_quad(layer_index, beta)?;
 
             // Bind the combined quad to G.
             let mut bound_quad = combined_quad
@@ -83,6 +86,10 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
             // Reduce bound_quad to a Vec<Vec<FE>> so that we can later bind to the correct
             // dimension.
             let mut bound_quad = bound_quad.remove(0);
+
+            // Copy the bound quad into a sparse array so we can verify its equivalence to the dense
+            // array.
+            let mut sparse_bound_quad = SparseSumcheckArray::from(bound_quad.clone());
 
             // Allocate room for the new bindings this layer will generate
             let mut new_bindings = [vec![FE::ZERO; layer.logw()], vec![FE::ZERO; layer.logw()]];
@@ -108,13 +115,19 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
             let mut right_wires = evaluation.wires[layer_index + 1].clone();
 
             for (round, proof_polynomials) in layer_proof_polynomials.iter_mut().enumerate() {
-                for hand in 0..2 {
+                for hand in [Hand::Left, Hand::Right] {
                     // Implements the polynomial from the specification:
                     // Let p(x) = SUM_{l, r} bind(QUAD, x)[l, r] * bind(VL, x)[l] * VR[r]
                     let evaluate_polynomial = |at: FE| {
                         let bind = &[at];
 
                         let bound_quad_at = bound_quad.bind(bind);
+
+                        // Verify that binding to sparse array is equivalent
+                        let mut sparse_bound_quad_clone = sparse_bound_quad.clone();
+                        sparse_bound_quad_clone.bind_hand(hand, at);
+                        sparse_bound_quad_clone.compare_bound_array(hand, &bound_quad_at);
+
                         let bound_left_wires = left_wires.bind(bind);
 
                         // Specification interpretation verification: the back half of
@@ -149,7 +162,8 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
                     };
 
                     // Evaluate the polynomial at P0 and P2, subtracting the pad
-                    let polynomial_pad = witness.polynomial_witnesses(layer_index, round, hand);
+                    let polynomial_pad =
+                        witness.polynomial_witnesses(layer_index, round, hand as usize);
                     let poly_evaluation = Polynomial {
                         p0: evaluate_polynomial(FE::ZERO) - polynomial_pad.p0,
                         p2: evaluate_polynomial(FE::SUMCHECK_P2) - polynomial_pad.p2,
@@ -158,16 +172,20 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
                     // Commit to the padded polynomial.
                     transcript.write_polynomial(&poly_evaluation)?;
 
-                    proof_polynomials[hand] = poly_evaluation;
+                    proof_polynomials[hand as usize] = poly_evaluation;
 
                     // Generate an element of the binding for the next layer.
                     let challenge = transcript.generate_challenge(1)?;
 
-                    new_bindings[hand][round] = challenge[0];
+                    new_bindings[hand as usize][round] = challenge[0];
 
                     // Bind the current left wires and the quad to the challenge
                     left_wires = left_wires.bind(&challenge);
                     bound_quad = bound_quad.bind(&challenge);
+
+                    // Verify that binding to sparse array is equivalent
+                    sparse_bound_quad.bind_hand(hand, challenge[0]);
+                    sparse_bound_quad.compare_bound_array(hand, &bound_quad);
 
                     swap(&mut left_wires, &mut right_wires);
                     bound_quad = bound_quad.transpose();

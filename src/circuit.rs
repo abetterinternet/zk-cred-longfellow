@@ -1,6 +1,7 @@
 use crate::{
     Codec, Size,
     fields::{CodecFieldElement, FieldId},
+    sumcheck::bind::sparse::{SparseQuadElement, SparseSumcheckArray},
 };
 use anyhow::{Context, anyhow};
 use educe::Educe;
@@ -287,11 +288,14 @@ impl<FE: CodecFieldElement> Circuit<FE> {
     /// Because Q and Z are disjoint, this amounts to traversing the layer's quads, identifying Z
     /// quads (the ones whose value is zero) and setting their value to beta. This is then compiled
     /// into a three-dimensional array indexed by gate index, left wire index, and right wire index.
+    // Once SparseSumcheckArray can replace the dense array, this method will return a single value
+    // and we can drop the #[allow].
+    #[allow(clippy::type_complexity)]
     pub fn combined_quad(
         &self,
         layer_index: usize,
         beta: FE,
-    ) -> Result<Vec<Vec<Vec<FE>>>, anyhow::Error> {
+    ) -> Result<(Vec<Vec<Vec<FE>>>, SparseSumcheckArray<FE>), anyhow::Error> {
         // The number of gates on this layer is the number of input wires to the next layer
         let num_gates = if layer_index == 0 {
             self.num_outputs()
@@ -310,18 +314,28 @@ impl<FE: CodecFieldElement> Circuit<FE> {
             num_gates
         ];
 
+        let mut sparse_quad = Vec::with_capacity(self.layers[layer_index].quads.len());
+
         for quad in &self.layers[layer_index].quads {
             let quad_value: FE = self.constant(quad.const_table_index())?;
+            let coefficient = if quad_value.is_zero().into() {
+                beta
+            } else {
+                quad_value
+            };
 
             combined_quad[quad.gate_index()][quad.left_wire_index()][quad.right_wire_index()] =
-                if quad_value.is_zero().into() {
-                    beta
-                } else {
-                    quad_value
-                };
+                coefficient;
+
+            sparse_quad.push(SparseQuadElement {
+                gate_index: quad.gate_index,
+                left_wire_index: quad.left_wire_index,
+                right_wire_index: quad.right_wire_index,
+                coefficient,
+            });
         }
 
-        Ok(combined_quad)
+        Ok((combined_quad, SparseSumcheckArray::from(sparse_quad)))
     }
 }
 

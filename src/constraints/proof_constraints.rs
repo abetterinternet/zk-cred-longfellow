@@ -8,7 +8,10 @@ use crate::{
     constraints::symbolic::{SymbolicExpression, Term},
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
-        bind::{ElementwiseSum, SumcheckArray, bindeq},
+        bind::{
+            ElementwiseSum, SumcheckArray, bindeq,
+            sparse::{Hand, SparseSumcheckArray},
+        },
         prover::SumcheckProof,
     },
     transcript::Transcript,
@@ -128,7 +131,7 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
             let beta = transcript.generate_challenge(1)?[0];
 
             // The combined quad, aka QZ[g, l, r], a three dimensional array.
-            let combined_quad = circuit.combined_quad(layer_index, beta)?;
+            let (combined_quad, _) = circuit.combined_quad(layer_index, beta)?;
 
             // Bind the combined quad to G.
             let mut bound_quad = combined_quad
@@ -138,6 +141,10 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
             // Reduce bound_quad to a Vec<Vec<FE>> so that we can later bind to the correct
             // dimension.
             let mut bound_quad = bound_quad.remove(0);
+
+            // Copy the bound quad into a sparse array so we can verify its equivalence to the dense
+            // array.
+            let mut sparse_bound_quad = SparseSumcheckArray::from(bound_quad.clone());
 
             // Allocate room for the new bindings this layer will generate
             let mut new_bindings = [
@@ -182,14 +189,18 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
             layer_claim += claim_1;
 
             for (round, polynomial_pair) in proof_layer.polynomials.iter().enumerate() {
-                for (hand, polynomial) in polynomial_pair.iter().enumerate() {
-                    transcript.write_polynomial(polynomial)?;
+                for hand in [Hand::Left, Hand::Right] {
+                    let polynomial = polynomial_pair[hand as usize];
+                    transcript.write_polynomial(&polynomial)?;
 
                     let challenge = transcript.generate_challenge(1)?;
-                    new_bindings[hand][round] = challenge[0];
+                    new_bindings[hand as usize][round] = challenge[0];
 
-                    let (p0_witness, p2_witness) =
-                        witness_layout.polynomial_witness_indices(layer_index, round, hand);
+                    let (p0_witness, p2_witness) = witness_layout.polynomial_witness_indices(
+                        layer_index,
+                        round,
+                        hand as usize,
+                    );
 
                     // The proof contains padded polynomial points p0_hat and p2_hat where
                     // p0 = p0_hat - p0_pad and p2 = p2_hat - p2_pad. p1 is interpolated and so its
@@ -220,7 +231,13 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
                     layer_claim += (Term::new(p2_witness) + polynomial.p2)
                         * FE::lagrange_basis_polynomial_2(challenge[0]);
 
-                    bound_quad = bound_quad.bind(&challenge).transpose();
+                    bound_quad = bound_quad.bind(&challenge);
+
+                    // Verify that binding to sparse array is equivalent
+                    sparse_bound_quad.bind_hand(hand, challenge[0]);
+                    sparse_bound_quad.compare_bound_array(hand, &bound_quad);
+
+                    bound_quad = bound_quad.transpose();
                 }
             }
 

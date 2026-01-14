@@ -5,6 +5,8 @@
 use crate::fields::FieldElement;
 use std::iter::repeat;
 
+pub mod sparse;
+
 /// An array of field elements, possibly multi-dimensional, conforming to the sumcheck array
 /// convention of [6.1][1]:
 ///
@@ -277,13 +279,13 @@ pub fn bindeq<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::field_element_tests;
     use std::iter::Iterator;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn field_vec<FE: FieldElement>(values: &[u128]) -> Vec<FE> {
+    pub(crate) fn field_vec<FE: FieldElement>(values: &[u128]) -> Vec<FE> {
         values.iter().map(|v| FE::from_u128(*v)).collect()
     }
 

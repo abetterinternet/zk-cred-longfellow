@@ -41,7 +41,6 @@ mod tests {
         test_vector_end_to_end::<FieldP128>(test_vector, circuit);
     }
 
-    #[ignore = "slow test"]
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_mac_circuit_end_to_end() {
         let (test_vector, circuit) = load_mac();

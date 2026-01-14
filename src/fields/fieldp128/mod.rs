@@ -14,7 +14,7 @@ use crate::{
 use anyhow::{Context, anyhow};
 use serde::{
     Deserialize, Serialize,
-    de::{DeserializeOwned, Error},
+    de::Error,
 };
 use std::{
     cmp::Ordering,

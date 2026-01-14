@@ -1,11 +1,8 @@
 //! Test vectors for various bind implementations.
-use std::fs::File;
-
 use crate::{
     field_element_tests,
     fields::{
-        CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp128::FieldP128,
-        fieldp256::FieldP256,
+        CodecFieldElement, field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
     },
     sumcheck::bind::{
         SumcheckArray,
@@ -15,6 +12,7 @@ use crate::{
 use rand::{Rng, SeedableRng, TryRngCore, random};
 use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
+use std::fs::File;
 use wasm_bindgen_test::wasm_bindgen_test;
 
 /// Includes test vector files at compile time, and passes them to the relevant `decode()` method.

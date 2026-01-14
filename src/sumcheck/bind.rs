@@ -388,12 +388,6 @@ pub(crate) mod tests {
         values.iter().map(|v| FE::from_u128(*v)).collect()
     }
 
-    fn check_field_vec<FE: FieldElement>(got: &Vec<FE>, expected: &[FE]) {
-        for (index, expected) in expected.iter().enumerate() {
-            assert_eq!(got.element(index), *expected, "mismatch at {index}");
-        }
-    }
-
     fn dense_1d_array_bind_test_vector<FE: CodecFieldElement>(
         test_vector: BindTestVector<Dense1DArrayBindTestCase<FE>>,
     ) {

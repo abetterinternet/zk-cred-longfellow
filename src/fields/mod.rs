@@ -8,6 +8,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use num_bigint::BigUint;
 use num_integer::Integer;
 use rand::RngCore;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     fmt::Debug,
     io::Cursor,
@@ -80,7 +81,11 @@ pub trait FieldElement:
 
 /// An element of a finite field with a defined serialization format.
 pub trait CodecFieldElement:
-    FieldElement + for<'a> TryFrom<&'a [u8], Error = anyhow::Error> + Codec
+    FieldElement
+    + for<'a> TryFrom<&'a [u8], Error = anyhow::Error>
+    + Codec
+    + Serialize
+    + DeserializeOwned
 {
     /// Number of bits needed to represent a field element.
     const NUM_BITS: u32;

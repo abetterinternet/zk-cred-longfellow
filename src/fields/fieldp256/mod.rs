@@ -13,10 +13,11 @@ use crate::{
     },
 };
 use anyhow::{Context, anyhow};
+use serde::{Deserialize, Serialize, de::Error};
 use std::{
     cmp::Ordering,
     fmt::{self, Debug},
-    io::{self, Read},
+    io::{self, Cursor, Read},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 use subtle::{ConditionallySelectable, ConstantTimeEq, CtOption};
@@ -208,6 +209,29 @@ impl CodecFieldElement for FieldP256 {
     const NUM_BITS: u32 = 256;
 
     const FIELD_ID: super::FieldId = FieldId::P256;
+}
+
+impl Serialize for FieldP256 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&hex::encode(self.get_encoded().unwrap()))
+    }
+}
+
+impl<'de> Deserialize<'de> for FieldP256 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer).and_then(|string| {
+            Self::decode(&mut Cursor::new(
+                &hex::decode(string).map_err(D::Error::custom)?,
+            ))
+            .map_err(D::Error::custom)
+        })
+    }
 }
 
 impl ProofFieldElement for FieldP256 {

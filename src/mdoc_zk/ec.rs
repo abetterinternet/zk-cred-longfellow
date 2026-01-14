@@ -142,6 +142,8 @@ impl From<AffinePoint> for ProjectivePoint {
 
 impl From<ProjectivePoint> for AffinePoint {
     fn from(value: ProjectivePoint) -> Self {
+        // If Z is zero, we will still perform all the same operations, to ensure constant-time
+        // behavior. The resulting `CtOption` will be `None`, representing the point at infinity.
         let is_identity = value.z.ct_eq(&FieldP256::ZERO);
         let reciprocal = value.z.mul_inv();
         Self {

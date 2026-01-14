@@ -75,6 +75,9 @@ impl FieldP256Scalar {
     /// Converts a SHA-256 digest to a scalar element for use in ECDSA.
     ///
     /// This performs a conditional subtraction of the modulus before converting to a field element.
+    ///
+    /// The `hash` argument is treated as a big-endian encoding of an integer, per SEC 1 section
+    /// 2.3.8.
     pub fn from_hash(hash: [u8; 32]) -> Self {
         const MODULUS_HIGH: u128 = 0xffffffff00000000ffffffffffffffff;
         const MODULUS_LOW: u128 = 0xbce6faada7179e84f3b9cac2fc632551;
@@ -96,7 +99,8 @@ impl FieldP256Scalar {
             overflow,
         );
 
-        // Encode the 256-bit integer in little-endian form, then convert it to a field element.
+        // Encode the 256-bit integer in little-endian form, in order to match fiat-crytpo's
+        // preconditions, then convert it to a field element.
         let mut buf = [0u8; 32];
         buf[..16].copy_from_slice(&select_low.to_le_bytes());
         buf[16..].copy_from_slice(&select_high.to_le_bytes());

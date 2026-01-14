@@ -499,11 +499,21 @@ pub(super) fn fill_ecdsa_witness(
         + ProjectivePoint::from(public_key).scalar_mult(u2);
     let r_point_aff = AffinePoint::from(r_point_proj);
 
-    *witness.r_x = embed_scalar_in_base_field(r);
-    *witness.r_y = r_point_aff.coordinates().ok_or_else(|| {
-        anyhow!("invalid signature, recomputation of R produced point at infinity")
-    })?[1];
-    *witness.r_x_inverse = witness.r_x.mul_inv();
+    let Some([r_x, r_y]) = r_point_aff.coordinates() else {
+        return Err(anyhow!(
+            "invalid signature, recomputation of R produced point at infinity"
+        ));
+    };
+    // Sanity check: r = R.x
+    if embed_scalar_in_base_field(r) != r_x {
+        return Err(anyhow!(
+            "invalid signature, recomputed R had incorrect x-coordinate"
+        ));
+    }
+
+    *witness.r_x = r_x;
+    *witness.r_y = r_y;
+    *witness.r_x_inverse = r_x.mul_inv();
     *witness.neg_s_inverse = embed_scalar_in_base_field(-s).mul_inv();
     *witness.q_x_inverse = qx.mul_inv();
 

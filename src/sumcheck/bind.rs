@@ -5,6 +5,8 @@
 use crate::fields::FieldElement;
 use std::iter::repeat;
 
+pub mod sparse;
+
 /// An array of field elements, possibly multi-dimensional, conforming to the sumcheck array
 /// convention of [6.1][1]:
 ///

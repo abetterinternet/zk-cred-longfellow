@@ -270,7 +270,7 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
 
             interleaved
         }
-        // Using the `Ord` impl on `(T)` gives us lexicographic ordering over the slice elements.
+        // Using the `Ord` impl on `(T, U)` gives us lexicographic ordering over the tuple elements.
         (
             self.gate_index,
             interleave(self.right_wire_index, self.left_wire_index),

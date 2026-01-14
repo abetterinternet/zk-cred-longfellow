@@ -8,9 +8,11 @@ use crate::{
     constraints::symbolic::{SymbolicExpression, Term},
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
-        bind::{ElementwiseSum, SumcheckArray, bindeq},
+        bind::{
+            ElementwiseSum, SumcheckArray, bindeq,
+            sparse::{Hand, SparseSumcheckArray},
+        },
         prover::SumcheckProof,
-        sparse::{Hand, SparseSumcheckArray},
     },
     transcript::Transcript,
     witness::WitnessLayout,

@@ -1,7 +1,7 @@
 use crate::{
     Codec, Size,
     fields::{CodecFieldElement, FieldId},
-    sumcheck::sparse::{SparseQuadElement, SparseSumcheckArray},
+    sumcheck::bind::sparse::{SparseQuadElement, SparseSumcheckArray},
 };
 use anyhow::{Context, anyhow};
 use educe::Educe;

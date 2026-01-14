@@ -5,8 +5,10 @@ use crate::{
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
         Polynomial,
-        bind::{ElementwiseSum, SumcheckArray},
-        sparse::{Hand, SparseSumcheckArray},
+        bind::{
+            ElementwiseSum, SumcheckArray,
+            sparse::{Hand, SparseSumcheckArray},
+        },
     },
     transcript::Transcript,
     witness::Witness,

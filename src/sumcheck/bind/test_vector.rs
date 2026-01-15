@@ -201,6 +201,7 @@ fn generate_1d_dense_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
 
 fn generate_1d_dense_array_bind_test_vector<FE: CodecFieldElement>() {
     let seed = random();
+    println!("seed: {seed}");
     write_test_vector::<_, FE>(
         generate_1d_dense_array_bind_test_vector_with_seed::<FE>(seed),
         "dense_1d_array_bind",
@@ -241,15 +242,22 @@ fn generate_2d_sparse_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
     let mut test_cases = Vec::new();
 
     for (input_len, description) in [
-        (512, "length power of 2"),
-        (617, "odd length"),
-        (514, "length even, not power of 2"),
+        (128, "length power of 2"),
+        (135, "odd length"),
+        (132, "length even, not power of 2"),
     ] {
-        let dense = std::iter::repeat_with(|| rng.sample_n::<FE>(input_len, 0.9999))
-            .take(input_len)
-            .collect::<Vec<_>>();
+        let mut sparse = loop {
+            let dense = std::iter::repeat_with(|| rng.sample_n::<FE>(input_len, 0.9999))
+                .take(input_len)
+                .collect::<Vec<_>>();
 
-        let mut sparse = SparseSumcheckArray::from(dense.clone());
+            let sparse = SparseSumcheckArray::from(dense.clone());
+            // keep trying until we get a non-empty array
+            if sparse.contents().is_empty() {
+                continue;
+            }
+            break sparse;
+        };
         let input = sparse.clone();
 
         // Reduce the array down to a single element. We need ceil(log_2(dimension_len)) iterations
@@ -286,6 +294,7 @@ fn generate_2d_sparse_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
 
 fn generate_2d_sparse_array_bind_test_vector<FE: CodecFieldElement>() {
     let seed = random();
+    println!("seed: {seed}");
     write_test_vector::<_, FE>(
         generate_2d_sparse_array_bind_test_vector_with_seed::<FE>(seed),
         "sparse_2d_array_bind",
@@ -326,20 +335,28 @@ fn generate_3d_sparse_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
     let mut test_cases = Vec::new();
 
     for (input_len, description) in [
-        (64, "length power of 2"),
-        (99, "odd length"),
-        (66, "length even, not power of 2"),
+        (32, "length power of 2"),
+        (63, "odd length"),
+        (34, "length even, not power of 2"),
     ] {
-        println!("input len: {input_len}");
-        let dense: Vec<Vec<Vec<_>>> = std::iter::repeat_with(|| {
-            std::iter::repeat_with(|| rng.sample_n::<FE>(input_len, 0.9999))
-                .take(input_len)
-                .collect()
-        })
-        .take(input_len)
-        .collect();
+        let mut sparse = loop {
+            let dense: Vec<Vec<Vec<_>>> = std::iter::repeat_with(|| {
+                std::iter::repeat_with(|| rng.sample_n::<FE>(input_len, 0.9999))
+                    .take(input_len)
+                    .collect()
+            })
+            .take(input_len)
+            .collect();
 
-        let mut sparse = SparseSumcheckArray::from(dense);
+            let sparse = SparseSumcheckArray::from(dense);
+            if sparse.contents().len() == 0 {
+                println!("rejected empty");
+                // Keep trying until we get a non-empty array.
+                continue;
+            }
+
+            break sparse;
+        };
         let input = sparse.clone();
 
         let binding_len = input_len.next_power_of_two().ilog2() as usize;
@@ -368,6 +385,7 @@ fn generate_3d_sparse_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
 
 fn generate_3d_sparse_array_bind_gate_vector<FE: CodecFieldElement>() {
     let seed = random();
+    println!("seed: {seed}");
     write_test_vector::<_, FE>(
         generate_3d_sparse_array_bind_test_vector_with_seed::<FE>(seed),
         "sparse_3d_array_bind",

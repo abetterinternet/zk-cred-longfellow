@@ -5,7 +5,7 @@ use crate::{
         CodecFieldElement, field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
     },
     sumcheck::bind::{
-        SumcheckArray,
+        DenseSumcheckArray,
         sparse::{Hand, SparseSumcheckArray},
     },
 };
@@ -185,9 +185,10 @@ fn generate_1d_dense_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
         (11, "length odd"),
         (16, "length power of 2"),
     ] {
-        let input = rng.sample_n(input_len, 0.0);
+        let mut output = rng.sample_n(input_len, 0.0);
+        let input = output.clone();
         let binding: FE = rng.sample(0.0);
-        let output = input.bind(&[binding]);
+        output.bind(binding);
         test_cases.push(Dense1DArrayBindTestCase {
             description: description.to_string(),
             input,

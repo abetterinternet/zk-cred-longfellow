@@ -5,13 +5,13 @@ use crate::{
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
         Polynomial,
-        bind::{ElementwiseSum, SumcheckArray, sparse::Hand},
+        bind::{DenseSumcheckArray, sparse::Hand},
     },
     transcript::Transcript,
     witness::Witness,
 };
 use anyhow::anyhow;
-use std::{borrow::Cow, mem::swap};
+use std::borrow::Cow;
 
 /// Generate a sumcheck proof of evaluation of a circuit.
 #[derive(Clone, Debug)]
@@ -66,28 +66,10 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
             let beta = transcript.generate_challenge(1)?[0];
 
             // The combined quad, aka QZ[g, l, r], a three dimensional array.
-            let (combined_quad, mut sparse_quad) = self.circuit.combined_quad(layer_index, beta)?;
+            let mut quad = self.circuit.combined_quad(layer_index, beta)?;
 
             // Bind the combined quad to G.
-            let mut bound_quad = combined_quad
-                .bind(&bindings[0])
-                .elementwise_sum(&combined_quad.bind(&bindings[1]).scale(alpha));
-
-            // Specification interpretation verification: Because the length of g is the same as the
-            // number of bits needed to describe wires on this layer (logw), bound_quad[g, l, r] = 0
-            // for any g > 0. Thus bound_quad is effectively two-dimensional.
-            for item in bound_quad.iter().skip(1) {
-                assert!(item.is_empty());
-            }
-
-            // Reduce bound_quad to a Vec<Vec<FE>> so that we can later bind to the correct
-            // dimension.
-            let mut bound_quad = bound_quad.remove(0);
-
-            // Also do the binding in a sparse array so we can verify its equivalence to the dense
-            // array.
-            sparse_quad.bindv_gate(&bindings[0], &bindings[1], alpha);
-            sparse_quad.compare_bound_array(Hand::Left, &bound_quad);
+            quad.bindv_gate(&bindings[0], &bindings[1], alpha);
 
             // Allocate room for the new bindings this layer will generate
             let mut new_bindings = [vec![FE::ZERO; layer.logw()], vec![FE::ZERO; layer.logw()]];
@@ -109,13 +91,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
             // This makes sense because over the course of the loop that follows, we'll bind each of
             // left_ and right_wires to a challenge layer.logw times, exactly enough to reduce these
             // arrays to a single element, which become the layer claims vl and vr.
-            let mut left_wires = evaluation.wires[layer_index + 1].clone();
-            let mut right_wires = evaluation.wires[layer_index + 1].clone();
-
-            // When working with the sparse array, we don't need to swap left and right wires at
-            // each iteration, for the same reason that we don't need to transpose the quad. Track
-            // these separately so we can check that they're consistent with the dense version.
-            let mut unswapped_wires = [
+            let mut wires = [
                 evaluation.wires[layer_index + 1].clone(),
                 evaluation.wires[layer_index + 1].clone(),
             ];
@@ -125,68 +101,34 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
                     // Implements the polynomial from the specification:
                     // Let p(x) = SUM_{l, r} bind(QUAD, x)[l, r] * bind(VL, x)[l] * VR[r]
                     let evaluate_polynomial = |at: FE| {
-                        let bind = &[at];
-
-                        let bound_quad_at = bound_quad.bind(bind);
-
-                        // Verify that binding to sparse array is equivalent
-                        let mut sparse_bound_quad_clone = sparse_quad.clone();
+                        // Bind a *copy* of the quad
+                        let mut sparse_bound_quad_clone = quad.clone();
+                        // Binding to alternating hands is equivalent to transposing the array at
+                        // each iteration and binding to the outermost dimension.
                         sparse_bound_quad_clone.bind_hand(hand, at);
-                        sparse_bound_quad_clone.compare_bound_array(hand, &bound_quad_at);
-                        let bound_left_wires = left_wires.bind(bind);
-
-                        // Specification interpretation verification: the back half of
-                        // bound_left_wires should be zeroes after binding.
-                        for i in left_wires.len().div_ceil(2)..left_wires.len() {
-                            assert_eq!(bound_left_wires.element(i), FE::ZERO);
-                        }
-
-                        let mut point = FE::ZERO;
 
                         // SUM_{l, r} is interpreted to mean evaluating the expression at all
                         // possible left and right wire indices.
                         // In sumcheck terms, we're evaluating the function at each of the vertices
                         // of a 2*logw-dimensional unit hypercube, or evaluating the function at all
-                        // possible 2*logw length bitstrings, or actually 2*logw - 1 since we can
-                        // skip the back half of bound_left_wires, which we know to contain only
-                        // zeroes since we bound it.
-                        for left_wire_index in 0..left_wires.len().div_ceil(2) {
-                            for right_wire_index in 0..right_wires.len() {
-                                // bind(QUAD, x)[l, r]
-                                let bound_quad_term =
-                                    bound_quad_at.element([left_wire_index, right_wire_index]);
-                                // bind(VL, x)[l]
-                                let left_wire_term = bound_left_wires.element(left_wire_index);
-                                // VR[r]
-                                let right_wire_term = right_wires.element(right_wire_index);
+                        // possible 2*logw length bitstrings.
+                        // But since we use a sparse array, we can skip all the bitstrings where the
+                        // coefficient is known to be zero.
+                        // The specification instructs us to swap the left and right wire arrays at
+                        // each iteration and always bind to the left. We instead bind the wire
+                        // array corresponding to the current hand.
+                        // Use Cow to avoid copying whichever wires array we're not binding.
+                        let mut bound_wires = [Cow::from(&wires[0]), Cow::from(&wires[1])];
+                        bound_wires[hand as usize].to_mut().bind(at);
 
-                                point += bound_quad_term * left_wire_term * right_wire_term;
-                            }
-                        }
-
-                        // Compute the point from the sparse array to verify that it's equivalent to
-                        // what we get from the dense array. Instead of swapping the left and right
-                        // wire arrays and always binding the left, we alternate between binding the
-                        // wire arrays.
-                        // Avoid copying whichever wires array we're not binding
-                        let mut bound_wires = [
-                            Cow::from(&unswapped_wires[0]),
-                            Cow::from(&unswapped_wires[1]),
-                        ];
-                        bound_wires[hand as usize].to_mut().bind_in_place(at);
-
-                        let sparse_point = sparse_bound_quad_clone.contents().iter().fold(
-                            FE::ZERO,
-                            |acc, element| {
+                        sparse_bound_quad_clone
+                            .contents()
+                            .iter()
+                            .fold(FE::ZERO, |acc, element| {
                                 acc + element.coefficient
                                     * bound_wires[Hand::Left as usize][element.left_wire_index]
                                     * bound_wires[Hand::Right as usize][element.right_wire_index]
-                            },
-                        );
-
-                        assert_eq!(point, sparse_point);
-
-                        point
+                            })
                     };
 
                     // Evaluate the polynomial at P0 and P2, subtracting the pad
@@ -207,43 +149,42 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
 
                     new_bindings[hand as usize][round] = challenge[0];
 
-                    // Bind the current left wires and the quad to the challenge
-                    left_wires = left_wires.bind(&challenge);
-                    unswapped_wires[hand as usize].bind_in_place(challenge[0]);
-                    bound_quad = bound_quad.bind(&challenge);
-
-                    // Verify that binding to sparse array is equivalent
-                    sparse_quad.bind_hand(hand, challenge[0]);
-                    sparse_quad.compare_bound_array(hand, &bound_quad);
-
-                    swap(&mut left_wires, &mut right_wires);
-                    bound_quad = bound_quad.transpose();
+                    // Bind the current wires and the quad to the challenge
+                    wires[hand as usize].bind(challenge[0]);
+                    quad.bind_hand(hand, challenge[0]);
                 }
             }
 
             // Specification interpretation verification: over the course of the loop above, we bind
             // bound_quad, left_wires and right_wires to single field elements enough times that all
             // should be reduced to a single non-zero element.
-            for (i, row) in bound_quad.iter().enumerate() {
-                for (j, element) in row.iter().enumerate() {
-                    if i != 0 && j != 0 {
-                        assert_eq!(*element, FE::ZERO, "bound quad: {bound_quad:?}");
-                    }
-                }
+            assert_eq!(quad.contents().len(), 1);
+            assert_eq!(quad.contents()[0].gate_index, 0);
+            assert_eq!(quad.contents()[0].left_wire_index, 0);
+            assert_eq!(quad.contents()[0].right_wire_index, 0);
+            for left_wire in wires[Hand::Left as usize].iter().skip(1) {
+                assert_eq!(
+                    left_wire,
+                    &FE::ZERO,
+                    "left wires: {:#?}",
+                    wires[Hand::Left as usize],
+                );
             }
-            for left_wire in left_wires.iter().skip(1) {
-                assert_eq!(left_wire, &FE::ZERO, "left wires: {left_wires:#?}");
-            }
-            for right_wire in right_wires.iter().skip(1) {
-                assert_eq!(right_wire, &FE::ZERO, "right wires: {right_wires:#?}");
+            for right_wire in wires[Hand::Right as usize].iter().skip(1) {
+                assert_eq!(
+                    right_wire,
+                    &FE::ZERO,
+                    "right wires: {:#?}",
+                    wires[Hand::Right as usize],
+                );
             }
 
             let (vl_pad, vr_pad, _) = witness.wire_witnesses(layer_index);
 
             let layer_proof = ProofLayer {
                 polynomials: layer_proof_polynomials,
-                vl: left_wires.element(0) - vl_pad,
-                vr: right_wires.element(0) - vr_pad,
+                vl: wires[Hand::Left as usize].element(0) - vl_pad,
+                vr: wires[Hand::Right as usize].element(0) - vr_pad,
             };
 
             // Commit to the padded evaluations of l and r. The specification implies they are
@@ -487,14 +428,12 @@ mod tests {
         prove_input_length_validation::<FieldP128>(test_vector, circuit);
     }
 
-    #[ignore = "slow test"]
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_mac() {
         let (test_vector, circuit) = load_mac();
         prove::<Field2_128>(test_vector, circuit);
     }
 
-    #[ignore = "slow test"]
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_mac_input_validation() {
         let (test_vector, circuit) = load_mac();

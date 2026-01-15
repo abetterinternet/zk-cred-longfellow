@@ -159,10 +159,7 @@
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6
 //! [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
 
-use crate::{
-    fields::FieldElement,
-    sumcheck::bind::{SumcheckArray, bindeq},
-};
+use crate::{fields::FieldElement, sumcheck::bind::bindeq};
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -175,10 +172,6 @@ use std::cmp::Ordering;
 #[educe(PartialEq)]
 pub struct SparseSumcheckArray<FE> {
     contents: Vec<SparseQuadElement<FE>>,
-    /// The hand over which the next binding may occur.
-    #[serde(skip)]
-    #[educe(PartialEq(ignore))]
-    next_bind: Hand,
 }
 
 /// The handedness of an input wire. Also the dimensions over which the inner 2D array is bound.
@@ -307,10 +300,7 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
 impl<FE: FieldElement> From<Vec<SparseQuadElement<FE>>> for SparseSumcheckArray<FE> {
     fn from(mut contents: Vec<SparseQuadElement<FE>>) -> Self {
         contents.sort_unstable();
-        Self {
-            contents,
-            next_bind: Hand::Left,
-        }
+        Self { contents }
     }
 }
 
@@ -391,14 +381,6 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
     /// This can only be used once the `gate_index` dimension has been bound down to a single
     /// element. That is, `gate_index == 0` for all elements in the array.
     pub fn bind_hand(&mut self, hand: Hand, binding: FE) {
-        // Binding is stateful: based on the currently layout of the contents, we can only bind over
-        // either l or r. Make sure the caller is on the correct hand.
-        assert_eq!(
-            self.next_bind, hand,
-            "array cannot currently be bound to {hand:?}",
-        );
-        self.next_bind = self.next_bind.opposite();
-
         // Walk the elements of the array and work out what bound elements they contribute to. See
         // the module level comment for discussion of this strategy.
         //
@@ -500,14 +482,11 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
         );
 
         // First compute bindv(EQ, G[0])[j] + alpha * bindv(EQ, G[1])[j])
-        let mut bindeq_0 = bindeq(bindings_0);
-        for (bindeq_0, bindeq_1) in bindeq_0.iter_mut().zip(bindeq(bindings_1).iter()) {
-            *bindeq_0 += alpha * bindeq_1;
-        }
+        let bindeq = bindeq(bindings_0, bindings_1, alpha);
 
         // Dot product with self, the combined quad
         for element in self.contents.iter_mut() {
-            element.coefficient *= bindeq_0[element.gate_index];
+            element.coefficient *= bindeq[element.gate_index];
             element.gate_index = 0;
         }
 
@@ -529,56 +508,20 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
 
         self.contents.truncate(write);
     }
-
-    /// Compare the sparse array to a dense array, accounting for whether the dense array has been
-    /// transposed
-    pub fn compare_bound_array(&self, hand: Hand, dense: &Vec<Vec<FE>>) {
-        if hand == Hand::Right {
-            assert_eq!(*self, dense.transpose());
-        } else {
-            assert_eq!(self, dense);
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        field_element_tests,
         fields::CodecFieldElement,
-        sumcheck::bind::{
-            test_vector::{
-                BindTestVector, Sparse2DArrayBindHandTestCase, Sparse3DArrayBindGateTestCase,
-                load_sparse_2d_array_bind_hand_2_128, load_sparse_2d_array_bind_hand_p128,
-                load_sparse_2d_array_bind_hand_p256, load_sparse_3d_array_bind_gate_2_128,
-                load_sparse_3d_array_bind_gate_p128, load_sparse_3d_array_bind_gate_p256,
-            },
-            tests::field_vec,
+        sumcheck::bind::test_vector::{
+            BindTestVector, Sparse2DArrayBindHandTestCase, Sparse3DArrayBindGateTestCase,
+            load_sparse_2d_array_bind_hand_2_128, load_sparse_2d_array_bind_hand_p128,
+            load_sparse_2d_array_bind_hand_p256, load_sparse_3d_array_bind_gate_2_128,
+            load_sparse_3d_array_bind_gate_p128, load_sparse_3d_array_bind_gate_p256,
         },
     };
-    #[cfg(panic = "unwind")]
-    use std::panic::catch_unwind;
-    use wasm_bindgen_test::wasm_bindgen_test;
-
-    fn bind_wrong_hand<FE: FieldElement>() {
-        #[cfg(panic = "unwind")]
-        catch_unwind(|| {
-            let mut sparse = SparseSumcheckArray::from(vec![field_vec::<FE>(&[0])]);
-            sparse.bind_hand(Hand::Right, FE::ONE)
-        })
-        .unwrap_err();
-
-        #[cfg(panic = "unwind")]
-        catch_unwind(|| {
-            let mut sparse = SparseSumcheckArray::from(vec![field_vec::<FE>(&[0])]);
-            sparse.bind_hand(Hand::Left, FE::ONE);
-            sparse.bind_hand(Hand::Left, FE::ONE);
-        })
-        .unwrap_err();
-    }
-
-    field_element_tests!(bind_wrong_hand);
 
     fn sparse_2d_array_bind_hand_test_vector<FE: CodecFieldElement>(
         test_vector: BindTestVector<Sparse2DArrayBindHandTestCase<FE>>,

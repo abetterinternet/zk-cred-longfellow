@@ -8,7 +8,7 @@ use crate::{
     constraints::symbolic::{SymbolicExpression, Term},
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
-        bind::{ElementwiseSum, SumcheckArray, bindeq, sparse::Hand},
+        bind::{bindeq, sparse::Hand},
         prover::SumcheckProof,
     },
     transcript::Transcript,
@@ -128,21 +128,10 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
             let beta = transcript.generate_challenge(1)?[0];
 
             // The combined quad, aka QZ[g, l, r], a three dimensional array.
-            let (combined_quad, mut sparse_quad) = circuit.combined_quad(layer_index, beta)?;
+            let mut quad = circuit.combined_quad(layer_index, beta)?;
 
             // Bind the combined quad to G.
-            let mut bound_quad = combined_quad
-                .bind(&bindings[0])
-                .elementwise_sum(&combined_quad.bind(&bindings[1]).scale(alpha));
-
-            // Reduce bound_quad to a Vec<Vec<FE>> so that we can later bind to the correct
-            // dimension.
-            let mut bound_quad = bound_quad.remove(0);
-
-            // Also do the binding in a sparse array so we can verify its equivalence to the dense
-            // array.
-            sparse_quad.bindv_gate(&bindings[0], &bindings[1], alpha);
-            sparse_quad.compare_bound_array(Hand::Left, &bound_quad);
+            quad.bindv_gate(&bindings[0], &bindings[1], alpha);
 
             // Allocate room for the new bindings this layer will generate
             let mut new_bindings = [
@@ -229,37 +218,29 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
                     layer_claim += (Term::new(p2_witness) + polynomial.p2)
                         * FE::lagrange_basis_polynomial_2(challenge[0]);
 
-                    bound_quad = bound_quad.bind(&challenge);
-
-                    // Verify that binding to sparse array is equivalent
-                    sparse_quad.bind_hand(hand, challenge[0]);
-                    sparse_quad.compare_bound_array(hand, &bound_quad);
-
-                    bound_quad = bound_quad.transpose();
+                    quad.bind_hand(hand, challenge[0]);
                 }
             }
 
             // Specification interpretation verification: over the course of the loop above, we bind
             // bound_quad to single field elements enough times that it should be reduced to a
             // single non-zero element.
-            for (i, row) in bound_quad.iter().enumerate() {
-                for (j, element) in row.iter().enumerate() {
-                    if i != 0 && j != 0 {
-                        assert_eq!(*element, FE::ZERO, "bound quad: {bound_quad:?}");
-                    }
-                }
-            }
+            assert_eq!(quad.contents().len(), 1);
+            assert_eq!(quad.contents()[0].gate_index, 0);
+            assert_eq!(quad.contents()[0].left_wire_index, 0);
+            assert_eq!(quad.contents()[0].right_wire_index, 0);
+            let bound_element = quad.contents()[0].coefficient;
 
             let (vl_witness, vr_witness, vl_vr_witness) =
                 witness_layout.wire_witness_indices(layer_index);
 
             // Output the three remaining terms of the linear constraint for this layer.
             // - (Q * layer_proof.vr) * sym_layer_pad.vl
-            layer_claim += Term::new(vl_witness) * -bound_quad[0][0] * proof_layer.vr;
+            layer_claim += Term::new(vl_witness) * -bound_element * proof_layer.vr;
             // - (Q * layer_proof.vl) * sym_layer_pad.vr
-            layer_claim += Term::new(vr_witness) * -bound_quad[0][0] * proof_layer.vl;
+            layer_claim += Term::new(vr_witness) * -bound_element * proof_layer.vl;
             // - Q * sym_layer_pad.vl_vr
-            layer_claim += Term::new(vl_vr_witness) * -bound_quad[0][0];
+            layer_claim += Term::new(vl_vr_witness) * -bound_element;
 
             // Output the LHS terms of the layer linear constraint
             constraints.lhs_terms.extend(layer_claim.lhs_terms());
@@ -267,7 +248,7 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
             // Output linear constraint RHS Q * layer_proof.vl * layer_proof.vr - known
             constraints
                 .rhs
-                .push(bound_quad[0][0] * proof_layer.vl * proof_layer.vr - layer_claim.known());
+                .push(bound_element * proof_layer.vl * proof_layer.vr - layer_claim.known());
 
             // Commit to the padded evaluations of l and r. The specification implies they are
             // written as individual field elements, but longfellow-zk writes them as an array.
@@ -290,7 +271,7 @@ impl<FE: ProofFieldElement> LinearConstraints<FE> {
         //
         // where sym_layer_pad is the padding on the input layer
         let gamma = transcript.generate_challenge(1)?[0];
-        let eq2 = bindeq(&bindings[0]).elementwise_sum(&bindeq(&bindings[1]).scale(gamma));
+        let eq2 = bindeq(&bindings[0], &bindings[1], gamma);
         let input_layer_index = circuit.num_layers();
 
         let mut final_claim = SymbolicExpression::new(input_layer_index);
@@ -522,7 +503,6 @@ mod tests {
         constraints::<FieldP128>(test_vector, circuit);
     }
 
-    #[ignore = "slow test"]
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_mac() {
         let (test_vector, circuit) = load_mac();

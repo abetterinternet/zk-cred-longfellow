@@ -68,3 +68,34 @@ MAC key shares generated randomly or from Fiat-Shamir challenges, and the result
 values.
 
 [commit]: https://github.com/divergentdave/longfellow-zk/commit/88fc0a208659a867efe7428ad19939515dc42d07
+
+## `bind`
+
+These test vectors exercise binding over sumcheck arrays consisting of elements from various fields.
+
+The `dense_1d_array_bind_*.json` test vectors exercise binding a single element to a 1D dense array.
+
+The `sparse_2d_array_bind_*.json` test vectors exercise binding a single element to alternating
+hand dimensions of a 2D sparse array.
+
+The `sparse_3d_array_bind_*.json` test vectors exercise binding an array of elements to the gate
+dimension of a 3D sparse array.
+
+They were generated using tests defined in `sumcheck::bind::test_vector.rs`. To regenerate test
+vector JSON and overwrite what's currently checked out, run the `sumcheck::bind::test_vector::tests`
+tests with the environment variable `ZK_CRED_LONGFELLOW_WRITE_TEST_VECTOR_FILES=1`.
+
+```sh
+ZK_CRED_LONGFELLOW_WRITE_TEST_VECTOR_FILES=1 cargo test sumcheck::bind::test_vector::tests
+```
+
+Doing this may cause failures in the tests that check consistency between the checked-in test
+vectors and the generator.
+
+When run without the environment variable, the tests will print the generated test vector to stdout.
+Run the test with `--no-capture` to observe the JSON test vector.
+
+Test vectors contain the RNG seed used to generate them, making it possible to re-generate them
+deterministically. Just set the `seed` variable in test functions
+`generate_1d_dense_array_bind_test_vector`, `generate_2d_sparse_array_bind_test_vector`, and
+`generate_3d_sparse_array_bind_gate_vector`.

@@ -5,12 +5,13 @@
 use crate::{
     Codec,
     fields::{
-        CodecFieldElement, FieldElement, ProofFieldElement, addition_chains,
+        CodecFieldElement, FieldElement, FieldId, ProofFieldElement, addition_chains,
         field2_128::extend::{ExtendContext, interpolate},
     },
 };
 use anyhow::{Context, anyhow};
 use constants::{subfield_basis, subfield_basis_lu_decomposition};
+use serde::{Deserialize, Serialize, de::Error};
 #[cfg(target_arch = "aarch64")]
 use std::arch::is_aarch64_feature_detected;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
@@ -21,8 +22,6 @@ use std::{
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
-
-use super::FieldId;
 
 /// An element of the field GF(2^128).
 ///
@@ -156,6 +155,29 @@ impl CodecFieldElement for Field2_128 {
         let subfield_elements = u16::decode_fixed_array(bytes, count)?;
 
         Ok(subfield_elements.iter().map(|e| Self::inject(*e)).collect())
+    }
+}
+
+impl Serialize for Field2_128 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&hex::encode(self.get_encoded().unwrap()))
+    }
+}
+
+impl<'de> Deserialize<'de> for Field2_128 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer).and_then(|string| {
+            Self::decode(&mut Cursor::new(
+                &hex::decode(string).map_err(D::Error::custom)?,
+            ))
+            .map_err(D::Error::custom)
+        })
     }
 }
 

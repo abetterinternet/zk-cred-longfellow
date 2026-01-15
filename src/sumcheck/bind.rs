@@ -6,6 +6,8 @@ use crate::fields::FieldElement;
 use std::iter::repeat;
 
 pub mod sparse;
+#[cfg(test)]
+pub mod test_vector;
 
 /// An array of field elements, possibly multi-dimensional, conforming to the sumcheck array
 /// convention of [6.1][1]:
@@ -368,8 +370,17 @@ pub fn bindeq<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
-    use crate::field_element_tests;
+    use crate::{
+        field_element_tests,
+        fields::{CodecFieldElement, FieldElement},
+        sumcheck::bind::{
+            SumcheckArray, bindeq,
+            test_vector::{
+                BindTestVector, Dense1DArrayBindTestCase, load_dense_1d_array_bind_2_128,
+                load_dense_1d_array_bind_p128, load_dense_1d_array_bind_p256,
+            },
+        },
+    };
     use std::iter::Iterator;
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -377,109 +388,33 @@ pub(crate) mod tests {
         values.iter().map(|v| FE::from_u128(*v)).collect()
     }
 
-    fn check_field_vec<FE: FieldElement>(got: &Vec<FE>, expected: &[FE]) {
-        for (index, expected) in expected.iter().enumerate() {
-            assert_eq!(got.element(index), *expected, "mismatch at {index}");
+    fn dense_1d_array_bind_test_vector<FE: CodecFieldElement>(
+        test_vector: BindTestVector<Dense1DArrayBindTestCase<FE>>,
+    ) {
+        for test_case in test_vector.test_cases {
+            let bound = test_case.input.bind(&[test_case.binding]);
+            assert_eq!(
+                bound, test_case.output,
+                "test case {} failed",
+                test_case.description
+            );
         }
     }
 
-    fn one_dimension_bind_nothing<FE: FieldElement>() {
-        let original = field_vec::<FE>(&[0, 1, 2, 3, 4]);
-        let bound = original.bind(&[]);
-
-        check_field_vec(&original, &bound);
-
-        // Indices beyond the length of the original array should be 0
-        assert_eq!(original.element(original.len()), FE::ZERO);
+    #[test]
+    fn dense_1d_array_bind_test_vector_p128() {
+        dense_1d_array_bind_test_vector(load_dense_1d_array_bind_p128())
     }
 
-    field_element_tests!(one_dimension_bind_nothing);
-
-    fn one_dimension_bind_one<FE: FieldElement>() {
-        let mut original = field_vec::<FE>(&[0, 1, 2, 3, 4]);
-        let bound = original.bind(&[FE::ONE]);
-
-        // Elements beyond index 1, including ones beyond the length of the original array, should
-        // be 0
-        check_field_vec(&field_vec::<FE>(&[1, 3, 0, 0, 0, 0]), &bound);
-
-        // Check that binding in place is equivalent
-        original.bind_in_place(FE::ONE);
-        assert_eq!(bound, original);
+    #[test]
+    fn dense_1d_array_bind_test_vector_p256() {
+        dense_1d_array_bind_test_vector(load_dense_1d_array_bind_p256())
     }
 
-    field_element_tests!(one_dimension_bind_one);
-
-    fn one_dimension_bind_zero<FE: FieldElement>() {
-        let mut original = field_vec::<FE>(&[0, 1, 2, 3, 4]);
-        let bound = original.bind(&[FE::ZERO]);
-
-        check_field_vec(&field_vec::<FE>(&[0, 2, 4, 0, 0]), &bound);
-
-        // Indices beyond the length of the original array should be 0
-        assert_eq!(bound.element(original.len()), FE::ZERO);
-
-        // Check that binding in place is equivalent
-        original.bind_in_place(FE::ZERO);
-        assert_eq!(bound, original);
+    #[test]
+    fn dense_1d_array_bind_test_vector_2_128() {
+        dense_1d_array_bind_test_vector(load_dense_1d_array_bind_2_128())
     }
-
-    field_element_tests!(one_dimension_bind_zero);
-
-    fn one_dimension_bind_five<FE: FieldElement>(mut original: Vec<FE>) {
-        // Bind to some value besides zero or one so that both terms of
-        //   B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
-        // will be nonzero
-        // Noting that in our original array, A[i] = i and plugging in x = 5:
-        // B[i] = (1 - 5) * 2i + 5 * (2i + 1)
-        // B[i] = 5 * (2i + 1) - 4 * (2i)
-        // Keep the two terms separate so we can see if either 2i or 2i + 1 exceeds the size of the
-        // original array and yield zeroes appropriately
-        let five = FE::from_u128(5);
-        let four = FE::from_u128(4);
-        let two = FE::from_u128(2);
-        let bound = original.bind(&[five]);
-
-        for (index, (expected, bound)) in (0..original.len())
-            .map(|i| {
-                let i_fe = FE::from_u128(i as u128);
-                let first_term = if 2 * i >= original.len() {
-                    FE::ZERO
-                } else {
-                    //4 * 2 * i
-                    four * two * i_fe
-                };
-                let second_term = if 2 * i + 1 >= original.len() {
-                    FE::ZERO
-                } else {
-                    //5 * (2 * i + 1)
-                    five * (two * i_fe + FE::ONE)
-                };
-
-                second_term - first_term
-            })
-            .zip(&bound)
-            .enumerate()
-        {
-            assert_eq!(expected, *bound, "mismatch at index {index}");
-        }
-
-        // Check that binding in place is equivalent
-        original.bind_in_place(five);
-        assert_eq!(original, bound);
-    }
-
-    fn one_dimension_bind_five_even_length<FE: FieldElement>() {
-        one_dimension_bind_five(field_vec::<FE>(&(0..100).collect::<Vec<_>>()));
-    }
-
-    field_element_tests!(one_dimension_bind_five_even_length);
-
-    fn one_dimension_bind_five_odd_length<FE: FieldElement>() {
-        one_dimension_bind_five(field_vec::<FE>(&(0..101).collect::<Vec<_>>()));
-    }
-
-    field_element_tests!(one_dimension_bind_five_odd_length);
 
     fn one_dimension_bindv<FE: FieldElement>() {
         // Bind to multiple field elements, described as bindv in the spec
@@ -660,7 +595,7 @@ pub(crate) mod tests {
 
     field_element_tests!(three_dimension_bind_one);
 
-    fn three_dimension_bindv<FE: FieldElement>() {
+    fn three_dimension_bindv<FE: crate::fields::CodecFieldElement>() {
         let original = vec![
             vec![field_vec(&[0; 5]); 2],
             vec![field_vec(&[1; 5]); 2],

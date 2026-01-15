@@ -1,0 +1,880 @@
+{
+  "seed": 5306777080901267904,
+  "test_cases": [
+    {
+      "description": "length power of 2",
+      "input": {
+        "contents": [
+          {
+            "gate_index": 0,
+            "left_wire_index": 115,
+            "right_wire_index": 31,
+            "coefficient": "01d32cc18f12eb5ecc20747ab2950505"
+          },
+          {
+            "gate_index": 0,
+            "left_wire_index": 54,
+            "right_wire_index": 124,
+            "coefficient": "2894ead517197ab55955aaa50522a7f6"
+          }
+        ]
+      },
+      "bindings": [
+        "5b5b9e53e5bd5bec1269ff63f36c243f",
+        "bd75ed3d6a3ba8cd007ec77e2a3b9e2d",
+        "e350df884b751d44d7cab59e09289fd0",
+        "24fe75f84edf22a4f2bfbb228859c7eb",
+        "d7920202e35e0c3af3ed0aa3baf1ac21",
+        "d8a1e1548dbcf5185615dac8cf0a952d",
+        "85be438a40c3514b96a35b4cef555f16",
+        "db015ba487b6e37f082d6aaea41b8071",
+        "2968b8c3586a62fd1c5e7a88872fee6e",
+        "47690fd617b83d4965c40a1ec205d5cd",
+        "f3bbe27915fe61d94f9cd836c3e245d1",
+        "0d3acccc4fe993dbee007bb9d3a14074",
+        "fbd5dba44038fb4ee3b7d8e6c6d09eb0",
+        "5604fae3f67a7227ede47ee9f3403007"
+      ],
+      "outputs": [
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 57,
+              "right_wire_index": 31,
+              "coefficient": "9327c22cdc23dc172c0fbb6e3028170c"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 27,
+              "right_wire_index": 124,
+              "coefficient": "5a47a8e5ae99684eb5c12684dda5a1af"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 57,
+              "right_wire_index": 15,
+              "coefficient": "661098b6335b003156e743f38d77c0b8"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 27,
+              "right_wire_index": 62,
+              "coefficient": "655e687ab375a008f646adc43004eeb4"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 28,
+              "right_wire_index": 15,
+              "coefficient": "101e86891fa0776ad617b2d37cb3d17f"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 13,
+              "right_wire_index": 62,
+              "coefficient": "2b3405836a0c85f06039f468244395d9"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 28,
+              "right_wire_index": 7,
+              "coefficient": "2c12d8130845b98eb8f9f9b68c1fa112"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 13,
+              "right_wire_index": 31,
+              "coefficient": "6bc0e34d41e94f77a9782d37f45ecfc2"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 14,
+              "right_wire_index": 7,
+              "coefficient": "a92ce30e43d498eabacb0333e652e057"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 6,
+              "right_wire_index": 31,
+              "coefficient": "1baeeea5140ef027bdf1b72f6e4bacce"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 14,
+              "right_wire_index": 3,
+              "coefficient": "27aa7177dc215b7e045daa02bc193008"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 6,
+              "right_wire_index": 15,
+              "coefficient": "6fabcd923e2c935a091bbb717d26c6f4"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 7,
+              "right_wire_index": 3,
+              "coefficient": "df2fa3185d5f0918e16203935102bde1"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 3,
+              "right_wire_index": 15,
+              "coefficient": "00d8a32447fc1d0bc94c07871f6558ab"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 7,
+              "right_wire_index": 1,
+              "coefficient": "5f03867fda75f0672cbca75dbf64a418"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 3,
+              "right_wire_index": 7,
+              "coefficient": "fa8f49815b5c94f636a822bf8f955fd2"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 3,
+              "right_wire_index": 1,
+              "coefficient": "89dbd2918c0bd6cff75b8d3d07c8356d"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 7,
+              "coefficient": "bf90065e6ece4c8e50bec6e249ab10e0"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 3,
+              "right_wire_index": 0,
+              "coefficient": "2dd563a877bbd5cf4f4fda59c5ba71f9"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 3,
+              "coefficient": "21bc0ee1af239a51ce8c31589177fa8b"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 0,
+              "coefficient": "aabbc8746313183d6e19711e1adaa9ca"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 3,
+              "coefficient": "1dcf4bfa040fbe5b726fea534c98e88d"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 0,
+              "coefficient": "4bb86f38bf5065bf81dbb50780a9cc1c"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 1,
+              "coefficient": "e7baeebdf229f1392e472bc342fb1d51"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "b88d263590c1f0af50be7742061b2390"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 1,
+              "coefficient": "09d40461aa271da0df6134fca23af950"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "869171aa264a3eb37da8b471da3287fe"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": "odd length",
+      "input": {
+        "contents": [
+          {
+            "gate_index": 0,
+            "left_wire_index": 19,
+            "right_wire_index": 3,
+            "coefficient": "a97793f13028e981e032c85fbf60ade7"
+          },
+          {
+            "gate_index": 0,
+            "left_wire_index": 34,
+            "right_wire_index": 38,
+            "coefficient": "c140db4b74d33418c6a843c4971b381a"
+          },
+          {
+            "gate_index": 0,
+            "left_wire_index": 61,
+            "right_wire_index": 101,
+            "coefficient": "057fdfcc94ac2f87ca20f628f9826403"
+          },
+          {
+            "gate_index": 0,
+            "left_wire_index": 122,
+            "right_wire_index": 108,
+            "coefficient": "ddc9578bf53cc78f097c5f3312a22adf"
+          }
+        ]
+      },
+      "bindings": [
+        "87dde0a35ec390900d1fba21f79e460c",
+        "b00443a320b9c2b7b19757e310f161d3",
+        "8e0fc91d23b80e6460e21e62ac7c2f9e",
+        "0c176abd465bbfbce9ec46f5910d6126",
+        "28418782bb7d903c8f3929760d1da774",
+        "22dc751a2c02dd29297067b0e6ac416a",
+        "a3d3459dc8bd88d86c230044c7026901",
+        "9b61335730228989426e7e8ef6d7b9f7",
+        "6d7978ef2d85e9560f6de0c8bc26b8cb",
+        "d2442331c3f6945d46dbd2f928dd281f",
+        "f3ede8de4ddeb67a18edb2eaef679029",
+        "b7ce7c67779e6fd744809b79b6f3ada0",
+        "6b06c0a53e1e2c8f3b24f4262a7f427f",
+        "a9064da6c75fc118378d23b1cb14aab0",
+        "723708de1b882eed15f1211a650a1e53",
+        "e0785e6074987c71d74a4af3c8f835f5"
+      ],
+      "outputs": [
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 9,
+              "right_wire_index": 3,
+              "coefficient": "7ef965c5d058e1f5a29572efeb1b8481"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 17,
+              "right_wire_index": 38,
+              "coefficient": "40e34147abb97504e196cd9363b1b39d"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 30,
+              "right_wire_index": 101,
+              "coefficient": "23eb197bbe923504d612e33be8f03347"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 61,
+              "right_wire_index": 108,
+              "coefficient": "91141aa0004fc3bb853449f0a3d136c7"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 9,
+              "right_wire_index": 1,
+              "coefficient": "0b8ebe34cec0eaa04c2a1f52de945f06"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 17,
+              "right_wire_index": 19,
+              "coefficient": "c13f55b65d601cfdc631145e4bd36426"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 30,
+              "right_wire_index": 50,
+              "coefficient": "5114b94f02a8d20b1c08a25f554d46d5"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 61,
+              "right_wire_index": 54,
+              "coefficient": "87dd16a9223a77f9d3fd41ce35b0fc92"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 4,
+              "right_wire_index": 1,
+              "coefficient": "0c6c5c4d5313103f5ab69e02f3f2f8a6"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 8,
+              "right_wire_index": 19,
+              "coefficient": "0d97a8400cfeb26d861d095a5779f36a"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 15,
+              "right_wire_index": 50,
+              "coefficient": "b154e6ff82a5d2da9cd63f442026ef94"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 30,
+              "right_wire_index": 54,
+              "coefficient": "cb77a23fa9bc6209506eeb2a210a7c8f"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 4,
+              "right_wire_index": 0,
+              "coefficient": "46d07116550c626722e7db6083098e89"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 8,
+              "right_wire_index": 9,
+              "coefficient": "d1bc8e45b24189fcdcd29e9ba320abfe"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 15,
+              "right_wire_index": 25,
+              "coefficient": "27d88be6b8526a2ce0664ae4789d5878"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 30,
+              "right_wire_index": 27,
+              "coefficient": "f6dda2c716448dfe808ef3af80b68ef1"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 2,
+              "right_wire_index": 0,
+              "coefficient": "66fd1aa07e2705bbbf9ad63ee3c405a7"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 4,
+              "right_wire_index": 9,
+              "coefficient": "b9ce9013bbc237bbf7c46f53617f4382"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 7,
+              "right_wire_index": 25,
+              "coefficient": "fc22d2bce8b46ee54903f98e3637ac96"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 15,
+              "right_wire_index": 27,
+              "coefficient": "47f820ad81ff72042c3f51a3ae276f1b"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 2,
+              "right_wire_index": 0,
+              "coefficient": "3165af10dc57491fadbc40da87c297d5"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 4,
+              "right_wire_index": 4,
+              "coefficient": "6e3bda58a122ba68aed4465d66a39766"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 7,
+              "right_wire_index": 12,
+              "coefficient": "f832231fc7904dc8b37b23c5fb3eda52"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 15,
+              "right_wire_index": 13,
+              "coefficient": "22b8ae3998d84afb151b47398b3e78e0"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 0,
+              "coefficient": "3bcb56f77ddfa44ca8892ca4ca62df7e"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 2,
+              "right_wire_index": 4,
+              "coefficient": "46a8cfa89ecdba6391faf9da8dd1f25a"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 3,
+              "right_wire_index": 12,
+              "coefficient": "280ff52ebc4b9e6e7c58df30d1f0cb7d"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 7,
+              "right_wire_index": 13,
+              "coefficient": "29a9c3c21889422d57e2cf4731ee8bc5"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 0,
+              "coefficient": "60bd5f0e81100013591135fe1dfbeb3c"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 2,
+              "right_wire_index": 2,
+              "coefficient": "7df6d69b9089e8e6d14b1fd60a478140"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 3,
+              "right_wire_index": 6,
+              "coefficient": "c5288c675b93bfd222a0268b961ddd08"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 7,
+              "right_wire_index": 6,
+              "coefficient": "dc449b675d2b19259d89981fb040060e"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "bb07f94c9608c66c55e0918ce647d8f7"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 2,
+              "coefficient": "e24ea7114f76a9a6c4fbda9807d830bb"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 6,
+              "coefficient": "8f3d9031ce26e1b64c10a4375da2f4bb"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 3,
+              "right_wire_index": 6,
+              "coefficient": "49238f6937c7c21ab78f9aed0b1b7140"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "c6914efca9bece311ddf269020f60a92"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 1,
+              "coefficient": "3051d7a5825d9340eaeb7ecc1f6c8dee"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 3,
+              "coefficient": "c5af62fa7e69b2c1bea02a36d3e5ebf9"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 3,
+              "right_wire_index": 3,
+              "coefficient": "89180e974341f0dd11a82ad0dd8e696b"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "1c45e610c23612c8fffe6dec6f7795c5"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 1,
+              "coefficient": "779e0d36fcc779bf28ef1a3f4dd764de"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 3,
+              "coefficient": "90eb1a2e3067fc34be0d62b05922a10d"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 3,
+              "coefficient": "92bde88cfa792d797da8750f482431ae"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "11ec8edcdbce084dda275c42dc20f42c"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 1,
+              "coefficient": "8975a1b3f0298c5a721153cf3870b458"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 1,
+              "coefficient": "775d9481f5e7bb49e03e1d9b2fcee12b"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "d6d1b54ad17e5853e7fdebded9819ac0"
+            },
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 1,
+              "coefficient": "2010340f55889baf929098106de88bbd"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "c1c8de54a16f208da03ad16d8ea7c156"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "c21b89cc62c4a1cd9a379f10881704a8"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "0250e7cb89b5e4309b56bfb37bfe8be2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": "length even, not power of 2",
+      "input": {
+        "contents": [
+          {
+            "gate_index": 0,
+            "left_wire_index": 73,
+            "right_wire_index": 78,
+            "coefficient": "13943d4291d8844b85fe12d984d33c2e"
+          }
+        ]
+      },
+      "bindings": [
+        "4d5af026ac0ac7f3ce8c131953605d04",
+        "48c84e8c1ed3356e6048aee4cd22b9ee",
+        "8443d65d11e760c5452abfc8ef198312",
+        "dc4f81debe3a48d3de78a227f93380fb",
+        "de5c12baa87621e273ace2670d127613",
+        "b457c0b6181cd8b1080ace31df02c5ae",
+        "d4b108dd46fd93a9db2427dcd9a0b4e1",
+        "cc1774fd2c86c332cc1ea5b84f3f3f3d",
+        "13d2bbe9b37f889be77b4c597eb1bd47",
+        "9759738a7f65dd19cc795323f5527cb0",
+        "35083b878c12383538fa2f245eb4a2d6",
+        "cbf160e8ff023c2cf2da3fa769653fda",
+        "b0a7b40cad38cad748886a931f65dfb8",
+        "5f7e347eda5df09d58135d9cf062d1b1",
+        "ae4aca26e313d5436006961cb47e917d",
+        "0062067b509eaf59627d05b609c2c9d1"
+      ],
+      "outputs": [
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 36,
+              "right_wire_index": 78,
+              "coefficient": "a286a7aed36237c4a5f44c6479191635"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 36,
+              "right_wire_index": 39,
+              "coefficient": "48b63da6c934c9a79f8dfa4905ed21be"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 18,
+              "right_wire_index": 39,
+              "coefficient": "81a626ce6a5e2410d5112240c5607d7b"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 18,
+              "right_wire_index": 19,
+              "coefficient": "6470ad48964af8d16783f406a9032cde"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 9,
+              "right_wire_index": 19,
+              "coefficient": "8fa6b3aad093fd8caeed9dc3717f03be"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 9,
+              "right_wire_index": 9,
+              "coefficient": "e340a59a3d1496ea90e8d170490d3e00"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 4,
+              "right_wire_index": 9,
+              "coefficient": "17044e8351d0697ac5ee15d950327c9a"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 4,
+              "right_wire_index": 4,
+              "coefficient": "09d2c1a76c3c386a62a585f9f339576e"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 2,
+              "right_wire_index": 4,
+              "coefficient": "d2402a9881265b7ffdcaeb26fb2592a6"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 2,
+              "right_wire_index": 2,
+              "coefficient": "1041c990a9009e6db8ce8c9b82bee0be"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 2,
+              "coefficient": "9c1837b0284bd714d646da2382671961"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 1,
+              "right_wire_index": 1,
+              "coefficient": "464d86f6740e8d82ec13397ee9293ed2"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 1,
+              "coefficient": "8482596bd28910ed8c9f12d0c070ca5d"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "40253c7b968270bbff06b90ee66509c4"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "11979909154cc706e90cfc6d46b65d9e"
+            }
+          ]
+        },
+        {
+          "contents": [
+            {
+              "gate_index": 0,
+              "left_wire_index": 0,
+              "right_wire_index": 0,
+              "coefficient": "0e61f1a50c53503c2b60b35b23ff0be0"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

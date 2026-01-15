@@ -5,16 +5,13 @@ use crate::{
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
         Polynomial,
-        bind::{
-            ElementwiseSum, SumcheckArray,
-            sparse::{Hand, SparseSumcheckArray},
-        },
+        bind::{ElementwiseSum, SumcheckArray, sparse::Hand},
     },
     transcript::Transcript,
     witness::Witness,
 };
 use anyhow::anyhow;
-use std::mem::swap;
+use std::{borrow::Cow, mem::swap};
 
 /// Generate a sumcheck proof of evaluation of a circuit.
 #[derive(Clone, Debug)]
@@ -69,7 +66,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
             let beta = transcript.generate_challenge(1)?[0];
 
             // The combined quad, aka QZ[g, l, r], a three dimensional array.
-            let (combined_quad, _) = self.circuit.combined_quad(layer_index, beta)?;
+            let (combined_quad, mut sparse_quad) = self.circuit.combined_quad(layer_index, beta)?;
 
             // Bind the combined quad to G.
             let mut bound_quad = combined_quad
@@ -87,9 +84,10 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
             // dimension.
             let mut bound_quad = bound_quad.remove(0);
 
-            // Copy the bound quad into a sparse array so we can verify its equivalence to the dense
+            // Also do the binding in a sparse array so we can verify its equivalence to the dense
             // array.
-            let mut sparse_bound_quad = SparseSumcheckArray::from(bound_quad.clone());
+            sparse_quad.bindv_gate(&bindings[0], &bindings[1], alpha);
+            sparse_quad.compare_bound_array(Hand::Left, &bound_quad);
 
             // Allocate room for the new bindings this layer will generate
             let mut new_bindings = [vec![FE::ZERO; layer.logw()], vec![FE::ZERO; layer.logw()]];
@@ -114,6 +112,14 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
             let mut left_wires = evaluation.wires[layer_index + 1].clone();
             let mut right_wires = evaluation.wires[layer_index + 1].clone();
 
+            // When working with the sparse array, we don't need to swap left and right wires at
+            // each iteration, for the same reason that we don't need to transpose the quad. Track
+            // these separately so we can check that they're consistent with the dense version.
+            let mut unswapped_wires = [
+                evaluation.wires[layer_index + 1].clone(),
+                evaluation.wires[layer_index + 1].clone(),
+            ];
+
             for (round, proof_polynomials) in layer_proof_polynomials.iter_mut().enumerate() {
                 for hand in [Hand::Left, Hand::Right] {
                     // Implements the polynomial from the specification:
@@ -124,10 +130,9 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
                         let bound_quad_at = bound_quad.bind(bind);
 
                         // Verify that binding to sparse array is equivalent
-                        let mut sparse_bound_quad_clone = sparse_bound_quad.clone();
+                        let mut sparse_bound_quad_clone = sparse_quad.clone();
                         sparse_bound_quad_clone.bind_hand(hand, at);
                         sparse_bound_quad_clone.compare_bound_array(hand, &bound_quad_at);
-
                         let bound_left_wires = left_wires.bind(bind);
 
                         // Specification interpretation verification: the back half of
@@ -158,6 +163,29 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
                                 point += bound_quad_term * left_wire_term * right_wire_term;
                             }
                         }
+
+                        // Compute the point from the sparse array to verify that it's equivalent to
+                        // what we get from the dense array. Instead of swapping the left and right
+                        // wire arrays and always binding the left, we alternate between binding the
+                        // wire arrays.
+                        // Avoid copying whichever wires array we're not binding
+                        let mut bound_wires = [
+                            Cow::from(&unswapped_wires[0]),
+                            Cow::from(&unswapped_wires[1]),
+                        ];
+                        bound_wires[hand as usize].to_mut().bind_in_place(at);
+
+                        let sparse_point = sparse_bound_quad_clone.contents().iter().fold(
+                            FE::ZERO,
+                            |acc, element| {
+                                acc + element.coefficient
+                                    * bound_wires[Hand::Left as usize][element.left_wire_index]
+                                    * bound_wires[Hand::Right as usize][element.right_wire_index]
+                            },
+                        );
+
+                        assert_eq!(point, sparse_point);
+
                         point
                     };
 
@@ -181,11 +209,12 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
 
                     // Bind the current left wires and the quad to the challenge
                     left_wires = left_wires.bind(&challenge);
+                    unswapped_wires[hand as usize].bind_in_place(challenge[0]);
                     bound_quad = bound_quad.bind(&challenge);
 
                     // Verify that binding to sparse array is equivalent
-                    sparse_bound_quad.bind_hand(hand, challenge[0]);
-                    sparse_bound_quad.compare_bound_array(hand, &bound_quad);
+                    sparse_quad.bind_hand(hand, challenge[0]);
+                    sparse_quad.compare_bound_array(hand, &bound_quad);
 
                     swap(&mut left_wires, &mut right_wires);
                     bound_quad = bound_quad.transpose();

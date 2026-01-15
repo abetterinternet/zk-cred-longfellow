@@ -339,10 +339,10 @@ mod tests {
     use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn prove<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit<FE>) {
+    fn prove<FE: ProofFieldElement>(test_vector: CircuitTestVector<FE>, circuit: Circuit<FE>) {
         assert_eq!(circuit.num_copies(), 1);
 
-        let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();
+        let evaluation: Evaluation<FE> = circuit.evaluate(test_vector.valid_inputs()).unwrap();
 
         let witness = Witness::fill_witness(
             WitnessLayout::from_circuit(&circuit),
@@ -383,10 +383,10 @@ mod tests {
     }
 
     fn prove_input_length_validation<FE: ProofFieldElement>(
-        test_vector: CircuitTestVector,
+        test_vector: CircuitTestVector<FE>,
         circuit: Circuit<FE>,
     ) {
-        let mut longer_input = test_vector.valid_inputs();
+        let mut longer_input = test_vector.valid_inputs().to_vec();
         longer_input.push(FE::ZERO);
 
         let evaluation: Evaluation<FE> = circuit.evaluate(&longer_input).unwrap();

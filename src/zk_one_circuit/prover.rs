@@ -208,11 +208,12 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn proof_round_trip() {
         let (test_vector, circuit) = load_rfc();
-        let all_inputs: Vec<FieldP128> = test_vector.valid_inputs();
         let session_id = b"testtesttesttesttesttesttesttest";
 
         let prover = Prover::new(&circuit, *test_vector.ligero_parameters());
-        let proof = prover.prove(session_id, &all_inputs).unwrap();
+        let proof = prover
+            .prove(session_id, test_vector.valid_inputs())
+            .unwrap();
         assert_eq!(session_id, proof.oracle());
 
         let mut encoded = Vec::new();

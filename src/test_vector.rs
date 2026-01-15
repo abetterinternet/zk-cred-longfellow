@@ -4,7 +4,7 @@ use crate::{
     Codec,
     circuit::Circuit,
     constraints::proof_constraints::QuadraticConstraint,
-    fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
+    fields::{CodecFieldElement, field2_128::Field2_128, fieldp128::FieldP128},
     ligero::{LigeroCommitment, LigeroParameters, prover::LigeroProof, tableau::TableauLayout},
     sumcheck::prover::SumcheckProof,
 };
@@ -63,18 +63,18 @@ macro_rules! decode_test_vector {
 }
 
 /// Load the test vector for the "rfc" circuit.
-pub(crate) fn load_rfc() -> (CircuitTestVector, Circuit<FieldP128>) {
+pub(crate) fn load_rfc() -> (CircuitTestVector<FieldP128>, Circuit<FieldP128>) {
     decode_test_vector!("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b")
 }
 
 /// Load the test vector for the "mac" circuit.
-pub(crate) fn load_mac() -> (CircuitTestVector, Circuit<Field2_128>) {
+pub(crate) fn load_mac() -> (CircuitTestVector<Field2_128>, Circuit<Field2_128>) {
     decode_test_vector!("longfellow-mac-circuit-66aeaf09a9cc98e36873e868307ac07279d5f7e0-1")
 }
 
 /// JSON descriptor of a circuit test vector.
 #[derive(Debug, Clone, Deserialize)]
-pub(crate) struct CircuitTestVector {
+pub(crate) struct CircuitTestVector<FieldElement> {
     #[allow(dead_code)]
     pub(crate) description: String,
     /// Depth of the circuit. This is wire layers, not gate layers.
@@ -85,10 +85,10 @@ pub(crate) struct CircuitTestVector {
     pub(crate) _terms: u32,
     /// Inputs which evaluate to 0 in this circuit. Encoded as hex strings of the serialization of
     /// each input.
-    pub(crate) valid_inputs: Vec<String>,
+    pub(crate) valid_inputs: Vec<FieldElement>,
     /// Inputs which evaluate to non-zero in this circuit. Encoded as hex strings of the
     /// serialization of each input.
-    pub(crate) invalid_inputs: Vec<String>,
+    pub(crate) invalid_inputs: Vec<FieldElement>,
     /// The serialized circuit, decompressed from a file alongside the JSON descriptor.
     #[serde(default)]
     pub(crate) serialized_circuit: Vec<u8>,
@@ -110,8 +110,8 @@ pub(crate) struct CircuitTestVector {
     ligero_parameters: LigeroParameters,
 }
 
-impl CircuitTestVector {
-    pub(crate) fn decode<FE: CodecFieldElement>(
+impl<FE: CodecFieldElement> CircuitTestVector<FE> {
+    pub(crate) fn decode(
         json: &[u8],
         compressed_circuit: &[u8],
         sumcheck_proof: &[u8],
@@ -138,7 +138,7 @@ impl CircuitTestVector {
         (test_vector, circuit)
     }
 
-    pub(crate) fn pad<FE: FieldElement>(&self) -> FE {
+    pub(crate) fn pad(&self) -> FE {
         FE::from_u128(self.pad.into())
     }
 
@@ -147,35 +147,23 @@ impl CircuitTestVector {
             .unwrap()
     }
 
-    pub(crate) fn valid_inputs<FE: CodecFieldElement>(&self) -> Vec<FE> {
-        self.valid_inputs
-            .iter()
-            .map(|input| FE::try_from(hex::decode(input).unwrap().as_slice()).unwrap())
-            .collect()
+    pub(crate) fn valid_inputs(&self) -> &[FE] {
+        &self.valid_inputs
     }
 
-    pub(crate) fn invalid_inputs<FE: CodecFieldElement>(&self) -> Vec<FE> {
-        self.invalid_inputs
-            .iter()
-            .map(|input| FE::try_from(hex::decode(input).unwrap().as_slice()).unwrap())
-            .collect()
+    pub(crate) fn invalid_inputs(&self) -> &[FE] {
+        &self.invalid_inputs
     }
 
     pub(crate) fn ligero_parameters(&self) -> &LigeroParameters {
         &self.ligero_parameters
     }
 
-    pub(crate) fn sumcheck_proof<FE: CodecFieldElement>(
-        &self,
-        circuit: &Circuit<FE>,
-    ) -> SumcheckProof<FE> {
+    pub(crate) fn sumcheck_proof(&self, circuit: &Circuit<FE>) -> SumcheckProof<FE> {
         SumcheckProof::decode(circuit, &mut Cursor::new(&self.serialized_sumcheck_proof)).unwrap()
     }
 
-    pub(crate) fn ligero_proof<FE: CodecFieldElement>(
-        &self,
-        tableau_layout: &TableauLayout,
-    ) -> LigeroProof<FE> {
+    pub(crate) fn ligero_proof(&self, tableau_layout: &TableauLayout) -> LigeroProof<FE> {
         LigeroProof::decode(
             tableau_layout,
             &mut Cursor::new(&self.serialized_ligero_proof),

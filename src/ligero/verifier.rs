@@ -207,10 +207,10 @@ mod tests {
     };
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn verify<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit<FE>) {
+    fn verify<FE: ProofFieldElement>(test_vector: CircuitTestVector<FE>, circuit: Circuit<FE>) {
         // hack: prepend 1 to the inputs just like Circuit::evaluate does
         let mut public_inputs = vec![FE::ONE];
-        public_inputs.extend(test_vector.valid_inputs::<FE>());
+        public_inputs.extend(test_vector.valid_inputs());
 
         let mut transcript = Transcript::new(b"test").unwrap();
 

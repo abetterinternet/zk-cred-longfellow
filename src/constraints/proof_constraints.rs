@@ -346,7 +346,7 @@ mod tests {
         let (test_vector, circuit) = load_rfc();
 
         let evaluation: Evaluation<FieldP128> =
-            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
+            circuit.evaluate(test_vector.valid_inputs()).unwrap();
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let witness = Witness::fill_witness(
@@ -426,10 +426,13 @@ mod tests {
         }
     }
 
-    fn constraints<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit<FE>) {
+    fn constraints<FE: ProofFieldElement>(
+        test_vector: CircuitTestVector<FE>,
+        circuit: Circuit<FE>,
+    ) {
         let test_vector_proof = test_vector.sumcheck_proof(&circuit);
 
-        let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();
+        let evaluation: Evaluation<FE> = circuit.evaluate(test_vector.valid_inputs()).unwrap();
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let witness = Witness::fill_witness(

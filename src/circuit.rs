@@ -540,7 +540,7 @@ pub(crate) mod tests {
     }
 
     fn roundtrip_circuit_test_vector<FE: CodecFieldElement>(
-        (test_vector, circuit): (CircuitTestVector, Circuit<FE>),
+        (test_vector, circuit): (CircuitTestVector<FE>, Circuit<FE>),
     ) {
         // Verifies that circuits conform to a few invariants that we have interpreted from the
         // specification. Panics if any invariant does not hold for this circuit.
@@ -607,10 +607,10 @@ pub(crate) mod tests {
     }
 
     fn evaluate_circuit_true<FE: CodecFieldElement>(
-        test_vector: CircuitTestVector,
+        test_vector: CircuitTestVector<FE>,
         circuit: Circuit<FE>,
     ) {
-        let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();
+        let evaluation: Evaluation<FE> = circuit.evaluate(test_vector.valid_inputs()).unwrap();
 
         // Output size should match circuit serialization and values should all be zero
         assert_eq!(circuit.num_outputs(), evaluation.wires[0].len());
@@ -639,13 +639,13 @@ pub(crate) mod tests {
     }
 
     fn evaluate_circuit_false<FE: CodecFieldElement>(
-        test_vector: CircuitTestVector,
+        test_vector: CircuitTestVector<FE>,
         circuit: Circuit<FE>,
     ) {
         // Evaluate with other values. At least one output element should be nonzero.
         assert!(
             circuit
-                .evaluate(&test_vector.invalid_inputs())
+                .evaluate(test_vector.invalid_inputs())
                 .unwrap()
                 .outputs()
                 .iter()
@@ -675,7 +675,7 @@ pub(crate) mod tests {
         let serialized_circuit = zstd::decode_all(Cursor::new(&circuit_bytes)).unwrap();
         let circuit = Circuit::decode(&mut Cursor::new(&serialized_circuit)).unwrap();
 
-        let test_vector: CircuitTestVector = serde_json::from_slice(include_bytes!(
+        let test_vector: CircuitTestVector<_> = serde_json::from_slice(include_bytes!(
             "../test-vectors/one-circuit/longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b.json"
         ))
         .unwrap();
@@ -683,7 +683,7 @@ pub(crate) mod tests {
         assert_eq!(circuit.num_quads(), test_vector.quads as usize);
 
         let evaluation: Evaluation<FieldP128> =
-            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
+            circuit.evaluate(test_vector.valid_inputs()).unwrap();
 
         for output in evaluation.outputs() {
             assert_eq!(*output, FieldP128::ZERO);

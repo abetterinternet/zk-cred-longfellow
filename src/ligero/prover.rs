@@ -404,8 +404,8 @@ mod tests {
     use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn prove<FE: ProofFieldElement>(test_vector: CircuitTestVector, circuit: Circuit<FE>) {
-        let evaluation: Evaluation<FE> = circuit.evaluate(&test_vector.valid_inputs()).unwrap();
+    fn prove<FE: ProofFieldElement>(test_vector: CircuitTestVector<FE>, circuit: Circuit<FE>) {
+        let evaluation: Evaluation<FE> = circuit.evaluate(test_vector.valid_inputs()).unwrap();
 
         let witness = Witness::fill_witness(
             WitnessLayout::from_circuit(&circuit),

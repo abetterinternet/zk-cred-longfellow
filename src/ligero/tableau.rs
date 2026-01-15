@@ -385,7 +385,7 @@ mod tests {
         let (test_vector, circuit) = load_rfc();
 
         let evaluation: Evaluation<FieldP128> =
-            circuit.evaluate(&test_vector.valid_inputs()).unwrap();
+            circuit.evaluate(test_vector.valid_inputs()).unwrap();
 
         let quadratic_constraints = quadratic_constraints(&circuit);
         let witness = Witness::fill_witness(

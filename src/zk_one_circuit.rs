@@ -18,18 +18,19 @@ mod tests {
     use wasm_bindgen_test::wasm_bindgen_test;
 
     fn test_vector_end_to_end<FE: ProofFieldElement>(
-        test_vector: CircuitTestVector,
+        test_vector: CircuitTestVector<FE>,
         circuit: Circuit<FE>,
     ) {
         // Here, we just load the test vector file to get the Ligero parameters,
         // and discard the proof. We generate a fresh proof, using real
         // randomness.
-        let all_inputs: Vec<FE> = test_vector.valid_inputs();
-        let public_inputs = &all_inputs[..circuit.num_public_inputs() - 1];
+        let public_inputs = &test_vector.valid_inputs()[..circuit.num_public_inputs() - 1];
         let session_id = b"test";
 
         let prover = Prover::new(&circuit, *test_vector.ligero_parameters());
-        let proof = prover.prove(session_id, &all_inputs).unwrap();
+        let proof = prover
+            .prove(session_id, test_vector.valid_inputs())
+            .unwrap();
 
         let verifier = Verifier::new(&circuit, *test_vector.ligero_parameters());
         verifier.verify(public_inputs, &proof).unwrap();
@@ -51,12 +52,13 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b_mutation() {
         let (test_vector, circuit) = load_rfc();
-        let all_inputs: Vec<FieldP128> = test_vector.valid_inputs();
-        let public_inputs = &all_inputs[..circuit.num_public_inputs() - 1];
+        let public_inputs = &test_vector.valid_inputs()[..circuit.num_public_inputs() - 1];
         let session_id = b"testtesttesttesttesttesttesttest";
 
         let prover = Prover::new(&circuit, *test_vector.ligero_parameters());
-        let proof = prover.prove(session_id, &all_inputs).unwrap();
+        let proof = prover
+            .prove(session_id, test_vector.valid_inputs())
+            .unwrap();
 
         let mut encoded = Vec::new();
         proof.encode(&mut encoded).unwrap();

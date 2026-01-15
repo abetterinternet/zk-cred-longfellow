@@ -24,14 +24,6 @@ pub enum CircuitVersion {
     V6 = 6,
 }
 
-/// Identifier and value of a presented attribute.
-pub struct Attribute {
-    /// The attribute's identifier.
-    pub id: String,
-    /// The attribute's value, as CBOR-encoded data.
-    pub cbor_value: Vec<u8>,
-}
-
 /// Inputs for the mdoc_zk circuits.
 pub struct CircuitInputs {
     layout: InputLayout,
@@ -47,13 +39,13 @@ impl CircuitInputs {
         version: CircuitVersion,
         mdoc_device_response: &[u8],
         transcript: &[u8],
-        attributes: &[Attribute],
+        attribute_ids: &[String],
         _time: &str,
         mac_prover_key_shares: &[Field2_128; 6],
     ) -> Result<Self, anyhow::Error> {
         let layout = InputLayout::new(
             version,
-            attributes
+            attribute_ids
                 .len()
                 .try_into()
                 .map_err(|_| anyhow!("unsupported number of attributes"))?,
@@ -204,7 +196,7 @@ pub(super) mod tests {
         Codec,
         circuit::Circuit,
         fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
-        mdoc_zk::{Attribute, CircuitInputs, CircuitVersion},
+        mdoc_zk::{CircuitInputs, CircuitVersion},
     };
     use serde::Deserialize;
     use std::io::Cursor;
@@ -262,8 +254,6 @@ pub(super) mod tests {
     #[derive(Deserialize)]
     struct TestVectorAttribute {
         id: String,
-        #[serde(deserialize_with = "hex::serde::deserialize")]
-        cbor_value: Vec<u8>,
     }
 
     fn load_witness_test_vector() -> WitnessTestVector {
@@ -281,10 +271,7 @@ pub(super) mod tests {
         let attributes = test_vector
             .attributes
             .iter()
-            .map(|attr| Attribute {
-                id: attr.id.clone(),
-                cbor_value: attr.cbor_value.clone(),
-            })
+            .map(|attr| attr.id.clone())
             .collect::<Vec<_>>();
 
         let mac_verifier_key_share =

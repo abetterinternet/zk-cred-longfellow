@@ -349,7 +349,7 @@ fn generate_3d_sparse_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
             .collect();
 
             let sparse = SparseSumcheckArray::from(dense);
-            if sparse.contents().len() == 0 {
+            if sparse.contents().is_empty() {
                 println!("rejected empty");
                 // Keep trying until we get a non-empty array.
                 continue;

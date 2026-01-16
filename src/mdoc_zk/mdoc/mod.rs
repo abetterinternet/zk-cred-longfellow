@@ -1,6 +1,7 @@
 //! Parsing of mdoc CBOR structures.
 
 use crate::{
+    Sha256Digest,
     fields::fieldp256::FieldP256,
     mdoc_zk::{
         ec::{AffinePoint, Signature},
@@ -270,7 +271,7 @@ struct ValidityInfo {
 pub(super) fn compute_session_transcript_hash(
     mdoc: &Mdoc,
     transcript: &[u8],
-) -> Result<[u8; 32], anyhow::Error> {
+) -> Result<Sha256Digest, anyhow::Error> {
     let session_transcript = ciborium::from_reader::<Value, _>(transcript)
         .context("could not parse SessionTranscript")?;
 
@@ -358,7 +359,7 @@ impl Deref for ByteString {
 }
 
 /// Compute the hash of the credential, for the issuer signature.
-pub(super) fn compute_credential_hash(mdoc: &Mdoc) -> Result<[u8; 32], anyhow::Error> {
+pub(super) fn compute_credential_hash(mdoc: &Mdoc) -> Result<Sha256Digest, anyhow::Error> {
     let mut body_protected = ByteString(Vec::new());
     ciborium::into_writer(&ProtectedHeadersEs256, &mut body_protected.0)
         .context("could not encode protected headers")?;
@@ -376,15 +377,15 @@ pub(super) fn compute_credential_hash(mdoc: &Mdoc) -> Result<[u8; 32], anyhow::E
 }
 
 /// Convert a SHA-256 hash from an ECDSA signature into a base field element for use as a circuit input.
-pub(super) fn hash_to_field_element(mut digest: [u8; 32]) -> Result<FieldP256, anyhow::Error> {
+pub(super) fn hash_to_field_element(mut digest: Sha256Digest) -> Result<FieldP256, anyhow::Error> {
     // SEC 1 uses big-endian encoding, but fiat-crypto uses little-endian encoding.
-    digest.reverse();
+    digest.0.reverse();
 
     // TODO: should we reduce this in the scalar field before embedding it in the base field?
     // This may avoid spurious failures with probability 2^-32.
     //
     // Related issue: https://github.com/google/longfellow-zk/issues/120
-    FieldP256::try_from(&digest)
+    FieldP256::try_from(&digest.0)
 }
 
 #[cfg(test)]

@@ -2,15 +2,18 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.1
 
-use crate::{Codec, ligero::LigeroCommitment};
+use crate::{
+    Codec, Sha256Digest,
+    ligero::{LigeroCommitment, Nonce},
+};
 use anyhow::{Context, anyhow};
 use sha2::{Digest, Sha256};
 use std::fmt::Debug;
 
 /// The value of a node of a [`MerkleTree`]. A tree could use various hashing algorithms, but we
 /// only support SHA-256, and so a `Digest` is always a 32 byte array, saving us a heap allocation.
-#[derive(Clone, Copy, Default, Eq, PartialEq)]
-pub struct Node([u8; 32]);
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Node(Sha256Digest);
 
 impl Node {
     /// Attempt to decode a `Node` from the provided hex-encoded string.
@@ -21,23 +24,29 @@ impl Node {
             .try_into()
             .map_err(|_| anyhow!("decoded hex string wrong length for array"))?;
 
-        Ok(Self(array))
+        Ok(Self(Sha256Digest(array)))
     }
 }
 
-impl From<[u8; 32]> for Node {
-    fn from(value: [u8; 32]) -> Self {
+impl Default for Node {
+    fn default() -> Self {
+        Self(Sha256Digest(Default::default()))
+    }
+}
+
+impl From<Sha256Digest> for Node {
+    fn from(value: Sha256Digest) -> Self {
         Self(value)
     }
 }
 
 impl From<Sha256> for Node {
     fn from(hash: Sha256) -> Self {
-        Self::from(<[u8; 32]>::from(hash.finalize()))
+        Self(Sha256Digest::from(hash.finalize()))
     }
 }
 
-impl From<Node> for [u8; 32] {
+impl From<Node> for Sha256Digest {
     fn from(value: Node) -> Self {
         value.0
     }
@@ -45,13 +54,13 @@ impl From<Node> for [u8; 32] {
 
 impl From<LigeroCommitment> for Node {
     fn from(value: LigeroCommitment) -> Self {
-        Self(value.into_bytes())
+        Self(Sha256Digest(value.into_bytes()))
     }
 }
 
 impl Codec for Node {
     fn decode(bytes: &mut std::io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
-        <[u8; 32]>::decode(bytes).map(Self)
+        Sha256Digest::decode(bytes).map(Self)
     }
 
     fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
@@ -61,7 +70,7 @@ impl Codec for Node {
 
 impl Debug for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Node").field(&hex::encode(self.0)).finish()
+        f.debug_tuple("Node").field(&hex::encode(self.0.0)).finish()
     }
 }
 
@@ -104,7 +113,7 @@ pub struct MerkleTree {
     /// The nodes of the tree. The root is at index 1. Index 0 is unused.
     digests: Vec<Node>,
     /// The nonces hashed into the leaf nodes of the tree.
-    nonces: Vec<[u8; 32]>,
+    nonces: Vec<Nonce>,
 }
 
 impl MerkleTree {
@@ -112,7 +121,7 @@ impl MerkleTree {
     pub fn new(leaf_count: usize) -> Self {
         Self {
             digests: vec![Node::default(); 2 * leaf_count],
-            nonces: vec![<[u8; 32]>::default(); leaf_count],
+            nonces: vec![Nonce::default(); leaf_count],
         }
     }
 
@@ -137,7 +146,7 @@ impl MerkleTree {
     }
 
     /// Insert the leaf into the tree.
-    pub fn set_leaf(&mut self, position: usize, leaf: Node, nonce: [u8; 32]) {
+    pub fn set_leaf(&mut self, position: usize, leaf: Node, nonce: Nonce) {
         let first_leaf_index = self.leaf_count();
         self.digests[first_leaf_index + position] = leaf;
         self.nonces[position] = nonce;
@@ -146,10 +155,10 @@ impl MerkleTree {
     /// Hash `left` and `right` together into a new `Node`.
     fn hash_children(left: Node, right: Node) -> Node {
         let mut sha256 = Sha256::new();
-        sha256.update(left.0);
-        sha256.update(right.0);
-        let array: [u8; 32] = sha256.finalize().into();
-        array.into()
+        sha256.update(left.0.0);
+        sha256.update(right.0.0);
+        let array = sha256.finalize();
+        Node::from(Sha256Digest::from(array))
     }
 
     /// Build the tree up from the leaves to the root.
@@ -273,7 +282,7 @@ impl MerkleTree {
 
     /// The nonces hashed into the leaf nodes of the tree. The order of nonces matches the order of
     /// the leaves.
-    pub fn nonces(&self) -> &[[u8; 32]] {
+    pub fn nonces(&self) -> &[Nonce] {
         &self.nonces
     }
 }
@@ -285,14 +294,22 @@ mod tests {
 
     fn simple_tree() -> MerkleTree {
         let mut tree = MerkleTree::new(4);
-        tree.set_leaf(0, Node([1; 32]), [1; 32]);
-        tree.set_leaf(1, Node([2; 32]), [2; 32]);
-        tree.set_leaf(2, Node([3; 32]), [3; 32]);
-        tree.set_leaf(3, Node([4; 32]), [4; 32]);
+        tree.set_leaf(0, Node(Sha256Digest([1; 32])), Nonce([1; 32]));
+        tree.set_leaf(1, Node(Sha256Digest([2; 32])), Nonce([2; 32]));
+        tree.set_leaf(2, Node(Sha256Digest([3; 32])), Nonce([3; 32]));
+        tree.set_leaf(3, Node(Sha256Digest([4; 32])), Nonce([4; 32]));
 
         tree.build();
 
-        assert_eq!(tree.nonces, &[[1; 32], [2; 32], [3; 32], [4; 32]]);
+        assert_eq!(
+            tree.nonces,
+            &[
+                Nonce([1; 32]),
+                Nonce([2; 32]),
+                Nonce([3; 32]),
+                Nonce([4; 32])
+            ]
+        );
 
         tree
     }
@@ -305,7 +322,12 @@ mod tests {
         MerkleTree::verify(
             tree.root(),
             4,
-            &[Node([1; 32]), Node([2; 32]), Node([3; 32]), Node([4; 32])],
+            &[
+                Node(Sha256Digest([1; 32])),
+                Node(Sha256Digest([2; 32])),
+                Node(Sha256Digest([3; 32])),
+                Node(Sha256Digest([4; 32])),
+            ],
             &[0, 1, 2, 3],
             &proof,
         )
@@ -314,22 +336,41 @@ mod tests {
         for (invalid_nodes, invalid_indices) in [
             // Missing a leaf
             (
-                vec![Node([1; 32]), Node([2; 32]), Node([4; 32])],
+                vec![
+                    Node(Sha256Digest([1; 32])),
+                    Node(Sha256Digest([2; 32])),
+                    Node(Sha256Digest([4; 32])),
+                ],
                 vec![0, 1, 3],
             ),
             // Wrong node values
             (
-                vec![Node([5; 32]), Node([2; 32]), Node([3; 32]), Node([4; 32])],
+                vec![
+                    Node(Sha256Digest([5; 32])),
+                    Node(Sha256Digest([2; 32])),
+                    Node(Sha256Digest([3; 32])),
+                    Node(Sha256Digest([4; 32])),
+                ],
                 vec![0, 1, 2, 3],
             ),
             // Out of range node indices
             (
-                vec![Node([1; 32]), Node([2; 32]), Node([3; 32]), Node([4; 32])],
+                vec![
+                    Node(Sha256Digest([1; 32])),
+                    Node(Sha256Digest([2; 32])),
+                    Node(Sha256Digest([3; 32])),
+                    Node(Sha256Digest([4; 32])),
+                ],
                 vec![5, 1, 2, 3],
             ),
             // Wrong node indices
             (
-                vec![Node([1; 32]), Node([2; 32]), Node([3; 32]), Node([4; 32])],
+                vec![
+                    Node(Sha256Digest([1; 32])),
+                    Node(Sha256Digest([2; 32])),
+                    Node(Sha256Digest([3; 32])),
+                    Node(Sha256Digest([4; 32])),
+                ],
                 vec![1, 0, 2, 3],
             ),
         ] {
@@ -352,7 +393,7 @@ mod tests {
         MerkleTree::verify(
             tree.root(),
             4,
-            &[Node([1; 32]), Node([2; 32])],
+            &[Node(Sha256Digest([1; 32])), Node(Sha256Digest([2; 32]))],
             &[0, 1],
             &proof,
         )
@@ -360,15 +401,27 @@ mod tests {
 
         for (invalid_nodes, invalid_indices) in [
             // Leaves exist but aren't in proof
-            (vec![Node([2; 32]), Node([4; 32])], vec![1, 3]),
+            (
+                vec![Node(Sha256Digest([2; 32])), Node(Sha256Digest([4; 32]))],
+                vec![1, 3],
+            ),
             // Missing a leaf
-            (vec![Node([1; 32])], vec![0]),
+            (vec![Node(Sha256Digest([1; 32]))], vec![0]),
             // Wrong node values
-            (vec![Node([5; 32]), Node([3; 32])], vec![0, 2]),
+            (
+                vec![Node(Sha256Digest([5; 32])), Node(Sha256Digest([3; 32]))],
+                vec![0, 2],
+            ),
             // Out of range node indices
-            (vec![Node([1; 32]), Node([2; 32])], vec![5, 0]),
+            (
+                vec![Node(Sha256Digest([1; 32])), Node(Sha256Digest([2; 32]))],
+                vec![5, 0],
+            ),
             // Wrong node indices
-            (vec![Node([1; 32]), Node([2; 32])], vec![1, 0]),
+            (
+                vec![Node(Sha256Digest([1; 32])), Node(Sha256Digest([2; 32]))],
+                vec![1, 0],
+            ),
         ] {
             MerkleTree::verify(
                 tree.root(),
@@ -389,7 +442,7 @@ mod tests {
         MerkleTree::verify(
             tree.root(),
             4,
-            &[Node([1; 32]), Node([4; 32])],
+            &[Node(Sha256Digest([1; 32])), Node(Sha256Digest([4; 32]))],
             &[0, 3],
             &proof,
         )
@@ -397,15 +450,27 @@ mod tests {
 
         for (invalid_nodes, invalid_indices) in [
             // Leaves exist but aren't in proof
-            (vec![Node([2; 32]), Node([3; 32])], vec![1, 2]),
+            (
+                vec![Node(Sha256Digest([2; 32])), Node(Sha256Digest([3; 32]))],
+                vec![1, 2],
+            ),
             // Missing a leaf
-            (vec![Node([1; 32])], vec![0]),
+            (vec![Node(Sha256Digest([1; 32]))], vec![0]),
             // Wrong node values
-            (vec![Node([5; 32]), Node([4; 32])], vec![0, 3]),
+            (
+                vec![Node(Sha256Digest([5; 32])), Node(Sha256Digest([4; 32]))],
+                vec![0, 3],
+            ),
             // Out of range node indices
-            (vec![Node([1; 32]), Node([4; 32])], vec![5, 3]),
+            (
+                vec![Node(Sha256Digest([1; 32])), Node(Sha256Digest([4; 32]))],
+                vec![5, 3],
+            ),
             // Wrong node indices
-            (vec![Node([1; 32]), Node([4; 32])], vec![1, 3]),
+            (
+                vec![Node(Sha256Digest([1; 32])), Node(Sha256Digest([4; 32]))],
+                vec![1, 3],
+            ),
         ] {
             MerkleTree::verify(
                 tree.root(),
@@ -421,10 +486,10 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_inclusion_proof() {
         InclusionProof(vec![
-            Node::from([1; 32]),
-            Node::from([2; 32]),
-            Node::from([3; 32]),
-            Node::from([4; 32]),
+            Node::from(Sha256Digest([1; 32])),
+            Node::from(Sha256Digest([2; 32])),
+            Node::from(Sha256Digest([3; 32])),
+            Node::from(Sha256Digest([4; 32])),
         ])
         .roundtrip();
     }
@@ -447,7 +512,7 @@ mod tests {
 
         for (index, leaf) in leaves.iter().enumerate() {
             // It doesn't matter what nonce we use
-            tree.set_leaf(index, *leaf, [0; 32]);
+            tree.set_leaf(index, *leaf, Nonce([0; 32]));
         }
 
         tree.build();

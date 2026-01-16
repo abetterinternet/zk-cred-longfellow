@@ -39,7 +39,7 @@ where
     FE: CodecFieldElement,
 {
     // 3.1.3 item 2: write circuit ID
-    transcript.write_byte_array(&circuit.id)?;
+    transcript.write_byte_array(&circuit.id.0)?;
     // 3.1.3 item 2: write inputs. Per the specification, this should be an array of field
     // elements, but longfellow-zk writes each input as an individual field element. Also,
     // longfellow-zk only appends the *public* inputs, but the specification isn't clear about

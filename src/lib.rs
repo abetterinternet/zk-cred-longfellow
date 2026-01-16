@@ -1,6 +1,10 @@
 use anyhow::{Context, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::{fmt::Display, io::Cursor};
+use crypto_common::{generic_array::GenericArray, typenum::U32};
+use std::{
+    fmt::{self, Display},
+    io::{self, Cursor},
+};
 
 pub mod circuit;
 pub mod constraints;
@@ -79,7 +83,7 @@ impl PartialOrd<usize> for Size {
 }
 
 impl Display for Size {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
@@ -130,7 +134,7 @@ impl Size {
 /// Adapted from [prio::codec](https://docs.rs/prio/0.17.0/prio/codec/index.html).
 ///
 /// [1]: https://www.ietf.org/archive/id/draft-google-cfrg-libzk-00.html#section-7
-pub trait Codec: Sized + PartialEq + Eq + std::fmt::Debug {
+pub trait Codec: Sized + PartialEq + Eq + fmt::Debug {
     /// Decode an opaque byte buffer into an instance of this type.
     ///
     /// XXX: we could take something more sophisticated than a byte slice here, like a Cursor, or a
@@ -242,17 +246,42 @@ impl Codec for u32 {
     }
 }
 
-impl Codec for [u8; 32] {
-    fn decode(bytes: &mut std::io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+/// A SHA-256 digest.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Sha256Digest(pub [u8; 32]);
+
+impl fmt::Debug for Sha256Digest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0.iter() {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+impl Codec for Sha256Digest {
+    fn decode(bytes: &mut io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
         let bytes: [u8; 32] = u8::decode_fixed_array(bytes, 32)?
             .try_into()
             .map_err(|_| anyhow!("failed to convert byte vec to array"))?;
 
-        Ok(bytes)
+        Ok(Self(bytes))
     }
 
     fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
-        u8::encode_fixed_array(self.as_slice(), bytes)
+        u8::encode_fixed_array(self.0.as_slice(), bytes)
+    }
+}
+
+impl From<[u8; 32]> for Sha256Digest {
+    fn from(value: [u8; 32]) -> Self {
+        Self(value)
+    }
+}
+
+impl From<GenericArray<u8, U32>> for Sha256Digest {
+    fn from(value: GenericArray<u8, U32>) -> Self {
+        Self(value.into())
     }
 }
 

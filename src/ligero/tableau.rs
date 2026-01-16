@@ -6,7 +6,7 @@ use crate::{
     constraints::proof_constraints::QuadraticConstraint,
     fields::{ProofFieldElement, field_element_iter_from_source},
     ligero::{
-        LigeroParameters,
+        LigeroParameters, Nonce,
         merkle::{MerkleTree, Node},
     },
     witness::Witness,
@@ -327,7 +327,7 @@ impl<'a, FE: ProofFieldElement> Tableau<'a, FE> {
     /// Commit to the contents of the tableau, returning a Merkle tree whose leaves are hashes of
     /// the columns. A nonce is hashed into each leaf.
     pub fn commit(&self) -> Result<MerkleTree, anyhow::Error> {
-        self.commit_with_merkle_tree_nonce_generator(random::<[u8; 32]>)
+        self.commit_with_merkle_tree_nonce_generator(|| Nonce(random::<[u8; 32]>()))
     }
 
     /// Commit to the contents of the tableau, using nonces from the provided generator.
@@ -336,7 +336,7 @@ impl<'a, FE: ProofFieldElement> Tableau<'a, FE> {
         mut merkle_tree_nonce_generator: MerkleTreeNonceGenerator,
     ) -> Result<MerkleTree, anyhow::Error>
     where
-        MerkleTreeNonceGenerator: FnMut() -> [u8; 32],
+        MerkleTreeNonceGenerator: FnMut() -> Nonce,
     {
         // Construct a Merkle tree from the tableau columns
         let mut field_element_buf = Vec::with_capacity(FE::num_bytes());
@@ -396,8 +396,8 @@ mod tests {
 
         // Fix the nonce to match what longfellow-zk will do: all zeroes, but set the first byte to
         // what the fixed RNG yields.
-        let mut merkle_tree_nonce = [0; 32];
-        merkle_tree_nonce[0] = test_vector.pad as u8;
+        let mut merkle_tree_nonce = Nonce([0; 32]);
+        merkle_tree_nonce.0[0] = test_vector.pad as u8;
 
         let tree = Tableau::build_with_field_element_generator(
             test_vector.ligero_parameters(),

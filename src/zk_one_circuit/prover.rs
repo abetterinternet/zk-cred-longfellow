@@ -7,7 +7,6 @@ use crate::{
     fields::{CodecFieldElement, ProofFieldElement},
     ligero::{
         LigeroCommitment, LigeroParameters,
-        merkle::Node,
         prover::{LigeroProof, ligero_prove},
         tableau::{Tableau, TableauLayout},
     },
@@ -160,8 +159,8 @@ where
             verifier.witness_length,
             verifier.quadratic_constraints.len(),
         );
-        let oracle = <[u8; 32] as Codec>::decode(bytes)?.to_vec();
-        let ligero_commitment = LigeroCommitment::from(Node::decode(bytes)?);
+        let oracle = u8::decode_fixed_array(bytes, 32)?.to_vec();
+        let ligero_commitment = LigeroCommitment::decode(bytes)?;
         let sumcheck_proof = SumcheckProof::<F>::decode(verifier.circuit, bytes)?;
         let ligero_proof = LigeroProof::<F>::decode(&layout, bytes)?;
         Ok(Self {
@@ -183,8 +182,8 @@ where
             .as_slice()
             .try_into()
             .map_err(|_| anyhow!("oracle is not 32 bytes long"))?;
-        oracle.encode(bytes)?;
-        Node::from(self.ligero_commitment.into_bytes()).encode(bytes)?;
+        u8::encode_fixed_array(oracle, bytes)?;
+        self.ligero_commitment.encode(bytes)?;
         self.sumcheck_proof.encode(bytes)?;
         self.ligero_proof.encode(bytes)?;
         Ok(())

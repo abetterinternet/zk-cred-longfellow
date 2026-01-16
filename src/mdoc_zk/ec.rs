@@ -622,7 +622,7 @@ fn multi_scalar_multiplication<'a>(
         } else {
             // This should be the last iteration of the loop. Check that the accumulator is back at
             // the point at infinity.
-            if AffinePoint::from(accumulator).coordinates().is_some() {
+            if accumulator.z != FieldP256::ZERO {
                 return Err(anyhow!("invalid signature"));
             }
         }

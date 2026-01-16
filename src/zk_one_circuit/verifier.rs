@@ -32,6 +32,15 @@ impl<'a, FE: ProofFieldElement> Verifier<'a, FE> {
         }
     }
 
+    /// Construct the Ligero tableau layout.
+    pub fn tableau_layout(&self) -> TableauLayout<'_> {
+        TableauLayout::new(
+            &self.ligero_parameters,
+            self.witness_length,
+            self.quadratic_constraints.len(),
+        )
+    }
+
     /// Verify a Longfellow ZK proof.
     pub fn verify(&self, statement: &[FE], proof: &Proof<FE>) -> Result<(), anyhow::Error>
     where
@@ -41,13 +50,6 @@ impl<'a, FE: ProofFieldElement> Verifier<'a, FE> {
         let mut inputs = Vec::with_capacity(statement.len() + 1);
         inputs.push(FE::ONE);
         inputs.extend(statement);
-
-        // Construct tableau layout struct.
-        let tableau_layout = TableauLayout::new(
-            &self.ligero_parameters,
-            self.witness_length,
-            self.quadratic_constraints.len(),
-        );
 
         // Start of Fiat-Shamir transcript.
         let mut transcript = Transcript::new(proof.oracle()).unwrap();
@@ -70,7 +72,7 @@ impl<'a, FE: ProofFieldElement> Verifier<'a, FE> {
             &mut transcript,
             &linear_constraints,
             &self.quadratic_constraints,
-            &tableau_layout,
+            &self.tableau_layout(),
         )?;
 
         Ok(())

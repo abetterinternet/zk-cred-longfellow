@@ -1,5 +1,5 @@
 use crate::{
-    Codec,
+    Codec, ParameterizedCodec,
     circuit::Circuit,
     constraints::proof_constraints::{
         LinearConstraints, QuadraticConstraint, quadratic_constraints,
@@ -8,7 +8,7 @@ use crate::{
     ligero::{
         LigeroCommitment, LigeroParameters,
         prover::{LigeroProof, ligero_prove},
-        tableau::{Tableau, TableauLayout},
+        tableau::Tableau,
     },
     sumcheck::{
         initialize_transcript,
@@ -19,6 +19,7 @@ use crate::{
     zk_one_circuit::verifier::Verifier,
 };
 use anyhow::anyhow;
+use std::io::Cursor;
 
 /// Longfellow ZK prover.
 pub struct Prover<'a, FE> {
@@ -141,28 +142,23 @@ impl<FE> Proof<FE> {
     }
 }
 
-impl<F> Proof<F>
-where
-    F: CodecFieldElement,
+impl<'a, F: CodecFieldElement + ProofFieldElement> ParameterizedCodec<Verifier<'a, F>>
+    for Proof<F>
 {
     /// Deserialize a Longfellow ZK proof.
     ///
     /// See section [7.5][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.5
-    pub fn decode(
+    fn decode_with_param(
         verifier: &Verifier<F>,
-        bytes: &mut std::io::Cursor<&[u8]>,
+        bytes: &mut Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
-        let layout = TableauLayout::new(
-            &verifier.ligero_parameters,
-            verifier.witness_length,
-            verifier.quadratic_constraints.len(),
-        );
         let oracle = u8::decode_fixed_array(bytes, 32)?.to_vec();
         let ligero_commitment = LigeroCommitment::decode(bytes)?;
-        let sumcheck_proof = SumcheckProof::<F>::decode(verifier.circuit, bytes)?;
-        let ligero_proof = LigeroProof::<F>::decode(&layout, bytes)?;
+        let sumcheck_proof = SumcheckProof::<F>::decode_with_param(verifier.circuit, bytes)?;
+        let ligero_proof = LigeroProof::<F>::decode_with_param(&verifier.tableau_layout(), bytes)?;
+
         Ok(Self {
             oracle,
             sumcheck_proof,
@@ -176,7 +172,11 @@ where
     /// See section [7.5][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.5
-    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode_with_param(
+        &self,
+        verifier: &Verifier<F>,
+        bytes: &mut Vec<u8>,
+    ) -> Result<(), anyhow::Error> {
         let oracle: &[u8; 32] = self
             .oracle
             .as_slice()
@@ -184,23 +184,21 @@ where
             .map_err(|_| anyhow!("oracle is not 32 bytes long"))?;
         u8::encode_fixed_array(oracle, bytes)?;
         self.ligero_commitment.encode(bytes)?;
-        self.sumcheck_proof.encode(bytes)?;
-        self.ligero_proof.encode(bytes)?;
+        self.sumcheck_proof
+            .encode_with_param(verifier.circuit, bytes)?;
+        self.ligero_proof
+            .encode_with_param(&verifier.tableau_layout(), bytes)?;
+
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use crate::{
-        fields::fieldp128::FieldP128,
+        ParameterizedCodec,
         test_vector::load_rfc,
-        zk_one_circuit::{
-            prover::{Proof, Prover},
-            verifier::Verifier,
-        },
+        zk_one_circuit::{prover::Prover, verifier::Verifier},
     };
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -215,11 +213,6 @@ mod tests {
             .unwrap();
         assert_eq!(session_id, proof.oracle());
 
-        let mut encoded = Vec::new();
-        proof.encode(&mut encoded).unwrap();
-
-        let verifier = Verifier::new(&circuit, *test_vector.ligero_parameters());
-        let decoded = Proof::<FieldP128>::decode(&verifier, &mut Cursor::new(&encoded)).unwrap();
-        assert_eq!(proof, decoded);
+        proof.roundtrip(&Verifier::new(&circuit, *test_vector.ligero_parameters()));
     }
 }

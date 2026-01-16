@@ -56,6 +56,7 @@ impl Transcript {
     ///
     /// The specification is not clear about what `session_id` is, but in the C++ implementation,
     /// it's an opaque byte buffer ([1]).
+    /// Initialize a transcript with the session ID, which is the SHA-256 digest of the circuit.
     ///
     /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.1.1>
     ///

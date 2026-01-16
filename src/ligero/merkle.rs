@@ -290,6 +290,7 @@ impl MerkleTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ParameterizedCodec;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     fn simple_tree() -> MerkleTree {
@@ -491,7 +492,7 @@ mod tests {
             Node::from(Sha256Digest([3; 32])),
             Node::from(Sha256Digest([4; 32])),
         ])
-        .roundtrip();
+        .roundtrip(&());
     }
 
     #[wasm_bindgen_test(unsupported = test)]

@@ -1,6 +1,7 @@
 //! Sumcheck prover.
 
 use crate::{
+    ParameterizedCodec,
     circuit::{Circuit, CircuitLayer, Evaluation},
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
@@ -214,17 +215,15 @@ pub struct SumcheckProof<FieldElement> {
     pub layers: Vec<ProofLayer<FieldElement>>,
 }
 
-impl<FE: CodecFieldElement> SumcheckProof<FE> {
-    /// Decode a proof from the bytes. This can't be an implementation of [`Codec`][crate::Codec]
-    /// because we need the circuit this is a proof of to know how many layers there are.
-    pub fn decode(
+impl<FE: CodecFieldElement> ParameterizedCodec<Circuit<FE>> for SumcheckProof<FE> {
+    fn decode_with_param(
         circuit: &Circuit<FE>,
         bytes: &mut std::io::Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
         let mut proof_layers = Vec::with_capacity(circuit.num_layers());
 
         for circuit_layer in &circuit.layers {
-            proof_layers.push(ProofLayer::decode(circuit_layer, bytes)?);
+            proof_layers.push(ProofLayer::decode_with_param(circuit_layer, bytes)?);
         }
 
         Ok(Self {
@@ -232,10 +231,14 @@ impl<FE: CodecFieldElement> SumcheckProof<FE> {
         })
     }
 
-    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode_with_param(
+        &self,
+        circuit: &Circuit<FE>,
+        bytes: &mut Vec<u8>,
+    ) -> Result<(), anyhow::Error> {
         // Encode the layers as a fixed length array. That is, no length prefix.
-        for layer in &self.layers {
-            layer.encode(bytes)?;
+        for (proof_layer, circuit_layer) in self.layers.iter().zip(&circuit.layers) {
+            proof_layer.encode_with_param(circuit_layer, bytes)?;
         }
 
         Ok(())
@@ -259,11 +262,8 @@ pub struct ProofLayer<FieldElement> {
 /// Proof layer serialization corresponds to PaddedTranscriptLayer in [7.3][1].
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.3
-impl<FE: CodecFieldElement> ProofLayer<FE> {
-    /// Decode a proof layer from the bytes. We can't implement `Codec` here because we need some
-    /// context (the corresponding circuit layer) to determine how many elements the layer should
-    /// contain.
-    pub fn decode(
+impl<FE: CodecFieldElement> ParameterizedCodec<CircuitLayer> for ProofLayer<FE> {
+    fn decode_with_param(
         circuit_layer: &CircuitLayer,
         bytes: &mut std::io::Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
@@ -305,8 +305,11 @@ impl<FE: CodecFieldElement> ProofLayer<FE> {
         })
     }
 
-    /// Encode the proof layer into the provided bytes.
-    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode_with_param(
+        &self,
+        _: &CircuitLayer,
+        bytes: &mut Vec<u8>,
+    ) -> Result<(), anyhow::Error> {
         // Fixed length array, whose length depends on the circuit this is a proof of.
         // In longfellow-zk's encoding the array is indexed by hand, then wire/round
         for [
@@ -336,7 +339,6 @@ mod tests {
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         witness::WitnessLayout,
     };
-    use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     fn prove<FE: ProofFieldElement>(test_vector: CircuitTestVector<FE>, circuit: Circuit<FE>) {
@@ -372,8 +374,7 @@ mod tests {
         // assert_eq! form.
         assert!(proof.proof == test_vector_proof);
 
-        let mut proof_encoded = Vec::new();
-        proof.proof.encode(&mut proof_encoded).unwrap();
+        let proof_encoded = proof.proof.get_encoded_with_param(&circuit).unwrap();
 
         assert_eq!(
             proof_encoded.len(),
@@ -443,13 +444,15 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn roundtrip_encoded_proof() {
         let (test_vector, circuit) = load_rfc();
-        let test_vector_decoded = SumcheckProof::<FieldP128>::decode(
+        let test_vector_decoded = SumcheckProof::<FieldP128>::get_decoded_with_param(
             &circuit,
-            &mut Cursor::new(&test_vector.serialized_sumcheck_proof),
+            &test_vector.serialized_sumcheck_proof,
         )
         .unwrap();
 
-        let mut test_vector_again = Vec::new();
-        test_vector_decoded.encode(&mut test_vector_again).unwrap();
+        let test_vector_again = test_vector_decoded
+            .get_encoded_with_param(&circuit)
+            .unwrap();
+        assert_eq!(test_vector.serialized_sumcheck_proof, test_vector_again);
     }
 }

@@ -4,7 +4,9 @@ use crate::{
     mdoc_zk::{
         bit_plucker::BitPlucker,
         ec::{AffinePoint, fill_ecdsa_witness},
-        layout::{AttributeInput, EcdsaWitness, InputLayout},
+        layout::{
+            AttributeInput, EcdsaWitness, InputLayout, SHA_256_CREDENTIAL_KNOWN_PREFIX_BYTES,
+        },
         mdoc::{
             ParsedAttribute, compute_credential_hash, compute_session_transcript_hash,
             find_attributes, hash_to_field_element, parse_device_response,
@@ -77,7 +79,13 @@ impl CircuitInputs {
             )?;
 
         // Set the hash of the credential.
-        let credential_hash = compute_credential_hash(&mdoc)?;
+        let hash_bit_plucker = BitPlucker::<4, Field2_128>::new();
+        let credential_hash_result = compute_credential_hash(
+            &mdoc,
+            &mut split_hash_input.sha_256_witness_credential,
+            &hash_bit_plucker,
+        )?;
+        let credential_hash = credential_hash_result.digest;
         *split_signature_input.e_credential = hash_to_field_element(credential_hash).context(
             "could not convert credential hash to a field element \
             (see https://github.com/google/longfellow-zk/issues/120)",
@@ -173,8 +181,22 @@ impl CircuitInputs {
             split_hash_input.device_public_key_y,
         );
 
+        // Set the number of SHA-256 blocks for the credential.
+        byte_array_as_bits(
+            &[credential_hash_result
+                .num_blocks
+                .try_into()
+                .map_err(|_| anyhow!("credential is too long"))?],
+            split_hash_input.sha_256_block_count,
+        );
+
+        // Set the padded SHA-256 input for the credential, skipping the known prefix.
+        byte_array_as_bits(
+            &credential_hash_result.padded_input[SHA_256_CREDENTIAL_KNOWN_PREFIX_BYTES..],
+            split_hash_input.sha_256_input,
+        );
+
         // Smoke test: iterate through SHA-256 block witnesses.
-        for _ in split_hash_input.sha_256_witness_credential.iter_blocks() {}
         for _ in split_hash_input.attribute_witnesses.inputs[0]
             .as_mut()
             .unwrap()
@@ -387,9 +409,9 @@ pub(super) mod tests {
         // We need to split comparison of the hash inputs up by top-level field, otherwise it will
         // hit an allocation error when trying to write the diff.
         let mut hash_actual = inputs.hash_input().to_vec();
-        let hash_actual_split = layout.split_hash_input(&mut hash_actual);
+        let mut hash_actual_split = layout.split_hash_input(&mut hash_actual);
         let mut hash_expected = expected_hash_input.clone();
-        let hash_expected_split = layout.split_hash_input(&mut hash_expected);
+        let mut hash_expected_split = layout.split_hash_input(&mut hash_expected);
         pretty_assertions::assert_eq!(
             hash_actual_split.implicit_one,
             hash_expected_split.implicit_one,
@@ -436,11 +458,18 @@ pub(super) mod tests {
             hash_expected_split.sha_256_input,
             "sha-256 input"
         );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.sha_256_witness_credential,
-            hash_expected_split.sha_256_witness_credential,
-            "sha-256 witness, credential"
-        );
+        for (i, (actual_block_witness, expected_block_witness)) in hash_actual_split
+            .sha_256_witness_credential
+            .iter_blocks()
+            .zip(hash_expected_split.sha_256_witness_credential.iter_blocks())
+            .enumerate()
+        {
+            pretty_assertions::assert_eq!(
+                actual_block_witness,
+                expected_block_witness,
+                "sha-256 witness, credential, block {i}"
+            );
+        }
         pretty_assertions::assert_eq!(
             hash_actual_split.valid_from_offset,
             hash_expected_split.valid_from_offset,

@@ -109,7 +109,7 @@ impl InputLayout {
             + 2 * 256 // device public key
             + 8 // number of SHA-256 blocks
             + SHA_256_INPUT_WIRES // padded SHA-256 input for credential
-            + SHA_256_CREDENTIAL_MAX_BLOCKS * Sha256BlockWitness::LENGTH // SHA-256 witness for credential
+            + SHA_256_CREDENTIAL_WITNESS_WIRES // SHA-256 witness for credential
             + 12 // validFrom CBOR offset
             + 12 // validUntil CBOR offset
             + 12 // deviceKeyInfo CBOR offset
@@ -155,7 +155,7 @@ impl InputLayout {
         let (sha_256_block_count, input) = input.split_at_mut(8);
         let (sha_256_input, input) = input.split_at_mut(SHA_256_INPUT_WIRES);
         let (sha_256_witness_credential, input) =
-            input.split_at_mut(SHA_256_CREDENTIAL_MAX_BLOCKS * Sha256BlockWitness::LENGTH);
+            input.split_at_mut(SHA_256_CREDENTIAL_WITNESS_WIRES);
         let (valid_from_offset, input) = input.split_at_mut(CBOR_OFFSET_BITS);
         let (valid_until_offset, input) = input.split_at_mut(CBOR_OFFSET_BITS);
         let (device_key_info_offset, input) = input.split_at_mut(CBOR_OFFSET_BITS);
@@ -321,8 +321,7 @@ pub(super) struct SplitHashInput<'a> {
     pub(super) device_public_key_y: &'a mut [Field2_128; 256],
     pub(super) sha_256_block_count: &'a mut [Field2_128; 8],
     pub(super) sha_256_input: &'a mut [Field2_128; SHA_256_INPUT_WIRES],
-    pub(super) sha_256_witness_credential:
-        Sha256Witness<'a, { SHA_256_CREDENTIAL_MAX_BLOCKS * Sha256BlockWitness::LENGTH }>,
+    pub(super) sha_256_witness_credential: Sha256Witness<'a, SHA_256_CREDENTIAL_WITNESS_WIRES>,
     pub(super) valid_from_offset: &'a mut [Field2_128; CBOR_OFFSET_BITS],
     pub(super) valid_until_offset: &'a mut [Field2_128; CBOR_OFFSET_BITS],
     pub(super) device_key_info_offset: &'a mut [Field2_128; CBOR_OFFSET_BITS],
@@ -383,7 +382,7 @@ pub(super) struct Sha256BlockWitness<'a> {
 
 impl<'a> Sha256BlockWitness<'a> {
     /// Number of hash circuit input wires needed for SHA-256 verification witnesses per block.
-    const LENGTH: usize = {
+    pub(super) const LENGTH: usize = {
         48 * 32 / 4 // remainder of message schedule
         + 64 * 2 * 32 / 4 // state values e and a
         + 8 * 32 / 4 // intermediate hash value
@@ -419,12 +418,20 @@ impl<'a> AttributeWitness<'a> {
 
 /// Maximum allowed number of SHA-256 blocks during verification of the issuer's signature over the
 /// credential.
-const SHA_256_CREDENTIAL_MAX_BLOCKS: usize = 35;
+pub(super) const SHA_256_CREDENTIAL_MAX_BLOCKS: usize = 35;
+/// Number of wires for all block witnesses related to the credential SHA-256 calculation.
+pub(super) const SHA_256_CREDENTIAL_WITNESS_WIRES: usize =
+    SHA_256_CREDENTIAL_MAX_BLOCKS * Sha256BlockWitness::LENGTH;
+/// Length of the constant prefix excluded from the SHA-256 padded input witness.
+///
+/// This includes the first few fields of the encoded `Sig_structure` CBOR structure.
+pub(super) const SHA_256_CREDENTIAL_KNOWN_PREFIX_BYTES: usize = 18;
 /// Number of wires needed for the credential SHA-256 input.
 ///
 /// Note that 18 bytes are subtracted from the actual length of the padded SHA-256 input, because
 /// they are a constant prefix, and do not need to be provided.
-const SHA_256_INPUT_WIRES: usize = (SHA_256_CREDENTIAL_MAX_BLOCKS * 64 - 18) * 8;
+const SHA_256_INPUT_WIRES: usize =
+    (SHA_256_CREDENTIAL_MAX_BLOCKS * 64 - SHA_256_CREDENTIAL_KNOWN_PREFIX_BYTES) * 8;
 /// Number of bits and wires for each CBOR offset.
 const CBOR_OFFSET_BITS: usize = 12;
 

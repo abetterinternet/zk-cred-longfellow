@@ -4,10 +4,10 @@ use crate::{
     mdoc_zk::{
         bit_plucker::BitPlucker,
         ec::{AffinePoint, fill_ecdsa_witness},
-        layout::{EcdsaWitness, InputLayout},
+        layout::{AttributeInput, EcdsaWitness, InputLayout},
         mdoc::{
-            compute_credential_hash, compute_session_transcript_hash, hash_to_field_element,
-            parse_device_response,
+            ParsedAttribute, compute_credential_hash, compute_session_transcript_hash,
+            find_attributes, hash_to_field_element, parse_device_response,
         },
     },
 };
@@ -40,7 +40,7 @@ impl CircuitInputs {
         mdoc_device_response: &[u8],
         transcript: &[u8],
         attribute_ids: &[String],
-        _time: &str,
+        time: &str,
         mac_prover_key_shares: &[Field2_128; 6],
     ) -> Result<Self, anyhow::Error> {
         let layout = InputLayout::new(
@@ -52,6 +52,7 @@ impl CircuitInputs {
         )?;
 
         let mdoc = parse_device_response(mdoc_device_response)?;
+        let attributes = find_attributes(&mdoc.attribute_preimages, attribute_ids)?;
 
         let mut signature_input = vec![FieldP256::ZERO; layout.signature_input_length()];
         let mut split_signature_input = layout.split_signature_input(&mut signature_input);
@@ -139,6 +140,39 @@ impl CircuitInputs {
             sig_mac_bit_plucker.encode_byte_array(message, &mut out[128..]);
         }
 
+        // Set public contents of attributes.
+        for (out_slice, attribute) in split_hash_input
+            .attribute_inputs
+            .inputs
+            .iter_mut()
+            .zip(attributes.iter())
+        {
+            // Unwrap safety: when splitting the circuit inputs, we ensure there are as many `Some`
+            // values as there are requested attributes.
+            let out_slice = out_slice.as_mut().unwrap();
+            fill_attribute_statment(out_slice, attribute)?;
+        }
+
+        // Set current time.
+        if time.len() != 20 {
+            return Err(anyhow!(
+                "current time is not correctly formatted, must be 20 bytes long"
+            ));
+        }
+        byte_array_as_bits(time.as_bytes(), split_hash_input.time);
+
+        // Encode MAC messages. Note that this encodes the credential hash field element in
+        // little-endian order, which effectively byte-reverses the hash digest.
+        byte_array_as_bits(&mac_messages_buffer[..32], split_hash_input.e_credential);
+        byte_array_as_bits(
+            &mac_messages_buffer[32..64],
+            split_hash_input.device_public_key_x,
+        );
+        byte_array_as_bits(
+            &mac_messages_buffer[64..],
+            split_hash_input.device_public_key_y,
+        );
+
         // Smoke test: iterate through SHA-256 block witnesses.
         for _ in split_hash_input.sha_256_witness_credential.iter_blocks() {}
         for _ in split_hash_input.attribute_witnesses.inputs[0]
@@ -190,13 +224,40 @@ impl CircuitInputs {
     }
 }
 
+/// Set public inputs related to one attribute.
+fn fill_attribute_statment(
+    attribute_input: &mut AttributeInput<'_>,
+    attribute_data: &ParsedAttribute,
+) -> Result<(), anyhow::Error> {
+    let mut buffer = [0u8; 96];
+    let len = attribute_data.public_cbor_data.len();
+    if len > 96 {
+        return Err(anyhow!("public attribute data is too long: {len} > 96"));
+    }
+    buffer[..len].copy_from_slice(&attribute_data.public_cbor_data);
+    byte_array_as_bits(&buffer, attribute_input.cbor_data);
+    byte_array_as_bits(&[len as u8], attribute_input.cbor_length);
+    Ok(())
+}
+
+/// Encode an array of bytes as field elements, with one field element representing each bit.
+fn byte_array_as_bits(bytes: &[u8], out: &mut [Field2_128]) {
+    for (byte, out_chunk) in bytes.iter().zip(out.chunks_exact_mut(8)) {
+        let mut bits = *byte;
+        for out_elem in out_chunk.iter_mut() {
+            *out_elem = Field2_128::inject_bits::<1>((bits & 1) as u16);
+            bits >>= 1;
+        }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use crate::{
         Codec,
         circuit::Circuit,
         fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
-        mdoc_zk::{CircuitInputs, CircuitVersion},
+        mdoc_zk::{CircuitInputs, CircuitVersion, byte_array_as_bits},
     };
     use serde::Deserialize;
     use std::io::Cursor;
@@ -413,5 +474,35 @@ pub(super) mod tests {
 
         assert_eq!(inputs.signature_input(), expected_signature_input);
         assert_eq!(inputs.hash_input(), expected_hash_input);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_byte_array() {
+        let bytes = b"A\n";
+        let mut field_elements = [-Field2_128::ONE; 16];
+        byte_array_as_bits(bytes, &mut field_elements);
+        assert_eq!(
+            field_elements,
+            [
+                // 0x41
+                Field2_128::ONE,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ONE,
+                Field2_128::ZERO,
+                // 0x0a
+                Field2_128::ZERO,
+                Field2_128::ONE,
+                Field2_128::ZERO,
+                Field2_128::ONE,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+            ]
+        );
     }
 }

@@ -18,7 +18,7 @@ use std::{
     io::{self, Read},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-use subtle::{ConditionallySelectable, ConstantTimeEq};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
 /// The scalar field for the NIST P-256 elliptic curve.
 // The `fiat_p256_scalar_montgomery_domain_field_element` member must follow the invariant from
@@ -62,6 +62,51 @@ impl FieldP256Scalar {
             ]),
         );
         Self(out)
+    }
+
+    /// Converts this field element to a representative of its residue class, and returns it as four
+    /// `u64` limbs, with the least significant limb first.
+    pub fn to_non_montgomery(&self) -> [u64; 4] {
+        let mut non_montgomery = fiat_p256_scalar_non_montgomery_domain_field_element([0; 4]);
+        fiat_p256_scalar_from_montgomery(&mut non_montgomery, &self.0);
+        non_montgomery.0
+    }
+
+    /// Converts a SHA-256 digest to a scalar element for use in ECDSA.
+    ///
+    /// This performs a conditional subtraction of the modulus before converting to a field element.
+    ///
+    /// The `hash` argument is treated as a big-endian encoding of an integer, per SEC 1 section
+    /// 2.3.8.
+    pub fn from_hash(hash: [u8; 32]) -> Self {
+        const MODULUS_HIGH: u128 = 0xffffffff00000000ffffffffffffffff;
+        const MODULUS_LOW: u128 = 0xbce6faada7179e84f3b9cac2fc632551;
+
+        // Interpret the hash as a big-endian 256-bit number.
+        //
+        // Unwrap safety: these indices are statically in-range.
+        let high = u128::from_be_bytes(hash[..16].try_into().unwrap());
+        let low = u128::from_be_bytes(hash[16..].try_into().unwrap());
+
+        // Perform a conditional subtraction.
+        let (result_low, borrow) = low.overflowing_sub(MODULUS_LOW);
+        let (result_high, overflow) = high.borrowing_sub(MODULUS_HIGH, borrow);
+
+        let overflow = Choice::from(overflow as u8);
+        let [select_high, select_low] = ConditionallySelectable::conditional_select(
+            &[result_high, result_low],
+            &[high, low],
+            overflow,
+        );
+
+        // Encode the 256-bit integer in little-endian form, in order to match fiat-crytpo's
+        // preconditions, then convert it to a field element.
+        let mut buf = [0u8; 32];
+        buf[..16].copy_from_slice(&select_low.to_le_bytes());
+        buf[16..].copy_from_slice(&select_high.to_le_bytes());
+        // Unwrap safety: we just performed a conditional subtraction of the modulus, and we don't
+        // need to do more than one subtraction, since the modulus is so close to 2^256 - 1.
+        Self::try_from(&buf).unwrap()
     }
 }
 
@@ -288,5 +333,32 @@ mod tests {
         p_minus_one_bytes[0] -= 1;
         let p_minus_one = FieldP256Scalar::try_from(&p_minus_one_bytes).unwrap();
         assert_eq!(p_minus_one + FieldP256Scalar::ONE, FieldP256Scalar::ZERO);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn from_hash() {
+        assert_eq!(
+            FieldP256Scalar::from_hash([
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 1
+            ]),
+            FieldP256Scalar::ONE
+        );
+        assert_eq!(
+            FieldP256Scalar::from_hash([
+                0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0,
+            ]),
+            FieldP256Scalar::from_u128(1 << 127).square() * FieldP256Scalar::from_u128(2)
+        );
+        assert_eq!(
+            FieldP256Scalar::from_hash([0xff; 32]),
+            FieldP256Scalar::try_from(&[
+                0xae, 0xda, 0x9c, 0x03, 0x3d, 0x35, 0x46, 0x0c, 0x7b, 0x61, 0xe8, 0x58, 0x52, 0x05,
+                0x19, 0x43, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff,
+                0x00, 0x00, 0x00, 0x00
+            ])
+            .unwrap()
+        );
     }
 }

@@ -131,32 +131,38 @@ impl Size {
 /// Describes how to encode and decode an object from a byte sequence, per the rules in
 /// [draft-google-cfrg-libzk-00 section 7][1].
 ///
-/// Adapted from [prio::codec](https://docs.rs/prio/0.17.0/prio/codec/index.html).
+/// Adapted from [prio::codec][2].
 ///
 /// [1]: https://www.ietf.org/archive/id/draft-google-cfrg-libzk-00.html#section-7
-pub trait Codec: Sized + PartialEq + Eq + fmt::Debug {
-    /// Decode an opaque byte buffer into an instance of this type.
-    ///
-    /// XXX: we could take something more sophisticated than a byte slice here, like a Cursor, or a
-    /// Read impl, or an Iterator<Item = u8>.
-    fn decode(bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error>;
+/// [2]: https://docs.rs/prio/0.17.0/prio/codec/index.html
+pub trait Codec: Sized + PartialEq + Eq + std::fmt::Debug {
+    /// Decode an opaque byte buffer into an instance of this type. On success, the decoded value is
+    /// returned and `bytes` is advanced by the encoded size of the value. On failure, no further
+    /// attempt to read from `bytes` should be made.
+    fn decode(cursor: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error>;
+
+    /// Convenience method to get a decoded value from a byte slice. Returns an error if
+    /// [`Self::decode`] fails, or if any bytes are left over in `bytes` after decoding a value.
+    fn get_decoded(bytes: &[u8]) -> Result<Self, anyhow::Error> {
+        Self::get_decoded_with_param(&(), bytes)
+    }
 
     /// Decode a variable length array of items.
-    fn decode_array(bytes: &mut Cursor<&[u8]>) -> Result<Vec<Self>, anyhow::Error> {
+    fn decode_array(cursor: &mut Cursor<&[u8]>) -> Result<Vec<Self>, anyhow::Error> {
         // Variable length array encoding: length as a Size, then the elements one after the other.
         // Empirically, based on the test vector, it's length in *elements*, not bytes.
-        let elements = Size::decode(bytes)?;
-        Self::decode_fixed_array(bytes, elements.into())
+        let elements = Size::decode(cursor)?;
+        Self::decode_fixed_array(cursor, elements.into())
     }
 
     /// Decode a fixed length array of items.
     fn decode_fixed_array(
-        bytes: &mut Cursor<&[u8]>,
+        cursor: &mut Cursor<&[u8]>,
         count: usize,
     ) -> Result<Vec<Self>, anyhow::Error> {
         let mut items = Vec::with_capacity(count);
         for _ in 0..count {
-            let item = Self::decode(bytes)?;
+            let item = Self::decode(cursor)?;
             items.push(item);
         }
 
@@ -165,9 +171,7 @@ pub trait Codec: Sized + PartialEq + Eq + fmt::Debug {
 
     /// Get the encoded form of this object, allocating a vector to hold it.
     fn get_encoded(&self) -> Result<Vec<u8>, anyhow::Error> {
-        let mut encoded = Vec::new();
-        self.encode(&mut encoded)?;
-        Ok(encoded)
+        self.get_encoded_with_param(&())
     }
 
     /// Append the encoded form of this object to the end of `bytes`, growing the vector as needed.
@@ -194,21 +198,11 @@ pub trait Codec: Sized + PartialEq + Eq + fmt::Debug {
         }
         Ok(())
     }
-
-    #[cfg(test)]
-    fn roundtrip(&self) {
-        let encoded = self.get_encoded().unwrap();
-        println!("encoded: {encoded:0x?}");
-
-        let decoded = Self::decode(&mut Cursor::new(&encoded)).unwrap();
-
-        assert_eq!(*self, decoded)
-    }
 }
 
 impl Codec for u8 {
-    fn decode(bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
-        bytes.read_u8().context("failed to read u8")
+    fn decode(cursor: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        cursor.read_u8().context("failed to read u8")
     }
 
     fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
@@ -219,8 +213,8 @@ impl Codec for u8 {
 }
 
 impl Codec for u16 {
-    fn decode(bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
-        bytes
+    fn decode(cursor: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        cursor
             .read_u16::<LittleEndian>()
             .context("failed to read u16")
     }
@@ -233,8 +227,8 @@ impl Codec for u16 {
 }
 
 impl Codec for u32 {
-    fn decode(bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
-        bytes
+    fn decode(cursor: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        cursor
             .read_u32::<LittleEndian>()
             .context("failed to read u32")
     }
@@ -260,8 +254,8 @@ impl fmt::Debug for Sha256Digest {
 }
 
 impl Codec for Sha256Digest {
-    fn decode(bytes: &mut io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
-        let bytes: [u8; 32] = u8::decode_fixed_array(bytes, 32)?
+    fn decode(cursor: &mut io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        let bytes: [u8; 32] = u8::decode_fixed_array(cursor, 32)?
             .try_into()
             .map_err(|_| anyhow!("failed to convert byte vec to array"))?;
 
@@ -282,6 +276,81 @@ impl From<[u8; 32]> for Sha256Digest {
 impl From<GenericArray<u8, U32>> for Sha256Digest {
     fn from(value: GenericArray<u8, U32>) -> Self {
         Self(value.into())
+    }
+}
+
+/// Describes how to encode and decode an object from a byte sequence, per the rules in
+/// [draft-google-cfrg-libzk-00 section 7][1]. Very similar to [`Codec`], but allows an encoding
+/// parameter to be passed in for types that require some context.
+///
+/// Adapted from [prio::codec][2].
+///
+/// [1]: https://www.ietf.org/archive/id/draft-google-cfrg-libzk-00.html#section-7
+/// [2]: https://docs.rs/prio/0.17.0/prio/codec/index.html
+pub trait ParameterizedCodec<P>: Sized + PartialEq + Eq + std::fmt::Debug {
+    /// Decode an opaque byte buffer into an instance of this type. On success, the decoded value is
+    /// returned and `bytes` is advanced by the encoded size of the value. On failure, no further
+    /// attempt to read from `bytes` should be made.
+    fn decode_with_param(
+        encoding_parameter: &P,
+        cursor: &mut Cursor<&[u8]>,
+    ) -> Result<Self, anyhow::Error>;
+
+    /// Convenience method to get a decoded value from a byte slice. Returns an error if
+    /// [`Self::decode_with_param`] fails, or if any bytes are left over in `bytes` after decoding
+    /// a value.
+    fn get_decoded_with_param(encoding_parameter: &P, bytes: &[u8]) -> Result<Self, anyhow::Error> {
+        let mut cursor = Cursor::new(bytes);
+        let decoded = Self::decode_with_param(encoding_parameter, &mut cursor)?;
+        if cursor.position() as usize != bytes.len() {
+            return Err(anyhow!(
+                "{} bytes left over in buffer after decoding",
+                bytes.len() - cursor.position() as usize
+            ));
+        }
+
+        Ok(decoded)
+    }
+
+    /// Append the encoded form of this object to the end of `bytes`, growing the vector as needed.
+    fn encode_with_param(
+        &self,
+        encoding_parameter: &P,
+        bytes: &mut Vec<u8>,
+    ) -> Result<(), anyhow::Error>;
+
+    /// Get the encoded form of this object, allocating a vector to hold it.
+    fn get_encoded_with_param(&self, encoding_parameter: &P) -> Result<Vec<u8>, anyhow::Error> {
+        let mut ret = Vec::new();
+        self.encode_with_param(encoding_parameter, &mut ret)?;
+        Ok(ret)
+    }
+
+    #[cfg(test)]
+    fn roundtrip(&self, encoding_parameter: &P) {
+        let encoded = self.get_encoded_with_param(encoding_parameter).unwrap();
+        println!("encoded: {encoded:0x?}");
+
+        let decoded = Self::get_decoded_with_param(encoding_parameter, &encoded).unwrap();
+
+        assert_eq!(*self, decoded)
+    }
+}
+
+impl<C: Codec, T> ParameterizedCodec<T> for C {
+    fn decode_with_param(
+        _encoding_parameter: &T,
+        cursor: &mut Cursor<&[u8]>,
+    ) -> Result<Self, anyhow::Error> {
+        Self::decode(cursor)
+    }
+
+    fn encode_with_param(
+        &self,
+        _encoding_parameter: &T,
+        bytes: &mut Vec<u8>,
+    ) -> Result<(), anyhow::Error> {
+        self.encode(bytes)
     }
 }
 
@@ -508,17 +577,17 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_u8() {
-        12u8.roundtrip();
+        12u8.roundtrip(&());
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_u32() {
-        0xffffab65u32.roundtrip();
+        0xffffab65u32.roundtrip(&());
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn codec_roundtrip_size() {
-        Size::from(12345).roundtrip();
+        Size::from(12345).roundtrip(&());
     }
 
     #[wasm_bindgen_test(unsupported = test)]

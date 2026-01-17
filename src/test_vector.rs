@@ -1,7 +1,7 @@
 //! Test vectors for the Longfellow protocol.
 
 use crate::{
-    Codec,
+    Codec, ParameterizedCodec,
     circuit::Circuit,
     constraints::proof_constraints::QuadraticConstraint,
     fields::{CodecFieldElement, field2_128::Field2_128, fieldp128::FieldP128},
@@ -162,14 +162,10 @@ impl<FE: CodecFieldElement> CircuitTestVector<FE> {
     }
 
     pub(crate) fn sumcheck_proof(&self, circuit: &Circuit<FE>) -> SumcheckProof<FE> {
-        SumcheckProof::decode(circuit, &mut Cursor::new(&self.serialized_sumcheck_proof)).unwrap()
+        SumcheckProof::get_decoded_with_param(circuit, &self.serialized_sumcheck_proof).unwrap()
     }
 
     pub(crate) fn ligero_proof(&self, tableau_layout: &TableauLayout) -> LigeroProof<FE> {
-        LigeroProof::decode(
-            tableau_layout,
-            &mut Cursor::new(&self.serialized_ligero_proof),
-        )
-        .unwrap()
+        LigeroProof::get_decoded_with_param(tableau_layout, &self.serialized_ligero_proof).unwrap()
     }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    Codec, Sha256Digest, Size,
+    Codec, ParameterizedCodec, Sha256Digest, Size,
     fields::{CodecFieldElement, FieldId},
     sumcheck::bind::sparse::{SparseQuadElement, SparseSumcheckArray},
 };
@@ -381,7 +381,7 @@ impl Codec for CircuitLayer {
         let mut prev_quad = None;
         let mut quads = Vec::with_capacity(num_quads.into());
         for _ in 0..num_quads.0 {
-            let quad = Quad::decode(prev_quad, bytes)?;
+            let quad = Quad::decode_with_param(&prev_quad, bytes)?;
             prev_quad = Some(quad);
             quads.push(quad);
         }
@@ -400,7 +400,7 @@ impl Codec for CircuitLayer {
 
         let mut prev_quad = None;
         for quad in &self.quads {
-            quad.encode(prev_quad, bytes)?;
+            quad.encode_with_param(&prev_quad, bytes)?;
             prev_quad = Some(*quad);
         }
 
@@ -437,11 +437,13 @@ pub struct Quad {
     const_table_index: usize,
 }
 
-impl Quad {
+impl ParameterizedCodec<Option<Quad>> for Quad {
     /// Encode this quad as deltas relative to the previous quad in the circuit.
-    // XXX extend [`crate::Codec`] to take an encoding parameter like prio::codec does so we can
-    // pass in prev_quad
-    fn encode(&self, prev_quad: Option<Quad>, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode_with_param(
+        &self,
+        prev_quad: &Option<Quad>,
+        bytes: &mut Vec<u8>,
+    ) -> Result<(), anyhow::Error> {
         let prev_quad = prev_quad.unwrap_or_default();
 
         Size::try_from(self.gate_index)?.encode_delta(prev_quad.gate_index.try_into()?, bytes)?;
@@ -455,7 +457,10 @@ impl Quad {
     }
 
     /// Encode this quad as deltas relative to the previous quad in the circuit.
-    fn decode(prev_quad: Option<Quad>, bytes: &mut Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+    fn decode_with_param(
+        prev_quad: &Option<Quad>,
+        bytes: &mut Cursor<&[u8]>,
+    ) -> Result<Self, anyhow::Error> {
         let prev_quad = prev_quad.unwrap_or_default();
 
         let gate_index = Size::decode_delta(prev_quad.gate_index.try_into()?, bytes)?.into();
@@ -472,7 +477,9 @@ impl Quad {
             const_table_index,
         })
     }
+}
 
+impl Quad {
     /// The position of ths gate in its layer, corresponding to `gate_number` in the specification.
     fn gate_index(&self) -> usize {
         self.gate_index
@@ -501,7 +508,7 @@ impl Quad {
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::{
-        Codec, Sha256Digest, Size,
+        Codec, ParameterizedCodec, Sha256Digest, Size,
         circuit::{Circuit, CircuitLayer, Evaluation, Quad},
         fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
@@ -525,15 +532,8 @@ pub(crate) mod tests {
             const_table_index: 8,
         };
 
-        let mut encoded = Vec::new();
-        quad.encode(None, &mut encoded).unwrap();
-        let decoded = Quad::decode(None, &mut Cursor::new(&encoded)).unwrap();
-        assert_eq!(quad, decoded);
-
-        let mut next_encoded = Vec::new();
-        next_quad.encode(Some(quad), &mut next_encoded).unwrap();
-        let next_decoded = Quad::decode(Some(quad), &mut Cursor::new(&next_encoded)).unwrap();
-        assert_eq!(next_quad, next_decoded);
+        quad.roundtrip(&None);
+        next_quad.roundtrip(&Some(quad));
     }
 
     fn roundtrip_circuit_test_vector<FE: CodecFieldElement>(

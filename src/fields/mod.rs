@@ -356,7 +356,7 @@ pub use ntt::NttFieldElement;
 #[cfg(test)]
 mod tests {
     use crate::{
-        Codec,
+        Codec, ParameterizedCodec,
         fields::{
             CodecFieldElement, FieldElement, ProofFieldElement, field2_128::Field2_128,
             fieldp128::FieldP128, fieldp256::FieldP256, fieldp256_2::FieldP256_2,
@@ -446,17 +446,17 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn field_p256_roundtrip() {
-        FieldP256::from_u128(111).roundtrip();
+        FieldP256::from_u128(111).roundtrip(&());
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn field_p128_roundtrip() {
-        FieldP128::from_u128(111).roundtrip();
+        FieldP128::from_u128(111).roundtrip(&());
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn field_2_128_roundtrip() {
-        Field2_128::from_u128(0xdeadbeef12345678f00faaaabbbbcccc).roundtrip();
+        Field2_128::from_u128(0xdeadbeef12345678f00faaaabbbbcccc).roundtrip(&());
     }
 
     /// Test methods of [`FieldElement`] implementations.

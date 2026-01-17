@@ -6,6 +6,7 @@ pub mod verifier;
 #[cfg(test)]
 mod tests {
     use crate::{
+        ParameterizedCodec,
         circuit::Circuit,
         fields::{ProofFieldElement, field2_128::Field2_128, fieldp128::FieldP128},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
@@ -14,7 +15,6 @@ mod tests {
             verifier::Verifier,
         },
     };
-    use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     fn test_vector_end_to_end<FE: ProofFieldElement>(
@@ -60,10 +60,9 @@ mod tests {
             .prove(session_id, test_vector.valid_inputs())
             .unwrap();
 
-        let mut encoded = Vec::new();
-        proof.encode(&mut encoded).unwrap();
-
         let verifier = Verifier::new(&circuit, *test_vector.ligero_parameters());
+
+        let encoded = proof.get_encoded_with_param(&verifier).unwrap();
 
         // Mutation testing: flip each bit in a proof, and confirm that it either fails to
         // deserialize or fails to verify.
@@ -75,8 +74,7 @@ mod tests {
                 let mut modified = encoded.clone();
                 modified[byte_offset] ^= 1 << bit_offset;
 
-                let Ok(decoded) =
-                    Proof::<FieldP128>::decode(&verifier, &mut Cursor::new(&modified))
+                let Ok(decoded) = Proof::<FieldP128>::get_decoded_with_param(&verifier, &modified)
                 else {
                     decode_failure_count += 1;
                     continue;

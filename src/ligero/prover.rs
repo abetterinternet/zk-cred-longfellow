@@ -3,7 +3,7 @@
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.4
 
 use crate::{
-    Codec,
+    Codec, ParameterizedCodec,
     constraints::proof_constraints::{
         LinearConstraintLhsTerm, LinearConstraints, QuadraticConstraint,
     },
@@ -256,25 +256,22 @@ pub struct LigeroProof<FieldElement> {
     pub tableau_columns: Vec<Vec<FieldElement>>,
     pub inclusion_proof: InclusionProof,
 }
-
-impl<FE: CodecFieldElement> LigeroProof<FE> {
+impl<'a, FE: CodecFieldElement> ParameterizedCodec<TableauLayout<'a>> for LigeroProof<FE> {
     /// Deserialization of a Ligero proof implied by `serialize_ligero_proof` in [7.4][1].
     ///
-    /// This can't be a `Codec` implementation because we need the Ligero parameters to know the
-    /// sizes of fields.
-    ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
-    pub fn decode(
+    fn decode_with_param(
         layout: &TableauLayout,
-        bytes: &mut io::Cursor<&[u8]>,
+        cursor: &mut io::Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
-        let low_degree_test_proof = FE::decode_fixed_array(bytes, layout.block_size())?;
-        let dot_proof = FE::decode_fixed_array(bytes, layout.dblock())?;
+        let low_degree_test_proof = FE::decode_fixed_array(cursor, layout.block_size())?;
+        let dot_proof = FE::decode_fixed_array(cursor, layout.dblock())?;
         let quadratic_proof = (
-            FE::decode_fixed_array(bytes, layout.num_requested_columns())?,
-            FE::decode_fixed_array(bytes, layout.dblock() - layout.block_size())?,
+            FE::decode_fixed_array(cursor, layout.num_requested_columns())?,
+            FE::decode_fixed_array(cursor, layout.dblock() - layout.block_size())?,
         );
-        let merkle_tree_nonces = Nonce::decode_fixed_array(bytes, layout.num_requested_columns())?;
+
+        let merkle_tree_nonces = Nonce::decode_fixed_array(cursor, layout.num_requested_columns())?;
 
         // Columns are serialized as one or more runs, each of which is a length-prefixed vector. A
         // run may contain field or subfield elements.
@@ -285,7 +282,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
             // Sizes are usually u24 in Longfellow, but in this case it happens to be u32. See
             // `write_size` and `read_size` in lib/zk/zk_proof.h.
             let run_length =
-                usize::try_from(u32::decode(bytes)?).context("failed to convert u32 to usize")?;
+                usize::try_from(u32::decode(cursor)?).context("failed to convert u32 to usize")?;
             if run_length > MAX_RUN_LENGTH {
                 return Err(anyhow!("run exceeds maximum run length"));
             }
@@ -297,9 +294,9 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
                 ));
             }
             let run = if subfield_run {
-                FE::decode_fixed_array_in_subfield(bytes, run_length)
+                FE::decode_fixed_array_in_subfield(cursor, run_length)
             } else {
-                FE::decode_fixed_array(bytes, run_length)
+                FE::decode_fixed_array(cursor, run_length)
             }?;
             column_elements.extend(run);
             subfield_run = !subfield_run;
@@ -315,7 +312,7 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
             .map(|v| v.to_vec())
             .collect();
 
-        let inclusion_proof = InclusionProof::decode(bytes)?;
+        let inclusion_proof = InclusionProof::decode(cursor)?;
 
         Ok(Self {
             low_degree_test_proof,
@@ -327,11 +324,14 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
         })
     }
 
-    /// Serialization of a Ligero proof implied by `serialize_ligero_proof` in [7.4][1]. This can't be a
-    /// `Codec` implementation because we need the Ligero parameters to know the sizes of objects.
+    /// Serialization of a Ligero proof implied by `serialize_ligero_proof` in [7.4][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
-    pub fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode_with_param(
+        &self,
+        _: &TableauLayout<'a>,
+        bytes: &mut Vec<u8>,
+    ) -> Result<(), anyhow::Error> {
         FE::encode_fixed_array(&self.low_degree_test_proof, bytes)?;
         FE::encode_fixed_array(&self.dot_proof, bytes)?;
         FE::encode_fixed_array(&self.quadratic_proof.0, bytes)?;
@@ -375,7 +375,9 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
 
         Ok(())
     }
+}
 
+impl<FE: CodecFieldElement> LigeroProof<FE> {
     /// Stitch the quadratic proof parts back together with the middle span of zeroes.
     pub fn quadratic_proof(&self, layout: &TableauLayout) -> Vec<FE> {
         let mut proof = Vec::with_capacity(layout.dblock());
@@ -401,7 +403,6 @@ mod tests {
         transcript::Transcript,
         witness::{Witness, WitnessLayout},
     };
-    use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     fn prove<FE: ProofFieldElement>(test_vector: CircuitTestVector<FE>, circuit: Circuit<FE>) {
@@ -461,8 +462,9 @@ mod tests {
         )
         .unwrap();
 
-        let mut encoded_ligero_proof = Vec::new();
-        ligero_proof.encode(&mut encoded_ligero_proof).unwrap();
+        let encoded_ligero_proof = ligero_proof
+            .get_encoded_with_param(tableau.layout())
+            .unwrap();
 
         // It's not terribly useful to print 1000s of bytes of proof to stderr so we avoid the usual
         // assert_eq! form.
@@ -493,13 +495,12 @@ mod tests {
             quadratic_constraints.len(),
         );
 
-        let decoded = LigeroProof::<FieldP128>::decode(
+        let decoded = LigeroProof::<FieldP128>::get_decoded_with_param(
             &tableau_layout,
-            &mut Cursor::new(test_vector.serialized_ligero_proof.as_slice()),
+            &test_vector.serialized_ligero_proof,
         )
         .unwrap();
-        let mut encoded = Vec::new();
-        decoded.encode(&mut encoded).unwrap();
+        let encoded = decoded.get_encoded_with_param(&tableau_layout).unwrap();
 
         assert_eq!(test_vector.serialized_ligero_proof, encoded);
     }

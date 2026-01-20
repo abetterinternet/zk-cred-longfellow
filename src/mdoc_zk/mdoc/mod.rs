@@ -470,73 +470,54 @@ pub(super) fn find_attributes(
         let mut last_entry_was_element_identifier = false;
         let mut last_value_offset = None;
 
-        let mut entry_count = 0;
-        loop {
-            if let Some(map_size) = map_size_opt
-                && entry_count >= map_size
-            {
-                break;
-            }
-
-            let key_header = pull(&mut decoder, "reading map entry key failed")?;
-            let key_length = match key_header {
-                Header::Text(key_length) => key_length,
-                Header::Break => {
-                    if map_size_opt.is_some() {
-                        return Err(anyhow!("unexpected break in map of known size"));
+        parse_map(
+            &mut decoder,
+            &mut scratch,
+            map_size_opt,
+            |decoder, scratch, key, _key_offset, value_offset, value_header| {
+                let mut this_entry_element_identifier = false;
+                match key.as_str() {
+                    "digestID" => {
+                        if let Header::Positive(id) = value_header {
+                            digest_id = Some(id)
+                        } else {
+                            return Err(anyhow!("unexpected value for digestID: {value_header:?}"));
+                        }
                     }
-                    break;
-                }
-                _ => {
-                    return Err(anyhow!("unexpected map key type: {key_header:?}"));
-                }
-            };
-            let key = slurp_string(&mut decoder, &mut scratch, key_length)
-                .context("error reading key in IssuerSignedItem")?;
-
-            let value_offset = decoder.offset();
-            let value_header = pull(&mut decoder, "reading map entry value failed")?;
-            let mut this_entry_element_identifier = false;
-            match key.as_str() {
-                "digestID" => {
-                    if let Header::Positive(id) = value_header {
-                        digest_id = Some(id)
-                    } else {
-                        return Err(anyhow!("unexpected value for digestID: {value_header:?}"));
+                    "elementIdentifier" => {
+                        this_entry_element_identifier = true;
+                        if let Header::Text(len) = value_header {
+                            attribute_id = Some(slurp_string(decoder, scratch, len)?);
+                        } else {
+                            return Err(anyhow!(
+                                "unexpected value for elementIdentifier: {value_header:?}"
+                            ));
+                        }
                     }
-                }
-                "elementIdentifier" => {
-                    this_entry_element_identifier = true;
-                    if let Header::Text(len) = value_header {
-                        attribute_id = Some(slurp_string(&mut decoder, &mut scratch, len)?);
-                    } else {
-                        return Err(anyhow!(
-                            "unexpected value for elementIdentifier: {value_header:?}"
-                        ));
+                    "elementValue" => {
+                        if !last_entry_was_element_identifier {
+                            return Err(anyhow!(
+                                "elementValue did not immediately follow elementIdentifier"
+                            ));
+                        }
+                        skip_body(decoder, scratch, value_header)?;
+                        let end_offset = decoder.offset();
+                        let Some(start_offset) = last_value_offset else {
+                            return Err(anyhow!("elementValue did not follow elementIdentifier"));
+                        };
+                        public_cbor_data_and_offset =
+                            Some((bytes[start_offset..end_offset].to_vec(), start_offset));
                     }
+                    _ => skip_body(decoder, scratch, value_header)?,
                 }
-                "elementValue" => {
-                    if !last_entry_was_element_identifier {
-                        return Err(anyhow!(
-                            "elementValue did not immediately follow elementIdentifier"
-                        ));
-                    }
-                    skip_body(&mut decoder, &mut scratch, value_header)?;
-                    let end_offset = decoder.offset();
-                    let Some(start_offset) = last_value_offset else {
-                        return Err(anyhow!("elementValue did not follow elementIdentifier"));
-                    };
-                    public_cbor_data_and_offset =
-                        Some((bytes[start_offset..end_offset].to_vec(), start_offset));
-                }
-                _ => skip_body(&mut decoder, &mut scratch, value_header)?,
-            }
 
-            last_entry_was_element_identifier = this_entry_element_identifier;
-            last_value_offset = Some(value_offset);
+                last_entry_was_element_identifier = this_entry_element_identifier;
+                last_value_offset = Some(value_offset);
 
-            entry_count += 1;
-        }
+                Ok(())
+            },
+        )
+        .context("error reading IssuerSignedItem")?;
 
         if decoder.offset() != bytes.len() {
             return Err(anyhow!("leftover data after reading IssuerSignedItem"));
@@ -630,6 +611,7 @@ fn skip_body(
             }
         }
         Header::Map(len) => {
+            // This can't use `parse_map()` because the map keys might not be text.
             let mut entry_count = 0;
             loop {
                 if let Some(len) = len
@@ -712,6 +694,66 @@ fn slurp_bytes(
     Ok(bytes)
 }
 
+/// Parses the body of a map with text keys.
+///
+/// This should be called after reading the map's header, and the map's length should be passed in
+/// as the `len` argument. The callback closure will be called for each entry with the key, the
+/// offsets of the key item and the value item, and the header of the value. The closure is
+/// responsible for reading the body of the value.
+fn parse_map(
+    decoder: &mut Decoder<&[u8]>,
+    scratch: &mut [u8],
+    len: Option<usize>,
+    mut callback: impl FnMut(
+        &mut Decoder<&[u8]>,
+        &mut [u8],
+        String,
+        usize,
+        usize,
+        Header,
+    ) -> Result<(), anyhow::Error>,
+) -> Result<(), anyhow::Error> {
+    let mut entry_count = 0;
+    loop {
+        if let Some(len) = len
+            && entry_count >= len
+        {
+            break;
+        }
+
+        let key_offset = decoder.offset();
+        let key_header = pull(decoder, "reading map entry key failed")?;
+        let key_length = match key_header {
+            Header::Text(key_length) => key_length,
+            Header::Break => {
+                if len.is_some() {
+                    return Err(anyhow!("unexpected break in map of known size"));
+                }
+                break;
+            }
+            _ => {
+                return Err(anyhow!("unexpected map key type: {key_header:?}"));
+            }
+        };
+        let key =
+            slurp_string(decoder, scratch, key_length).context("error reading map entry key")?;
+
+        let value_offset = decoder.offset();
+        let value_header = pull(decoder, "reading map entry value failed")?;
+        callback(
+            decoder,
+            scratch,
+            key,
+            key_offset,
+            value_offset,
+            value_header,
+        )?;
+
+        entry_count += 1;
+    }
+    Ok(())
+}
+
 /// Parses a MobileSecurityObject, and returns selected fields along with offsets of CBOR items.
 fn parse_mso(data: &[u8]) -> Result<(MobileSecurityObject, MsoOffsets), anyhow::Error> {
     let mut scratch = [0u8; 256];
@@ -736,86 +778,65 @@ fn parse_mso(data: &[u8]) -> Result<(MobileSecurityObject, MsoOffsets), anyhow::
 
     let mut value_digests_item_offsets = HashMap::new();
 
-    let mut entry_count = 0;
-    loop {
-        if let Some(map_size) = map_size_opt
-            && entry_count >= map_size
-        {
-            break;
-        }
-
-        let key_offset = decoder.offset();
-        let key_header = pull(&mut decoder, "reading map entry key failed")?;
-        let key_length = match key_header {
-            Header::Text(key_length) => key_length,
-            Header::Break => {
-                if map_size_opt.is_some() {
-                    return Err(anyhow!("unexpected break in map of known size"));
+    parse_map(
+        &mut decoder,
+        &mut scratch,
+        map_size_opt,
+        |decoder, scratch, key, key_offset, value_start_offset, value_header| {
+            match key.as_str() {
+                "deviceKeyInfo" => {
+                    // Skip over the deviceKeyInfo value, then parse it again using serde. Doing this in
+                    // two passes is less efficient, but requires significantly less deserialization
+                    // code for the nested objects.
+                    device_key_info_offset = Some(key_offset);
+                    skip_body(decoder, scratch, value_header)?;
+                    let value_end_offset = decoder.offset();
+                    device_key_info = Some(
+                        ciborium::from_reader::<DeviceKeyInfo, _>(
+                            &data[value_start_offset..value_end_offset],
+                        )
+                        .context("parsing DeviceKeyInfo failed")?,
+                    );
                 }
-                break;
-            }
-            _ => {
-                return Err(anyhow!("unexpected map key type: {key_header:?}"));
-            }
-        };
-        let key = slurp_string(&mut decoder, &mut scratch, key_length)
-            .context("error reading key in MobileSecurityObject")?;
-
-        let value_start_offset = decoder.offset();
-        let value_header = pull(&mut decoder, "reading map entry value failed")?;
-        match key.as_str() {
-            "deviceKeyInfo" => {
-                // Skip over the deviceKeyInfo value, then parse it again using serde. Doing this in
-                // two passes is less efficient, but requires significantly less deserialization
-                // code for the nested objects.
-                device_key_info_offset = Some(key_offset);
-                skip_body(&mut decoder, &mut scratch, value_header)?;
-                let value_end_offset = decoder.offset();
-                device_key_info = Some(
-                    ciborium::from_reader::<DeviceKeyInfo, _>(
-                        &data[value_start_offset..value_end_offset],
+                "validityInfo" => {
+                    let Header::Map(len) = value_header else {
+                        return Err(anyhow!(
+                            "unexpected value for validityInfo: {value_header:?}"
+                        ));
+                    };
+                    parse_validity_info(
+                        decoder,
+                        scratch,
+                        len,
+                        &mut valid_from,
+                        &mut valid_from_offset,
+                        &mut valid_until,
+                        &mut valid_until_offset,
                     )
-                    .context("parsing DeviceKeyInfo failed")?,
-                );
+                    .context("error parsing ValidityInfo")?;
+                }
+                "valueDigests" => {
+                    value_digests_offset = Some(key_offset);
+                    let Header::Map(len) = value_header else {
+                        return Err(anyhow!(
+                            "unexpected value for valueDigests: {value_header:?}"
+                        ));
+                    };
+                    parse_value_digests(
+                        decoder,
+                        scratch,
+                        len,
+                        &mut value_digests_items,
+                        &mut value_digests_item_offsets,
+                    )
+                    .context("error parsing ValueDigests")?;
+                }
+                _ => skip_body(decoder, scratch, value_header)?,
             }
-            "validityInfo" => {
-                let Header::Map(len) = value_header else {
-                    return Err(anyhow!(
-                        "unexpected value for validityInfo: {value_header:?}"
-                    ));
-                };
-                parse_validity_info(
-                    &mut decoder,
-                    &mut scratch,
-                    len,
-                    &mut valid_from,
-                    &mut valid_from_offset,
-                    &mut valid_until,
-                    &mut valid_until_offset,
-                )
-                .context("error parsing ValidityInfo")?;
-            }
-            "valueDigests" => {
-                value_digests_offset = Some(key_offset);
-                let Header::Map(len) = value_header else {
-                    return Err(anyhow!(
-                        "unexpected value for valueDigests: {value_header:?}"
-                    ));
-                };
-                parse_value_digests(
-                    &mut decoder,
-                    &mut scratch,
-                    len,
-                    &mut value_digests_items,
-                    &mut value_digests_item_offsets,
-                )
-                .context("error parsing ValueDigests")?;
-            }
-            _ => skip_body(&mut decoder, &mut scratch, value_header)?,
-        }
-
-        entry_count += 1;
-    }
+            Ok(())
+        },
+    )
+    .context("error parsing MobileSecurityObject")?;
 
     if decoder.offset() != data.len() {
         return Err(anyhow!("leftover data after reading MobileSecurityObject"));
@@ -869,53 +890,32 @@ fn parse_validity_info(
     valid_until: &mut Option<tag::Required<String, TAG_TDATE>>,
     valid_until_offset: &mut Option<usize>,
 ) -> Result<(), anyhow::Error> {
-    let mut entry_count = 0;
-    loop {
-        if let Some(len) = len
-            && entry_count >= len
-        {
-            break;
-        }
-
-        let key_offset = decoder.offset();
-        let key_header = pull(decoder, "reading map entry key failed")?;
-        let key_length = match key_header {
-            Header::Text(key_length) => key_length,
-            Header::Break => {
-                if len.is_some() {
-                    return Err(anyhow!("unexpected break in map of known size"));
+    parse_map(
+        decoder,
+        scratch,
+        len,
+        |decoder, scratch, key, key_offset, _value_offset, value_header| {
+            match key.as_str() {
+                "validFrom" => {
+                    *valid_from_offset = Some(key_offset);
+                    *valid_from = Some(
+                        parse_tdate(decoder, scratch, value_header)
+                            .context("error parsing validFrom")?,
+                    );
                 }
-                break;
+                "validUntil" => {
+                    *valid_until_offset = Some(key_offset);
+                    *valid_until = Some(
+                        parse_tdate(decoder, scratch, value_header)
+                            .context("error parsing validUntil")?,
+                    );
+                }
+                _ => skip_body(decoder, scratch, value_header)?,
             }
-            _ => {
-                return Err(anyhow!("unexpected map key type: {key_header:?}"));
-            }
-        };
-        let key = slurp_string(decoder, scratch, key_length)
-            .context("error reading key in ValidityInfo")?;
-
-        let value_header = pull(decoder, "reading map entry value failed")?;
-        match key.as_str() {
-            "validFrom" => {
-                *valid_from_offset = Some(key_offset);
-                *valid_from = Some(
-                    parse_tdate(decoder, scratch, value_header)
-                        .context("error parsing validFrom")?,
-                );
-            }
-            "validUntil" => {
-                *valid_until_offset = Some(key_offset);
-                *valid_until = Some(
-                    parse_tdate(decoder, scratch, value_header)
-                        .context("error parsing validUntil")?,
-                );
-            }
-            _ => skip_body(decoder, scratch, value_header)?,
-        }
-
-        entry_count += 1;
-    }
-    Ok(())
+            Ok(())
+        },
+    )
+    .context("error parsing ValidityInfo")
 }
 
 /// Parse a `tdate`.
@@ -949,51 +949,31 @@ fn parse_value_digests(
     items: &mut HashMap<String, HashMap<u64, Vec<u8>>>,
     offsets: &mut HashMap<String, HashMap<u64, usize>>,
 ) -> Result<(), anyhow::Error> {
-    let mut entry_count = 0;
-    loop {
-        if let Some(len) = value_digests_len
-            && entry_count >= len
-        {
-            break;
-        }
-
-        let key_header = pull(decoder, "reading map entry key failed")?;
-        let key_length = match key_header {
-            Header::Text(key_length) => key_length,
-            Header::Break => {
-                if value_digests_len.is_some() {
-                    return Err(anyhow!("unexpected break in map of known size"));
-                }
-                break;
-            }
-            _ => {
-                return Err(anyhow!("unexpected map key type: {key_header:?}"));
-            }
-        };
-        let key = slurp_string(decoder, scratch, key_length)
-            .context("error reading key in ValueDigests")?;
-
-        let value_header = pull(decoder, "reading map entry value failed")?;
-        let Header::Map(digest_ids_len) = value_header else {
-            return Err(anyhow!("unexpected value for DigestIDs: {value_header:?}"));
-        };
-        let hash_map::Entry::Vacant(items_vacant) = items.entry(key.clone()) else {
-            return Err(anyhow!("duplicate namespace"));
-        };
-        let hash_map::Entry::Vacant(offsets_vacant) = offsets.entry(key) else {
-            return Err(anyhow!("duplicate namespace"));
-        };
-        parse_digest_ids(
-            decoder,
-            scratch,
-            digest_ids_len,
-            items_vacant.insert(HashMap::new()),
-            offsets_vacant.insert(HashMap::new()),
-        )?;
-
-        entry_count += 1;
-    }
-    Ok(())
+    parse_map(
+        decoder,
+        scratch,
+        value_digests_len,
+        |decoder, scratch, key, _key_offset, _value_offset, value_header| {
+            let Header::Map(digest_ids_len) = value_header else {
+                return Err(anyhow!("unexpected value for DigestIDs: {value_header:?}"));
+            };
+            let hash_map::Entry::Vacant(items_vacant) = items.entry(key.clone()) else {
+                return Err(anyhow!("duplicate namespace"));
+            };
+            let hash_map::Entry::Vacant(offsets_vacant) = offsets.entry(key) else {
+                return Err(anyhow!("duplicate namespace"));
+            };
+            parse_digest_ids(
+                decoder,
+                scratch,
+                digest_ids_len,
+                items_vacant.insert(HashMap::new()),
+                offsets_vacant.insert(HashMap::new()),
+            )
+            .context("error parsing DigestIDs")
+        },
+    )
+    .context("error parsing ValueDigests")
 }
 
 /// Parse `DigestIDs` and store both the digests and their offsets.
@@ -1004,6 +984,7 @@ fn parse_digest_ids(
     items: &mut HashMap<u64, Vec<u8>>,
     offsets: &mut HashMap<u64, usize>,
 ) -> Result<(), anyhow::Error> {
+    // This doesn't use `parse_map()` because its keys are positive integers instead of text.
     let mut entry_count = 0;
     loop {
         if let Some(len) = digest_ids_len
@@ -1172,13 +1153,16 @@ mod tests {
         )
         .unwrap();
 
-        let error_message = find_attributes(
+        let error = find_attributes(
             &HashMap::from([("org.iso.18013.5.1.aamva".to_string(), Vec::from([data]))]),
             &["age_over_21".to_string()],
         )
-        .unwrap_err()
-        .to_string();
-        assert!(error_message.contains("follow elementIdentifier"));
+        .unwrap_err();
+        let error_message = format!("{error:#}");
+        assert!(
+            error_message.contains("follow elementIdentifier"),
+            "{error_message}"
+        );
     }
 
     /// Check that the manual deserialization code in [`parse_mso`] is equivalent to the generated

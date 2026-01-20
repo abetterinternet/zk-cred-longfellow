@@ -167,6 +167,12 @@ impl CircuitInputs {
                 "current time is not correctly formatted, must be 20 bytes long"
             ));
         }
+        if time < &mdoc.valid_from {
+            return Err(anyhow!("credential is not yet valid"));
+        }
+        if time > &mdoc.valid_until {
+            return Err(anyhow!("credential is expired"));
+        }
         byte_array_as_bits(time.as_bytes(), split_hash_input.time);
 
         // Encode MAC messages. Note that this encodes the credential hash field element in

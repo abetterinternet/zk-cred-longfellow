@@ -196,6 +196,36 @@ impl CircuitInputs {
             split_hash_input.sha_256_input,
         );
 
+        // Set the CBOR offsets into the MSO.
+        u12_as_bits(
+            mdoc.mso_offsets
+                .valid_from
+                .try_into()
+                .map_err(|_| anyhow!("offset to validFrom is too large"))?,
+            split_hash_input.valid_from_offset,
+        );
+        u12_as_bits(
+            mdoc.mso_offsets
+                .valid_until
+                .try_into()
+                .map_err(|_| anyhow!("offset to validUntil is too large"))?,
+            split_hash_input.valid_until_offset,
+        );
+        u12_as_bits(
+            mdoc.mso_offsets
+                .device_key_info
+                .try_into()
+                .map_err(|_| anyhow!("offset to deviceKeyInfo is too large"))?,
+            split_hash_input.device_key_info_offset,
+        );
+        u12_as_bits(
+            mdoc.mso_offsets
+                .value_digests
+                .try_into()
+                .map_err(|_| anyhow!("offset to valueDigests is too large"))?,
+            split_hash_input.value_digests_offset,
+        );
+
         // Smoke test: iterate through SHA-256 block witnesses.
         for _ in split_hash_input.attribute_witnesses.inputs[0]
             .as_mut()
@@ -273,6 +303,17 @@ fn byte_array_as_bits(bytes: &[u8], out: &mut [Field2_128]) {
     }
 }
 
+/// Encode a 12-bit integer as field elements, with one field element representing each bit.
+///
+/// This is used for offsets into the CBOR byte string encoding the `MobileSecurityObject` or an
+/// `IssuerSignedItem`.
+fn u12_as_bits(mut u12: u16, out: &mut [Field2_128; 12]) {
+    for out_elem in out.iter_mut() {
+        *out_elem = Field2_128::inject_bits::<1>(u12 & 1);
+        u12 >>= 1;
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use crate::{
@@ -307,39 +348,39 @@ pub(super) mod tests {
 
     /// Test vector for the witness preparation process.
     #[derive(Deserialize)]
-    struct WitnessTestVector {
+    pub(super) struct WitnessTestVector {
         /// The mdoc DeviceResponse, containing the credential, device signature, opened attributes,
         /// etc.
         #[serde(deserialize_with = "hex::serde::deserialize")]
-        mdoc: Vec<u8>,
+        pub(super) mdoc: Vec<u8>,
         /// Handoff session binding data.
         #[serde(deserialize_with = "hex::serde::deserialize")]
-        transcript: Vec<u8>,
+        pub(super) transcript: Vec<u8>,
         /// Attributes to be presented.
-        attributes: Vec<TestVectorAttribute>,
+        pub(super) attributes: Vec<TestVectorAttribute>,
         /// Current time, in RFC 3339 format.
-        now: String,
+        pub(super) now: String,
         /// Inputs to the signature circuit.
         #[serde(deserialize_with = "hex::serde::deserialize")]
-        signature_input: Vec<u8>,
+        pub(super) signature_input: Vec<u8>,
         /// Inputs to the hash circuit.
         #[serde(deserialize_with = "hex::serde::deserialize")]
-        hash_input: Vec<u8>,
+        pub(super) hash_input: Vec<u8>,
         /// Verifier's share of MAC key.
         #[serde(deserialize_with = "hex::serde::deserialize")]
-        mac_verifier_key_share: Vec<u8>,
+        pub(super) mac_verifier_key_share: Vec<u8>,
         /// Prover's shares of MAC keys.
         #[serde(deserialize_with = "hex::serde::deserialize")]
-        mac_prover_key_shares: Vec<u8>,
+        pub(super) mac_prover_key_shares: Vec<u8>,
     }
 
     /// Presented attribute, as represented in a test vector.
     #[derive(Deserialize)]
-    struct TestVectorAttribute {
-        id: String,
+    pub(super) struct TestVectorAttribute {
+        pub(super) id: String,
     }
 
-    fn load_witness_test_vector() -> WitnessTestVector {
+    pub(super) fn load_witness_test_vector() -> WitnessTestVector {
         serde_json::from_slice(include_bytes!(
             "../../test-vectors/mdoc_zk/witness_test_vector.json"
         ))

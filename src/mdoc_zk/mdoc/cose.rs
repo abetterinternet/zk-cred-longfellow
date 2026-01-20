@@ -183,6 +183,7 @@ enum ByteOrBytes {
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub(super) struct CoseKey {
     pub(super) x: Vec<u8>,
     pub(super) y: Vec<u8>,

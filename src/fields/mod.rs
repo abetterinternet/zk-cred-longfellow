@@ -167,8 +167,8 @@ pub trait CodecFieldElement:
         Self::decode_fixed_array(bytes, count)
     }
 
-    /// Update the provided [`Sha256`], which is assumed to be computing the ID of a [`Circuit`],
-    /// with a description of this field. This matches what is done in [`longfellow-zk`][1].
+    /// Update the provided [`Sha256`], which is assumed to be computing the ID of a circuit, with a
+    /// description of this field. This matches what is done in [`longfellow-zk`][1].
     ///
     /// The default implementation is valid for prime order fields only.
     ///

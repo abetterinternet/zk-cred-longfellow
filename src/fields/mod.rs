@@ -9,6 +9,7 @@ use num_bigint::BigUint;
 use num_integer::Integer;
 use rand::RngCore;
 use serde::{Serialize, de::DeserializeOwned};
+use sha2::{Digest, Sha256};
 use std::{
     fmt::Debug,
     io::Cursor,
@@ -164,6 +165,21 @@ pub trait CodecFieldElement:
     ) -> Result<Vec<Self>, anyhow::Error> {
         // By default, fields have no subfield, or put another way, they are their own subfield.
         Self::decode_fixed_array(bytes, count)
+    }
+
+    /// Update the provided [`Sha256`], which is assumed to be computing the ID of a [`Circuit`],
+    /// with a description of this field. This matches what is done in [`longfellow-zk`][1].
+    ///
+    /// The default implementation is valid for prime order fields only.
+    ///
+    /// [1]: https://github.com/google/longfellow-zk/blob/v0.8.6/lib/sumcheck/circuit_id.h
+    fn update_circuit_id(circuit_id: &mut Sha256) -> Result<(), anyhow::Error> {
+        // Large characteristic fields are assumed to be prime order and indicated by an eight byte
+        // LE array containing the single byte 1, then the encoding of -1 in the field.
+        circuit_id.update(1u64.to_le_bytes());
+        circuit_id.update((-Self::ONE).get_encoded()?);
+
+        Ok(())
     }
 }
 

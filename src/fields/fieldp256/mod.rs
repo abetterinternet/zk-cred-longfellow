@@ -13,11 +13,11 @@ use crate::{
     },
 };
 use anyhow::{Context, anyhow};
-use serde::{Deserialize, Serialize, de::Error};
+use serde::{Deserialize, Serialize, de::Error as _, ser::Error as _};
 use std::{
     cmp::Ordering,
     fmt::{self, Debug},
-    io::{self, Cursor, Read},
+    io::{self, Cursor, Read, Write},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 use subtle::{ConditionallySelectable, ConstantTimeEq, CtOption};
@@ -206,9 +206,16 @@ impl FieldElement for FieldP256 {
 }
 
 impl CodecFieldElement for FieldP256 {
-    const NUM_BITS: u32 = 256;
+    const NUM_BITS: usize = 256;
 
     const FIELD_ID: super::FieldId = FieldId::P256;
+
+    fn as_byte_array(&self) -> Result<impl AsRef<[u8]>, anyhow::Error> {
+        let mut buf = [0u8; Self::NUM_BITS / 8];
+        self.encode(&mut &mut buf[..])?;
+
+        Ok(buf)
+    }
 }
 
 impl Serialize for FieldP256 {
@@ -216,7 +223,9 @@ impl Serialize for FieldP256 {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&hex::encode(self.get_encoded().unwrap()))
+        serializer.serialize_str(&hex::encode(
+            self.as_byte_array().map_err(S::Error::custom)?,
+        ))
     }
 }
 
@@ -390,12 +399,12 @@ impl Codec for FieldP256 {
         Self::try_from(&buffer)
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         let mut non_montgomery = fiat_p256_non_montgomery_domain_field_element([0; 4]);
         fiat_p256_from_montgomery(&mut non_montgomery, &self.0);
         let mut out = [0u8; 32];
         fiat_p256_to_bytes(&mut out, &non_montgomery.0);
-        bytes.extend_from_slice(&out);
+        bytes.write_all(&out)?;
         Ok(())
     }
 }

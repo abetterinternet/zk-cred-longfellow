@@ -17,7 +17,7 @@ use crate::{
     transcript::Transcript,
 };
 use anyhow::{Context, anyhow};
-use std::io;
+use std::io::{self, Write};
 
 const MAX_RUN_LENGTH: usize = 1 << 25;
 
@@ -327,10 +327,10 @@ impl<'a, FE: CodecFieldElement> ParameterizedCodec<TableauLayout<'a>> for Ligero
     /// Serialization of a Ligero proof implied by `serialize_ligero_proof` in [7.4][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
-    fn encode_with_param(
+    fn encode_with_param<W: Write>(
         &self,
         _: &TableauLayout<'a>,
-        bytes: &mut Vec<u8>,
+        bytes: &mut W,
     ) -> Result<(), anyhow::Error> {
         FE::encode_fixed_array(&self.low_degree_test_proof, bytes)?;
         FE::encode_fixed_array(&self.dot_proof, bytes)?;

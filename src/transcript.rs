@@ -117,7 +117,7 @@ impl Transcript {
         self.write_bytes(Tag::FieldElement.into())?;
 
         // Write field element
-        self.write_bytes(field_element.get_encoded()?.as_ref())?;
+        self.write_bytes(field_element.as_byte_array()?.as_ref())?;
 
         Ok(())
     }
@@ -138,7 +138,7 @@ impl Transcript {
 
         // Write array
         for field_element in field_elements {
-            self.write_bytes(field_element.get_encoded()?.as_ref())?;
+            self.write_bytes(field_element.as_byte_array()?.as_ref())?;
         }
 
         Ok(())

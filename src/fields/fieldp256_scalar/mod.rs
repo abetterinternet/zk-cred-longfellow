@@ -15,7 +15,7 @@ use anyhow::{Context, anyhow};
 use std::{
     cmp::Ordering,
     fmt::{self, Debug},
-    io::{self, Read},
+    io::{self, Read, Write},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
@@ -212,12 +212,12 @@ impl Codec for FieldP256Scalar {
         Self::try_from(&buffer)
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         let mut non_montgomery = fiat_p256_scalar_non_montgomery_domain_field_element([0; 4]);
         fiat_p256_scalar_from_montgomery(&mut non_montgomery, &self.0);
         let mut out = [0u8; 32];
         fiat_p256_scalar_to_bytes(&mut out, &non_montgomery.0);
-        bytes.extend_from_slice(&out);
+        bytes.write_all(&out)?;
         Ok(())
     }
 }

@@ -8,7 +8,7 @@ use crate::{
 };
 use anyhow::{Context, anyhow};
 use sha2::{Digest, Sha256};
-use std::fmt::Debug;
+use std::{fmt::Debug, io::Write};
 
 /// The value of a node of a [`MerkleTree`]. A tree could use various hashing algorithms, but we
 /// only support SHA-256, and so a `Digest` is always a 32 byte array, saving us a heap allocation.
@@ -63,7 +63,7 @@ impl Codec for Node {
         Sha256Digest::decode(bytes).map(Self)
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         self.0.encode(bytes)
     }
 }
@@ -81,7 +81,7 @@ pub struct InclusionProof(Vec<Node>);
 /// Serialization of an inclusion proof implied by `write_merkle` in [7.4][1].
 ///
 /// Surprisingly, the length of this particular array is u32, not u24 as elsewhere in Longfellow.
-/// see`write_size` and `read_size` in lib/zk/zk_proof.h.
+/// See `write_size` and `read_size` in lib/zk/zk_proof.h.
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
 impl Codec for InclusionProof {
@@ -96,7 +96,7 @@ impl Codec for InclusionProof {
         Node::decode_fixed_array(bytes, length).map(Self)
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         let len: u32 = self
             .0
             .len()

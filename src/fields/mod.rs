@@ -12,7 +12,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{
     fmt::Debug,
-    io::Cursor,
+    io::{Cursor, Write},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
@@ -89,14 +89,14 @@ pub trait CodecFieldElement:
     + DeserializeOwned
 {
     /// Number of bits needed to represent a field element.
-    const NUM_BITS: u32;
+    const NUM_BITS: usize;
 
     /// Identifier for the field in encoded messages.
     const FIELD_ID: FieldId;
 
     /// Number of bytes needed to represent a field element.
     fn num_bytes() -> usize {
-        (Self::NUM_BITS as usize).div_ceil(8)
+        Self::NUM_BITS.div_ceil(8)
     }
 
     /// Generate a field element by rejection sampling.
@@ -131,7 +131,7 @@ pub trait CodecFieldElement:
             // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.3
             let num_sampled_bytes = Self::num_bytes();
             let mut sampled_bytes = source(num_sampled_bytes);
-            let excess_bits = num_sampled_bytes * 8 - Self::NUM_BITS as usize;
+            let excess_bits = num_sampled_bytes * 8 - Self::NUM_BITS;
             if excess_bits != 0 {
                 sampled_bytes[num_sampled_bytes - 1] &= (1 << (8 - excess_bits)) - 1;
             }
@@ -153,10 +153,16 @@ pub trait CodecFieldElement:
     }
 
     /// Encode this element as an element of the subfield associated with the field.
-    fn encode_in_subfield(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode_in_subfield<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         // By default, fields have no subfield, or put another way, they are their own subfield.
         self.encode(bytes)
     }
+
+    /// Encode this value into a byte array on the stack.
+    ///
+    /// Ideally we would simply return `[u8; Self::NUM_BITS / 8]` here, but generic types aren't
+    /// allowed in const contexts, so we need to indirect via `AsRef<[u8]>`.
+    fn as_byte_array(&self) -> Result<impl AsRef<[u8]>, anyhow::Error>;
 
     /// Decode a fixed length array of elements from the subfield into the field.
     fn decode_fixed_array_in_subfield(
@@ -177,11 +183,14 @@ pub trait CodecFieldElement:
         // Large characteristic fields are assumed to be prime order and indicated by an eight byte
         // LE array containing the single byte 1, then the encoding of -1 in the field.
         circuit_id.update(1u64.to_le_bytes());
-        circuit_id.update((-Self::ONE).get_encoded()?);
+        circuit_id.update((-Self::ONE).as_byte_array()?);
 
         Ok(())
     }
 }
+
+/// Enough bytes to fit the encoding of any [`CodecFieldElement`] implementation.
+pub const CODEC_FIELD_ELEMENT_MAX_NUM_BYTES: usize = 32;
 
 /// Field elements used directly in proofs.
 ///
@@ -330,7 +339,7 @@ impl Codec for FieldId {
         Self::try_from(as_u8)
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         bytes
             .write_u24::<LittleEndian>(*self as u32)
             .context("failed to write u24")
@@ -374,9 +383,9 @@ mod tests {
     use crate::{
         Codec, ParameterizedCodec,
         fields::{
-            CodecFieldElement, FieldElement, ProofFieldElement, field2_128::Field2_128,
-            fieldp128::FieldP128, fieldp256::FieldP256, fieldp256_2::FieldP256_2,
-            fieldp256_scalar::FieldP256Scalar,
+            CODEC_FIELD_ELEMENT_MAX_NUM_BYTES, CodecFieldElement, FieldElement, ProofFieldElement,
+            field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
+            fieldp256_2::FieldP256_2, fieldp256_scalar::FieldP256Scalar,
         },
     };
     use num_bigint::BigUint;
@@ -555,6 +564,8 @@ mod tests {
 
     /// Test implementations of [`CodecFieldElement`].
     fn field_element_test_codec<F: CodecFieldElement>(decode_is_fallible: bool) {
+        assert!(F::num_bytes() <= CODEC_FIELD_ELEMENT_MAX_NUM_BYTES);
+
         let three = F::from(3);
         let nine = F::from(9);
         let neg_one = -F::ONE;

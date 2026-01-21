@@ -9,7 +9,7 @@ use crate::{
 use anyhow::anyhow;
 use merkle::Node;
 use serde::Deserialize;
-use std::io;
+use std::io::{self, Write};
 
 pub mod merkle;
 pub mod prover;
@@ -71,7 +71,7 @@ impl Codec for LigeroCommitment {
         Ok(Self(Sha256Digest::decode(bytes)?))
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         self.0.encode(bytes)
     }
 }
@@ -95,7 +95,7 @@ impl Codec for Nonce {
         Ok(Self(bytes))
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         u8::encode_fixed_array(self.0.as_slice(), bytes)
     }
 }

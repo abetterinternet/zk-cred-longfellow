@@ -19,7 +19,7 @@ use crate::{
     zk_one_circuit::verifier::Verifier,
 };
 use anyhow::anyhow;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 
 /// Longfellow ZK prover.
 pub struct Prover<'a, FE> {
@@ -172,10 +172,10 @@ impl<'a, F: CodecFieldElement + ProofFieldElement> ParameterizedCodec<Verifier<'
     /// See section [7.5][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.5
-    fn encode_with_param(
+    fn encode_with_param<W: Write>(
         &self,
         verifier: &Verifier<F>,
-        bytes: &mut Vec<u8>,
+        bytes: &mut W,
     ) -> Result<(), anyhow::Error> {
         let oracle: &[u8; 32] = self
             .oracle

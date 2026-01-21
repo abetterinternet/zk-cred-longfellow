@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fmt::{self, Formatter},
-    io::Cursor,
+    io::{Cursor, Write},
 };
 
 /// A circuit, serialized according to the ad-hoc definition in [1] and [2].
@@ -90,7 +90,7 @@ impl<FE: CodecFieldElement> Codec for Circuit<FE> {
         Ok(circuit)
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         self.version.encode(bytes)?;
         FE::FIELD_ID.encode(bytes)?;
         Size::try_from(self.num_outputs)?.encode(bytes)?;
@@ -325,7 +325,6 @@ impl<FE: CodecFieldElement> Circuit<FE> {
     /// [1]: https://github.com/google/longfellow-zk/blob/v0.8.6/lib/sumcheck/circuit_id.h
     pub fn circuit_id(&self) -> Result<Sha256Digest, anyhow::Error> {
         let mut circuit_digest = Sha256::new();
-        let mut field_encode = Vec::with_capacity(FE::num_bytes());
 
         // Hash in a description of the field, which is _not_ the field ID.
         FE::update_circuit_id(&mut circuit_digest)?;
@@ -390,9 +389,7 @@ impl<FE: CodecFieldElement> Circuit<FE> {
                 }
 
                 let coefficient = self.constant(quad.const_table_index())?;
-                field_encode.truncate(0);
-                coefficient.encode(&mut field_encode)?;
-                circuit_digest.update(&field_encode);
+                circuit_digest.update(coefficient.as_byte_array()?);
             }
         }
 
@@ -480,7 +477,7 @@ impl Codec for CircuitLayer {
         })
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         self.logw.encode(bytes)?;
         self.num_wires.encode(bytes)?;
         Size::from(self.quads.len() as u32).encode(bytes)?;
@@ -526,10 +523,10 @@ pub struct Quad {
 
 impl ParameterizedCodec<Option<Quad>> for Quad {
     /// Encode this quad as deltas relative to the previous quad in the circuit.
-    fn encode_with_param(
+    fn encode_with_param<W: Write>(
         &self,
         prev_quad: &Option<Quad>,
-        bytes: &mut Vec<u8>,
+        bytes: &mut W,
     ) -> Result<(), anyhow::Error> {
         let prev_quad = prev_quad.unwrap_or_default();
 

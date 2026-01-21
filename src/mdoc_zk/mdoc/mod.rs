@@ -553,11 +553,11 @@ fn skip_body(
             let mut segments = decoder.bytes(len);
             while let Some(mut segment) = segments
                 .pull()
-                .map_err(|e| anyhow!("erorr skipping past bytes: {e:?}"))?
+                .map_err(|e| anyhow!("error skipping past bytes: {e:?}"))?
             {
                 while segment
                     .pull(scratch)
-                    .map_err(|e| anyhow!("erorr skipping past bytes: {e:?}"))?
+                    .map_err(|e| anyhow!("error skipping past bytes: {e:?}"))?
                     .is_some()
                 {}
             }
@@ -566,11 +566,11 @@ fn skip_body(
             let mut segments = decoder.text(len);
             while let Some(mut segment) = segments
                 .pull()
-                .map_err(|e| anyhow!("erorr skipping past text: {e:?}"))?
+                .map_err(|e| anyhow!("error skipping past text: {e:?}"))?
             {
                 while segment
                     .pull(scratch)
-                    .map_err(|e| anyhow!("erorr skipping past text: {e:?}"))?
+                    .map_err(|e| anyhow!("error skipping past text: {e:?}"))?
                     .is_some()
                 {}
             }

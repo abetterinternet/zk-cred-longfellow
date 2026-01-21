@@ -547,26 +547,25 @@ Next, a 12-bit offset into the MSO is encoded into twelve input wires. This
 should point to the type prefix of the byte string inside `valueDigests` for
 this attribute.
 
-##### CBOR Offset and Length in Preimage
+##### CBOR Offset in Preimage
 
-Field elements per attribute: 12 \+ 12 \= 24
+Field elements per attribute: 12
 
-Next, a 12-bit offset and 12-bit length are encoded, pointing to the offset of
-the `elementIdentifier` and `elementValue` inside the attribute hash preimage.
-This needs to point to the CBOR prefix before the value of the
-`elementIdentifier` attribute. This is the same place that the substring
-included in the public inputs above begins. The length should cover the number
-of bytes from this offset to the end of the value of the `elementValue`
-attribute. Both the offset and length are encoded with one bit per input wire.
+Next, a 12-bit offset is encoded, pointing to the offset of the
+`elementIdentifier` and `elementValue` inside the attribute hash preimage. This
+needs to point to the CBOR prefix before the value of the `elementIdentifier`
+attribute. This is the same place that the substring included in the public
+inputs above begins. The offset is encoded with one bit per input wire.
 
-##### Unused Offset and Length
+##### Unused Offset and Lengths
 
-Field elements per attribute: 12 \+ 12 \= 24
+Field elements per attribute: 12 \+ 12 \+ 12 \= 24
 
-Two more 12-bit fields are encoded, again an offset and a length, but they are
-unused. This is likely an artifact of prior circuit interfaces, which provided
-the `elementIdentifier` and `elementValue` values separately, and did not
-include them in one byte string spanning multiple CBOR items.
+Three more 12-bit fields are encoded, a length, an offset, and a length, but
+they are unused. This is likely an artifact of prior circuit interfaces, which
+provided the `elementIdentifier` and `elementValue` values separately, with an
+offset and length for each, and did not include them in one byte string spanning
+multiple CBOR items.
 
 #### MAC Prover Key Shares
 

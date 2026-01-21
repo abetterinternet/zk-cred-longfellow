@@ -306,7 +306,19 @@ impl CircuitInputs {
                 .map_err(anyhow::Error::from)
                 .and_then(|offset| u12_as_bits(offset, attribute_witness.cbor_data_offset))
                 .context("offset into IssuerSignedItem is too large")?;
+
+            // Fill unused witness values with zeros.
+            //
+            // Unwrap safety: these won't fail because 0 is in range.
+            u12_as_bits(0, attribute_witness.cbor_data_length).unwrap();
+            u12_as_bits(0, attribute_witness.unused_offset).unwrap();
+            u12_as_bits(0, attribute_witness.unused_length).unwrap();
         }
+
+        // Set MAC prover key shares.
+        split_hash_input
+            .mac_prover_key_shares
+            .copy_from_slice(mac_prover_key_shares);
 
         Ok(Self {
             layout,
@@ -471,7 +483,6 @@ pub(super) mod tests {
         .unwrap()
     }
 
-    #[ignore = "failing, witness preparation is incomplete"]
     #[wasm_bindgen_test(unsupported = test)]
     fn witness_preparation() {
         let test_vector = load_witness_test_vector();
@@ -628,7 +639,27 @@ pub(super) mod tests {
         );
 
         assert_eq!(inputs.signature_input(), expected_signature_input);
-        assert_eq!(inputs.hash_input(), expected_hash_input);
+
+        // Copy values for unused witness values. We don't care if these are different from the test
+        // vector.
+        for (attr_actual, attr_expected) in hash_actual_split
+            .attribute_witnesses
+            .inputs
+            .iter_mut()
+            .zip(hash_expected_split.attribute_witnesses.inputs.iter_mut())
+        {
+            let Some(attr_actual) = attr_actual else {
+                continue;
+            };
+            let Some(attr_expected) = attr_expected else {
+                continue;
+            };
+            *attr_actual.cbor_data_length = *attr_expected.cbor_data_length;
+            *attr_actual.unused_offset = *attr_expected.unused_offset;
+            *attr_actual.unused_length = *attr_expected.unused_length;
+        }
+
+        assert_eq!(hash_actual, expected_hash_input);
     }
 
     #[wasm_bindgen_test(unsupported = test)]

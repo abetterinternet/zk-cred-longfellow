@@ -70,6 +70,7 @@ pub(super) fn run_sha256_witnessed<'a, const WIRES: usize>(
     // of the circuit inputs.
     let circuit_num_blocks = WIRES / Sha256BlockWitness::LENGTH;
     let circuit_input_len = circuit_num_blocks * 64;
+    assert_eq!(WIRES % Sha256BlockWitness::LENGTH, 0);
 
     let mut padded_input = Vec::with_capacity(circuit_input_len);
     padded_input.extend_from_slice(input);

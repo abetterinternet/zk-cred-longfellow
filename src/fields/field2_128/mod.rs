@@ -12,6 +12,7 @@ use crate::{
 use anyhow::{Context, anyhow};
 use constants::{subfield_basis, subfield_basis_lu_decomposition};
 use serde::{Deserialize, Serialize, de::Error};
+use sha2::{Digest, Sha256};
 #[cfg(target_arch = "aarch64")]
 use std::arch::is_aarch64_feature_detected;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
@@ -155,6 +156,16 @@ impl CodecFieldElement for Field2_128 {
         let subfield_elements = u16::decode_fixed_array(bytes, count)?;
 
         Ok(subfield_elements.iter().map(|e| Self::inject(*e)).collect())
+    }
+
+    fn update_circuit_id(circuit_id: &mut Sha256) -> Result<(), anyhow::Error> {
+        // A characteristic 2 field is identified by an eight byte LE array containing the single
+        // byte 2 to indicate the characteristic, then the bit length of the field.
+        circuit_id.update(2u64.to_le_bytes());
+        // Casting u32 to u64 is always safe.
+        circuit_id.update((Self::NUM_BITS as u64).to_le_bytes());
+
+        Ok(())
     }
 }
 

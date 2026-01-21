@@ -104,8 +104,6 @@ pub(crate) struct CircuitTestVector<FieldElement> {
     pub(crate) ligero_commitment: String,
     /// The serialized Ligero proof.
     #[serde(default)]
-    // TODO: test against this proof.
-    #[allow(dead_code)]
     pub(crate) serialized_ligero_proof: Vec<u8>,
     /// The fixed pad value to use during constraint generation.
     pub(crate) pad: u64,

@@ -22,8 +22,6 @@ pub struct SumcheckProver<'a, FE> {
 
 /// Sumcheck proof plus some extra data useful for validation.
 #[derive(Clone, Debug)]
-// We don't yet examine these outside of test code, so allow dead code for now.
-#[allow(dead_code)]
 pub struct ProverResult<FE> {
     /// The sumcheck proof from which Ligero constraints may be generated.
     pub proof: SumcheckProof<FE>,

@@ -5,6 +5,7 @@ use crate::{
 };
 use anyhow::{Context, anyhow};
 use educe::Educe;
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fmt::{self, Formatter},
@@ -66,9 +67,10 @@ impl<FE: CodecFieldElement> Codec for Circuit<FE> {
 
         let layers = CircuitLayer::decode_fixed_array(bytes, num_layers)
             .context("failed to decode layers")?;
+
         let id = Sha256Digest::decode(bytes)?;
 
-        Ok(Self {
+        let circuit = Self {
             version,
             num_outputs,
             num_copies,
@@ -79,7 +81,13 @@ impl<FE: CodecFieldElement> Codec for Circuit<FE> {
             constant_table,
             layers,
             id,
-        })
+        };
+
+        if id != circuit.circuit_id()? {
+            return Err(anyhow!("circuit ID does not match"));
+        }
+
+        Ok(circuit)
     }
 
     fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
@@ -310,6 +318,85 @@ impl<FE: CodecFieldElement> Circuit<FE> {
         assert_eq!(sparse_quad.len(), self.layers[layer_index].quads.len());
 
         Ok(SparseSumcheckArray::from(sparse_quad))
+    }
+
+    /// Compute the ID of the circuit, matching how [`longfellow-zk`][1] does it.
+    ///
+    /// [1]: https://github.com/google/longfellow-zk/blob/v0.8.6/lib/sumcheck/circuit_id.h
+    pub fn circuit_id(&self) -> Result<Sha256Digest, anyhow::Error> {
+        let mut circuit_digest = Sha256::new();
+        let mut field_encode = Vec::with_capacity(FE::num_bytes());
+
+        // Hash in a description of the field, which is _not_ the field ID.
+        FE::update_circuit_id(&mut circuit_digest)?;
+
+        fn update(
+            circuit_id: &mut Sha256,
+            label: &'static str,
+            value: usize,
+        ) -> Result<(), anyhow::Error> {
+            circuit_id.update(
+                u64::try_from(value)
+                    .context(format!("{label} too big for u64"))?
+                    .to_le_bytes(),
+            );
+
+            Ok(())
+        }
+
+        for (label, value) in [
+            ("num outputs", self.num_outputs),
+            (
+                "log_2(num_outputs)",
+                self.num_outputs
+                    .next_power_of_two()
+                    .ilog2()
+                    .try_into()
+                    .context("u32 too big for usize")?,
+            ),
+            ("num copies", self.num_copies),
+            (
+                "log_2(num_copies)",
+                self.num_copies
+                    .next_power_of_two()
+                    .ilog2()
+                    .try_into()
+                    .context("u32 too big for usize")?,
+            ),
+            ("num layers", self.num_layers),
+            ("num inputs", self.num_inputs),
+            ("num public inputs", self.num_public_inputs),
+            ("subfield boundary", self.subfield_boundary),
+        ] {
+            update(&mut circuit_digest, label, value)?;
+        }
+
+        for layer in &self.layers {
+            for (label, value) in [
+                ("layer num wires", layer.num_wires()),
+                ("log_2(layer num wires)", layer.logw()),
+                ("num quads", layer.quads.len()),
+            ] {
+                update(&mut circuit_digest, label, value)?;
+            }
+
+            for quad in &layer.quads {
+                for (label, value) in [
+                    ("quad gate index", quad.gate_index()),
+                    ("quad left wire index", quad.left_wire_index()),
+                    ("quad right wire index", quad.right_wire_index()),
+                ] {
+                    update(&mut circuit_digest, label, value)?;
+                }
+
+                let coefficient = self.constant(quad.const_table_index())?;
+                field_encode.truncate(0);
+                coefficient.encode(&mut field_encode)?;
+                circuit_digest.update(&field_encode);
+            }
+        }
+
+        Ok(Sha256Digest(circuit_digest.finalize().into()))
     }
 }
 

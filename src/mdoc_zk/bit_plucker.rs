@@ -25,6 +25,7 @@ impl BitPlucker<4, Field2_128> {
 
     /// Encode multiple words into multiple field elements.
     pub(super) fn encode_u32_array(&self, words: &[u32], out: &mut [Field2_128]) {
+        assert_eq!(words.len() * 32, out.len() * 4);
         let mask = u16::MAX >> (u16::BITS - 4);
         for (word, out_chunk) in words.iter().zip(out.chunks_exact_mut(32 / 4)) {
             let mut bits = *word;
@@ -56,6 +57,7 @@ impl<const BITS: u8> BitPlucker<BITS, FieldP256> {
     pub(super) fn encode_byte_array(&self, bytes: &[u8], out: &mut [FieldP256]) {
         assert!(BITS <= 8);
         assert_eq!(8 % BITS, 0);
+        assert_eq!(bytes.len() * 8, out.len() * BITS as usize);
         let mask = u8::MAX >> (u8::BITS - BITS as u32);
         for (byte, out_chunk) in bytes
             .iter()

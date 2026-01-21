@@ -408,9 +408,7 @@ pub(super) fn find_attributes(
     for bytes in attribute_preimages.values().flatten() {
         let mut decoder = ciborium_ll::Decoder::from(bytes.as_slice());
 
-        let map_header = decoder
-            .pull()
-            .map_err(|e| anyhow!("reading attribute failed: {e:?}"))?;
+        let map_header = pull(&mut decoder, "reading attribute failed")?;
         let Header::Map(map_size_opt) = map_header else {
             return Err(anyhow!("IssuerSignedItem was not a map"));
         };
@@ -439,9 +437,7 @@ pub(super) fn find_attributes(
                 break;
             }
 
-            let key_header = decoder
-                .pull()
-                .map_err(|e| anyhow!("reading map entry key failed: {e:?}"))?;
+            let key_header = pull(&mut decoder, "reading map entry key failed")?;
             let key_length = match key_header {
                 Header::Text(key_length) => key_length,
                 Header::Break => {
@@ -458,9 +454,7 @@ pub(super) fn find_attributes(
                 .context("error reading key in IssuerSignedItem")?;
 
             let value_offset = decoder.offset();
-            let value_header = decoder
-                .pull()
-                .map_err(|e| anyhow!("reading map entry value failed: {e:?}"))?;
+            let value_header = pull(&mut decoder, "reading map entry value failed")?;
             let mut this_entry_element_identifier = false;
             match key.as_str() {
                 "digestID" => {
@@ -543,9 +537,7 @@ fn skip_body(
     match header {
         Header::Positive(_) | Header::Negative(_) | Header::Float(_) | Header::Simple(_) => {}
         Header::Tag(_) => {
-            let header = decoder
-                .pull()
-                .map_err(|e| anyhow!("reading next item after tag failed: {e:?}"))?;
+            let header = pull(decoder, "reading next item after tag failed")?;
             skip_body(decoder, scratch, header)?
         }
         Header::Break => return Err(anyhow!("unexpected break header when skipping value")),
@@ -584,9 +576,7 @@ fn skip_body(
                     break;
                 }
 
-                let header = decoder
-                    .pull()
-                    .map_err(|e| anyhow!("error skipping array: {e:?}"))?;
+                let header = pull(decoder, "error skipping array")?;
                 if let Header::Break = header {
                     if len.is_some() {
                         return Err(anyhow!("unexpected break in array of known size"));
@@ -607,9 +597,7 @@ fn skip_body(
                     break;
                 }
 
-                let key_header = decoder
-                    .pull()
-                    .map_err(|e| anyhow!("error skipping map: {e:?}"))?;
+                let key_header = pull(decoder, "error skipping map")?;
                 if let Header::Break = key_header {
                     if len.is_some() {
                         return Err(anyhow!("unexpected break in map of known size"));
@@ -618,9 +606,7 @@ fn skip_body(
                 }
                 skip_body(decoder, scratch, key_header)?;
 
-                let value_header = decoder
-                    .pull()
-                    .map_err(|e| anyhow!("error skipping map: {e:?}"))?;
+                let value_header = pull(decoder, "error skipping map")?;
                 skip_body(decoder, scratch, value_header)?;
 
                 entry_count += 1;
@@ -653,6 +639,11 @@ fn slurp_string(
         }
     }
     Ok(string)
+}
+
+/// Wrapper that calls `ciborium::Decoder::pull()` and converts errors.
+fn pull(decoder: &mut Decoder<&[u8]>, error_reason: &str) -> Result<Header, anyhow::Error> {
+    decoder.pull().map_err(|e| anyhow!("{error_reason}: {e:?}"))
 }
 
 #[cfg(test)]

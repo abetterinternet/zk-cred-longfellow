@@ -4,10 +4,10 @@ use crate::{
     mdoc_zk::{
         bit_plucker::BitPlucker,
         ec::{AffinePoint, fill_ecdsa_witness},
-        layout::{EcdsaWitness, InputLayout},
+        layout::{AttributeInput, EcdsaWitness, InputLayout},
         mdoc::{
-            compute_credential_hash, compute_session_transcript_hash, hash_to_field_element,
-            parse_device_response,
+            ParsedAttribute, compute_credential_hash, compute_session_transcript_hash,
+            find_attributes, hash_to_field_element, parse_device_response,
         },
     },
 };
@@ -22,14 +22,6 @@ mod sha256;
 /// Versions of the mdoc_zk circuit interface.
 pub enum CircuitVersion {
     V6 = 6,
-}
-
-/// Identifier and value of a presented attribute.
-pub struct Attribute {
-    /// The attribute's identifier.
-    pub id: String,
-    /// The attribute's value, as CBOR-encoded data.
-    pub cbor_value: Vec<u8>,
 }
 
 /// Inputs for the mdoc_zk circuits.
@@ -47,19 +39,20 @@ impl CircuitInputs {
         version: CircuitVersion,
         mdoc_device_response: &[u8],
         transcript: &[u8],
-        attributes: &[Attribute],
-        _time: &str,
+        attribute_ids: &[String],
+        time: &str,
         mac_prover_key_shares: &[Field2_128; 6],
     ) -> Result<Self, anyhow::Error> {
         let layout = InputLayout::new(
             version,
-            attributes
+            attribute_ids
                 .len()
                 .try_into()
                 .map_err(|_| anyhow!("unsupported number of attributes"))?,
         )?;
 
         let mdoc = parse_device_response(mdoc_device_response)?;
+        let attributes = find_attributes(&mdoc.attribute_preimages, attribute_ids)?;
 
         let mut signature_input = vec![FieldP256::ZERO; layout.signature_input_length()];
         let mut split_signature_input = layout.split_signature_input(&mut signature_input);
@@ -147,6 +140,39 @@ impl CircuitInputs {
             sig_mac_bit_plucker.encode_byte_array(message, &mut out[128..]);
         }
 
+        // Set public contents of attributes.
+        for (out_slice, attribute) in split_hash_input
+            .attribute_inputs
+            .inputs
+            .iter_mut()
+            .zip(attributes.iter())
+        {
+            // Unwrap safety: when splitting the circuit inputs, we ensure there are as many `Some`
+            // values as there are requested attributes.
+            let out_slice = out_slice.as_mut().unwrap();
+            fill_attribute_statment(out_slice, attribute)?;
+        }
+
+        // Set current time.
+        if time.len() != 20 {
+            return Err(anyhow!(
+                "current time is not correctly formatted, must be 20 bytes long"
+            ));
+        }
+        byte_array_as_bits(time.as_bytes(), split_hash_input.time);
+
+        // Encode MAC messages. Note that this encodes the credential hash field element in
+        // little-endian order, which effectively byte-reverses the hash digest.
+        byte_array_as_bits(&mac_messages_buffer[..32], split_hash_input.e_credential);
+        byte_array_as_bits(
+            &mac_messages_buffer[32..64],
+            split_hash_input.device_public_key_x,
+        );
+        byte_array_as_bits(
+            &mac_messages_buffer[64..],
+            split_hash_input.device_public_key_y,
+        );
+
         // Smoke test: iterate through SHA-256 block witnesses.
         for _ in split_hash_input.sha_256_witness_credential.iter_blocks() {}
         for _ in split_hash_input.attribute_witnesses.inputs[0]
@@ -198,13 +224,40 @@ impl CircuitInputs {
     }
 }
 
+/// Set public inputs related to one attribute.
+fn fill_attribute_statment(
+    attribute_input: &mut AttributeInput<'_>,
+    attribute_data: &ParsedAttribute,
+) -> Result<(), anyhow::Error> {
+    let mut buffer = [0u8; 96];
+    let len = attribute_data.public_cbor_data.len();
+    if len > 96 {
+        return Err(anyhow!("public attribute data is too long: {len} > 96"));
+    }
+    buffer[..len].copy_from_slice(&attribute_data.public_cbor_data);
+    byte_array_as_bits(&buffer, attribute_input.cbor_data);
+    byte_array_as_bits(&[len as u8], attribute_input.cbor_length);
+    Ok(())
+}
+
+/// Encode an array of bytes as field elements, with one field element representing each bit.
+fn byte_array_as_bits(bytes: &[u8], out: &mut [Field2_128]) {
+    for (byte, out_chunk) in bytes.iter().zip(out.chunks_exact_mut(8)) {
+        let mut bits = *byte;
+        for out_elem in out_chunk.iter_mut() {
+            *out_elem = Field2_128::inject_bits::<1>((bits & 1) as u16);
+            bits >>= 1;
+        }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use crate::{
         Codec,
         circuit::Circuit,
         fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
-        mdoc_zk::{Attribute, CircuitInputs, CircuitVersion},
+        mdoc_zk::{CircuitInputs, CircuitVersion, byte_array_as_bits},
     };
     use serde::Deserialize;
     use std::io::Cursor;
@@ -262,8 +315,6 @@ pub(super) mod tests {
     #[derive(Deserialize)]
     struct TestVectorAttribute {
         id: String,
-        #[serde(deserialize_with = "hex::serde::deserialize")]
-        cbor_value: Vec<u8>,
     }
 
     fn load_witness_test_vector() -> WitnessTestVector {
@@ -281,10 +332,7 @@ pub(super) mod tests {
         let attributes = test_vector
             .attributes
             .iter()
-            .map(|attr| Attribute {
-                id: attr.id.clone(),
-                cbor_value: attr.cbor_value.clone(),
-            })
+            .map(|attr| attr.id.clone())
             .collect::<Vec<_>>();
 
         let mac_verifier_key_share =
@@ -335,12 +383,126 @@ pub(super) mod tests {
             layout.split_signature_input(&mut inputs.signature_input().to_vec()),
             layout.split_signature_input(&mut expected_signature_input.clone())
         );
+
+        // We need to split comparison of the hash inputs up by top-level field, otherwise it will
+        // hit an allocation error when trying to write the diff.
+        let mut hash_actual = inputs.hash_input().to_vec();
+        let hash_actual_split = layout.split_hash_input(&mut hash_actual);
+        let mut hash_expected = expected_hash_input.clone();
+        let hash_expected_split = layout.split_hash_input(&mut hash_expected);
         pretty_assertions::assert_eq!(
-            layout.split_hash_input(&mut inputs.hash_input().to_vec()),
-            layout.split_hash_input(&mut expected_hash_input.clone())
+            hash_actual_split.implicit_one,
+            hash_expected_split.implicit_one,
+            "implicit one"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.attribute_inputs,
+            hash_expected_split.attribute_inputs,
+            "attribute inputs"
+        );
+        pretty_assertions::assert_eq!(hash_actual_split.time, hash_expected_split.time, "time");
+        pretty_assertions::assert_eq!(
+            hash_actual_split.mac_tags,
+            hash_expected_split.mac_tags,
+            "mac tags"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.mac_verifier_key_share,
+            hash_expected_split.mac_verifier_key_share,
+            "mac verifier key share"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.e_credential,
+            hash_expected_split.e_credential,
+            "e, credential"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.device_public_key_x,
+            hash_expected_split.device_public_key_x,
+            "device public key x"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.device_public_key_y,
+            hash_expected_split.device_public_key_y,
+            "device public key y"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.sha_256_block_count,
+            hash_expected_split.sha_256_block_count,
+            "sha-256 block count"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.sha_256_input,
+            hash_expected_split.sha_256_input,
+            "sha-256 input"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.sha_256_witness_credential,
+            hash_expected_split.sha_256_witness_credential,
+            "sha-256 witness, credential"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.valid_from_offset,
+            hash_expected_split.valid_from_offset,
+            "validFrom offset"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.valid_until_offset,
+            hash_expected_split.valid_until_offset,
+            "validUntil offset"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.device_key_info_offset,
+            hash_expected_split.device_key_info_offset,
+            "deviceKeyInfo offset"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.value_digests_offset,
+            hash_expected_split.value_digests_offset,
+            "valueDigests offset"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.attribute_witnesses,
+            hash_expected_split.attribute_witnesses,
+            "attribute witnesses"
+        );
+        pretty_assertions::assert_eq!(
+            hash_actual_split.mac_prover_key_shares,
+            hash_expected_split.mac_prover_key_shares,
+            "mac prover key shares"
         );
 
         assert_eq!(inputs.signature_input(), expected_signature_input);
         assert_eq!(inputs.hash_input(), expected_hash_input);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_byte_array() {
+        let bytes = b"A\n";
+        let mut field_elements = [-Field2_128::ONE; 16];
+        byte_array_as_bits(bytes, &mut field_elements);
+        assert_eq!(
+            field_elements,
+            [
+                // 0x41
+                Field2_128::ONE,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ONE,
+                Field2_128::ZERO,
+                // 0x0a
+                Field2_128::ZERO,
+                Field2_128::ONE,
+                Field2_128::ZERO,
+                Field2_128::ONE,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+                Field2_128::ZERO,
+            ]
+        );
     }
 }

@@ -11,6 +11,7 @@ use crate::{
 };
 use anyhow::{Context, anyhow};
 use ciborium::{Value, tag};
+use ciborium_ll::{Decoder, Header};
 use serde::{Deserialize, Serialize, de::IgnoredAny};
 use std::{collections::HashMap, ops::Deref};
 use x509_cert::{
@@ -388,10 +389,273 @@ pub(super) fn hash_to_field_element(mut digest: Sha256Digest) -> Result<FieldP25
     FieldP256::try_from(&digest.0)
 }
 
+/// Information about an attribute extracted from an mdoc.
+#[derive(Debug, Clone)]
+pub(super) struct ParsedAttribute {
+    pub(super) _digest_id: u64,
+    pub(super) _issuer_signed_item_data: Vec<u8>,
+    pub(super) public_cbor_data: Vec<u8>,
+    pub(super) _public_cbor_offset: usize,
+}
+
+/// Locate attributes by their identifier, and return their values and related witnesses.
+pub(super) fn find_attributes(
+    attribute_preimages: &HashMap<String, Vec<Vec<u8>>>,
+    attribute_ids: &[String],
+) -> Result<Vec<ParsedAttribute>, anyhow::Error> {
+    let mut out: Vec<Option<ParsedAttribute>> = vec![None; attribute_ids.len()];
+    let mut scratch = [0u8; 4096];
+    for bytes in attribute_preimages.values().flatten() {
+        let mut decoder = ciborium_ll::Decoder::from(bytes.as_slice());
+
+        let map_header = pull(&mut decoder, "reading attribute failed")?;
+        let Header::Map(map_size_opt) = map_header else {
+            return Err(anyhow!("IssuerSignedItem was not a map"));
+        };
+
+        // Version 6 of the circuit requires the elementIdentifier key-value pair to be immediately
+        // followed by the elementValue key-value pair. We need to find those, and store an offset
+        // in the middle of the first key-value pair. We also need to find the digestID, to
+        // efficiently find the offset of the corresponding digest in the MSO.
+        //
+        // Read two items at a time. For maps of known size, stop after the expected number
+        // of entries have been read. For maps of indefinite size, stop when encountering a `break`
+        // header.
+
+        let mut attribute_id = None;
+        let mut digest_id = None;
+        let mut public_cbor_data_and_offset = None;
+
+        let mut last_entry_was_element_identifier = false;
+        let mut last_value_offset = None;
+
+        let mut entry_count = 0;
+        loop {
+            if let Some(map_size) = map_size_opt
+                && entry_count >= map_size
+            {
+                break;
+            }
+
+            let key_header = pull(&mut decoder, "reading map entry key failed")?;
+            let key_length = match key_header {
+                Header::Text(key_length) => key_length,
+                Header::Break => {
+                    if map_size_opt.is_some() {
+                        return Err(anyhow!("unexpected break in map of known size"));
+                    }
+                    break;
+                }
+                _ => {
+                    return Err(anyhow!("unexpected map key type: {key_header:?}"));
+                }
+            };
+            let key = slurp_string(&mut decoder, &mut scratch, key_length)
+                .context("error reading key in IssuerSignedItem")?;
+
+            let value_offset = decoder.offset();
+            let value_header = pull(&mut decoder, "reading map entry value failed")?;
+            let mut this_entry_element_identifier = false;
+            match key.as_str() {
+                "digestID" => {
+                    if let Header::Positive(id) = value_header {
+                        digest_id = Some(id)
+                    } else {
+                        return Err(anyhow!("unexpected value for digestID: {value_header:?}"));
+                    }
+                }
+                "elementIdentifier" => {
+                    this_entry_element_identifier = true;
+                    if let Header::Text(len) = value_header {
+                        attribute_id = Some(slurp_string(&mut decoder, &mut scratch, len)?);
+                    } else {
+                        return Err(anyhow!(
+                            "unexpected value for elementIdentifier: {value_header:?}"
+                        ));
+                    }
+                }
+                "elementValue" => {
+                    if !last_entry_was_element_identifier {
+                        return Err(anyhow!(
+                            "elementValue did not immediately follow elementIdentifier"
+                        ));
+                    }
+                    skip_body(&mut decoder, &mut scratch, value_header)?;
+                    let end_offset = decoder.offset();
+                    let Some(start_offset) = last_value_offset else {
+                        return Err(anyhow!("elementValue did not follow elementIdentifier"));
+                    };
+                    public_cbor_data_and_offset =
+                        Some((bytes[start_offset..end_offset].to_vec(), start_offset));
+                }
+                _ => skip_body(&mut decoder, &mut scratch, value_header)?,
+            }
+
+            last_entry_was_element_identifier = this_entry_element_identifier;
+            last_value_offset = Some(value_offset);
+
+            entry_count += 1;
+        }
+
+        if decoder.offset() != bytes.len() {
+            return Err(anyhow!("leftover data after reading IssuerSignedItem"));
+        }
+
+        for (opt, desired_attribute_id) in out.iter_mut().zip(attribute_ids) {
+            if let Some(attribute_id) = &attribute_id
+                && attribute_id == desired_attribute_id
+            {
+                let (public_cbor_data, public_cbor_offset) = public_cbor_data_and_offset
+                    .take()
+                    .ok_or_else(|| anyhow!("elementValue was missing for IssuerSignedItem"))?;
+                *opt = Some(ParsedAttribute {
+                    _digest_id: digest_id
+                        .ok_or_else(|| anyhow!("digestID was missing for IssuerSignedItem"))?,
+                    _issuer_signed_item_data: bytes.clone(),
+                    public_cbor_data,
+                    _public_cbor_offset: public_cbor_offset,
+                });
+                break;
+            }
+        }
+    }
+
+    out.into_iter()
+        .zip(attribute_ids)
+        .map(|(opt, attribute_id)| {
+            opt.ok_or_else(|| anyhow!("attribute was not found in mdoc: {attribute_id}"))
+        })
+        .collect::<Result<Vec<_>, _>>()
+}
+
+/// Advance the decoder past the body of an item, if applicable.
+fn skip_body(
+    decoder: &mut Decoder<&[u8]>,
+    scratch: &mut [u8],
+    header: Header,
+) -> Result<(), anyhow::Error> {
+    match header {
+        Header::Positive(_) | Header::Negative(_) | Header::Float(_) | Header::Simple(_) => {}
+        Header::Tag(_) => {
+            let header = pull(decoder, "reading next item after tag failed")?;
+            skip_body(decoder, scratch, header)?
+        }
+        Header::Break => return Err(anyhow!("unexpected break header when skipping value")),
+        Header::Bytes(len) => {
+            let mut segments = decoder.bytes(len);
+            while let Some(mut segment) = segments
+                .pull()
+                .map_err(|e| anyhow!("error skipping past bytes: {e:?}"))?
+            {
+                while segment
+                    .pull(scratch)
+                    .map_err(|e| anyhow!("error skipping past bytes: {e:?}"))?
+                    .is_some()
+                {}
+            }
+        }
+        Header::Text(len) => {
+            let mut segments = decoder.text(len);
+            while let Some(mut segment) = segments
+                .pull()
+                .map_err(|e| anyhow!("error skipping past text: {e:?}"))?
+            {
+                while segment
+                    .pull(scratch)
+                    .map_err(|e| anyhow!("error skipping past text: {e:?}"))?
+                    .is_some()
+                {}
+            }
+        }
+        Header::Array(len) => {
+            let mut element_count = 0;
+            loop {
+                if let Some(len) = len
+                    && element_count >= len
+                {
+                    break;
+                }
+
+                let header = pull(decoder, "error skipping array")?;
+                if let Header::Break = header {
+                    if len.is_some() {
+                        return Err(anyhow!("unexpected break in array of known size"));
+                    }
+                    break;
+                }
+                skip_body(decoder, scratch, header)?;
+
+                element_count += 1;
+            }
+        }
+        Header::Map(len) => {
+            let mut entry_count = 0;
+            loop {
+                if let Some(len) = len
+                    && entry_count >= len
+                {
+                    break;
+                }
+
+                let key_header = pull(decoder, "error skipping map")?;
+                if let Header::Break = key_header {
+                    if len.is_some() {
+                        return Err(anyhow!("unexpected break in map of known size"));
+                    }
+                    break;
+                }
+                skip_body(decoder, scratch, key_header)?;
+
+                let value_header = pull(decoder, "error skipping map")?;
+                skip_body(decoder, scratch, value_header)?;
+
+                entry_count += 1;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Read the body of a text string into a [`String`].
+fn slurp_string(
+    decoder: &mut Decoder<&[u8]>,
+    scratch: &mut [u8],
+    len: Option<usize>,
+) -> Result<String, anyhow::Error> {
+    let mut string = match len {
+        Some(length) => String::with_capacity(length),
+        None => String::new(),
+    };
+    let mut segments = decoder.text(len);
+    while let Some(mut segment) = segments
+        .pull()
+        .map_err(|e| anyhow!("error reading string: {e:?}"))?
+    {
+        while let Some(chunk) = segment
+            .pull(scratch)
+            .map_err(|e| anyhow!("error reading string segment: {e:?}"))?
+        {
+            string.push_str(chunk);
+        }
+    }
+    Ok(string)
+}
+
+/// Wrapper that calls `ciborium::Decoder::pull()` and converts errors.
+fn pull(decoder: &mut Decoder<&[u8]>, error_reason: &str) -> Result<Header, anyhow::Error> {
+    decoder.pull().map_err(|e| anyhow!("{error_reason}: {e:?}"))
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::mdoc_zk::mdoc::ByteString;
+    use crate::mdoc_zk::{
+        find_attributes,
+        mdoc::{ByteString, skip_body},
+    };
+    use ciborium::{cbor, tag};
+    use ciborium_ll::Decoder;
     use serde_test::{Token, assert_ser_tokens};
+    use std::{collections::HashMap, io::Cursor};
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -403,5 +667,116 @@ mod tests {
         let mut buffer = Vec::new();
         ciborium::into_writer(&byte_string, &mut buffer).unwrap();
         assert_eq!(buffer, b"\x45hello");
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_skip_body() {
+        let mut scratch = [0u8; 1024];
+        for value_res in [
+            cbor!({1 => null}),
+            cbor!(null),
+            cbor!(true),
+            cbor!(-1),
+            cbor!([["a"], {-1 => -1}]),
+            cbor!(tag::Required::<_, 1>(["abc", "def"])),
+            cbor!([ByteString(b"123".to_vec())]),
+        ] {
+            let value = value_res.unwrap();
+            let mut buffer = Vec::new();
+            ciborium::into_writer(&value, &mut buffer).unwrap();
+
+            let mut decoder = Decoder::from(buffer.as_slice());
+            let header = decoder.pull().unwrap();
+            skip_body(&mut decoder, &mut scratch, header).unwrap();
+            assert_eq!(
+                decoder.offset(),
+                buffer.len(),
+                "skip_body() did not consume all of the input"
+            );
+        }
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_find_attributes_simple() {
+        let mut data = Vec::new();
+        ciborium::into_writer(
+            &cbor!({
+                "digestID" => 0,
+                "random" => ByteString(b"0123456789012345".to_vec()),
+                "elementIdentifier" => "age_over_21",
+                "elementValue" => true,
+            })
+            .unwrap(),
+            &mut Cursor::new(&mut data),
+        )
+        .unwrap();
+
+        let attributes = find_attributes(
+            &HashMap::from([("org.iso.18013.5.1.aamva".to_string(), Vec::from([data]))]),
+            &["age_over_21".to_string()],
+        )
+        .unwrap();
+        let attribute = &attributes[0];
+        assert_eq!(attribute._digest_id, 0);
+        assert!(attribute.public_cbor_data.ends_with(&[0xf5])); // primitive(21), i.e. true
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_find_attributes_complex() {
+        let mut data = Vec::new();
+        ciborium::into_writer(
+            &cbor!({
+                "digestID" => 0,
+                "random" => ByteString(b"0123456789012345".to_vec()),
+                "elementIdentifier" => "domestic_driving_privileges",
+                "elementValue" => [{
+                    "domestic_vehicle_endorsements" => [{
+                        "domestic_vehicle_endorsement_description" => "Passenger"
+                    }],
+                }],
+            })
+            .unwrap(),
+            &mut Cursor::new(&mut data),
+        )
+        .unwrap();
+
+        let attributes = find_attributes(
+            &HashMap::from([("org.iso.18013.5.1.aamva".to_string(), Vec::from([data]))]),
+            &["domestic_driving_privileges".to_string()],
+        )
+        .unwrap();
+        let attribute = &attributes[0];
+        assert_eq!(attribute._digest_id, 0);
+        let needle = b"Passenger";
+        assert!(
+            attribute
+                .public_cbor_data
+                .windows(needle.len())
+                .any(|window| window == needle)
+        );
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_find_attributes_wrong_order() {
+        let mut data = Vec::new();
+        ciborium::into_writer(
+            &cbor!({
+                "elementValue" => true,
+                "elementIdentifier" => "age_over_21",
+                "random" => ByteString(b"0123456789012345".to_vec()),
+                "digestID" => 0,
+            })
+            .unwrap(),
+            &mut Cursor::new(&mut data),
+        )
+        .unwrap();
+
+        let error_message = find_attributes(
+            &HashMap::from([("org.iso.18013.5.1.aamva".to_string(), Vec::from([data]))]),
+            &["age_over_21".to_string()],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error_message.contains("follow elementIdentifier"));
     }
 }

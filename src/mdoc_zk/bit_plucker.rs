@@ -1,6 +1,4 @@
-#[cfg(test)]
-use crate::fields::field2_128::Field2_128;
-use crate::fields::{FieldElement, fieldp256::FieldP256};
+use crate::fields::{FieldElement, field2_128::Field2_128, fieldp256::FieldP256};
 
 /// Encoder for the "bit plucker" circuit optimization.
 ///
@@ -10,7 +8,6 @@ pub(super) struct BitPlucker<const BITS: u8, FE: FieldElement> {
     offset: FE,
 }
 
-#[cfg(test)]
 impl BitPlucker<4, Field2_128> {
     /// Construct a bit plucker for a given number of bits.
     pub(super) fn new() -> Self {
@@ -26,9 +23,17 @@ impl BitPlucker<4, Field2_128> {
         Field2_128::inject_bits::<{ 4 + 1 }>(2 * value) - self.offset
     }
 
-    /// Encode multiple bytes into multiple field elements.
-    pub(super) fn encode_byte_array(&self, bytes: &[u8], out: &mut [Field2_128]) {
-        encode_byte_array::<4, _, _>(bytes, out, |value| self.encode(value.into()));
+    /// Encode multiple words into multiple field elements.
+    pub(super) fn encode_u32_array(&self, words: &[u32], out: &mut [Field2_128]) {
+        assert_eq!(words.len() * 32, out.len() * 4);
+        let mask = u16::MAX >> (u16::BITS - 4);
+        for (word, out_chunk) in words.iter().zip(out.chunks_exact_mut(32 / 4)) {
+            let mut bits = *word;
+            for out_elem in out_chunk.iter_mut() {
+                *out_elem = self.encode(bits as u16 & mask);
+                bits >>= 4;
+            }
+        }
     }
 }
 
@@ -50,26 +55,19 @@ impl<const BITS: u8> BitPlucker<BITS, FieldP256> {
     ///
     /// Panics if BITS is not 1, 2, 4, or 8.
     pub(super) fn encode_byte_array(&self, bytes: &[u8], out: &mut [FieldP256]) {
-        encode_byte_array::<BITS, _, _>(bytes, out, |value| self.encode(value.into()));
-    }
-}
-
-pub(super) fn encode_byte_array<const BITS: u8, FE: FieldElement, F: Fn(u8) -> FE>(
-    bytes: &[u8],
-    out: &mut [FE],
-    encode: F,
-) {
-    assert!(BITS <= 8);
-    assert_eq!(8 % BITS, 0);
-    let mask = u8::MAX >> (u8::BITS - BITS as u32);
-    for (byte, out_chunk) in bytes
-        .iter()
-        .zip(out.chunks_exact_mut(usize::from(8 / BITS)))
-    {
-        let mut bits = *byte;
-        for out_elem in out_chunk.iter_mut() {
-            *out_elem = encode(bits & mask);
-            bits >>= BITS;
+        assert!(BITS <= 8);
+        assert_eq!(8 % BITS, 0);
+        assert_eq!(bytes.len() * 8, out.len() * BITS as usize);
+        let mask = u8::MAX >> (u8::BITS - BITS as u32);
+        for (byte, out_chunk) in bytes
+            .iter()
+            .zip(out.chunks_exact_mut(usize::from(8 / BITS)))
+        {
+            let mut bits = *byte;
+            for out_elem in out_chunk.iter_mut() {
+                *out_elem = self.encode((bits & mask).into());
+                bits >>= BITS;
+            }
         }
     }
 }
@@ -113,8 +111,8 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn test_plucker_2_128() {
         let bp = BitPlucker::<4, Field2_128>::new();
-        let mut out = vec![Field2_128::ZERO; 6];
-        bp.encode_byte_array(&[0x01, 0x80, 0xff], &mut out);
+        let mut out = vec![Field2_128::ZERO; 24];
+        bp.encode_u32_array(&[0x00000001, 0x80000000, 0xffffffff], &mut out);
 
         let offset = Field2_128::inject(15);
         assert_eq!(
@@ -123,7 +121,25 @@ mod tests {
                 Field2_128::inject(2) - offset,
                 Field2_128::inject(0) - offset,
                 Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
+                Field2_128::inject(0) - offset,
                 Field2_128::inject(16) - offset,
+                Field2_128::inject(30) - offset,
+                Field2_128::inject(30) - offset,
+                Field2_128::inject(30) - offset,
+                Field2_128::inject(30) - offset,
+                Field2_128::inject(30) - offset,
+                Field2_128::inject(30) - offset,
                 Field2_128::inject(30) - offset,
                 Field2_128::inject(30) - offset,
             ]

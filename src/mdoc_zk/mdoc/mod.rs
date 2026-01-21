@@ -2,11 +2,13 @@
 
 use crate::{
     Sha256Digest,
-    fields::fieldp256::FieldP256,
+    fields::{field2_128::Field2_128, fieldp256::FieldP256},
     mdoc_zk::{
+        BitPlucker,
         ec::{AffinePoint, Signature},
+        layout::{SHA_256_CREDENTIAL_WITNESS_WIRES, Sha256Witness},
         mdoc::cose::{CoseKey, CoseSign1, ProtectedHeadersEs256, SigStructure},
-        sha256::run_sha256,
+        sha256::{Sha256Result, run_sha256, run_sha256_witnessed},
     },
 };
 use anyhow::{Context, anyhow};
@@ -360,7 +362,13 @@ impl Deref for ByteString {
 }
 
 /// Compute the hash of the credential, for the issuer signature.
-pub(super) fn compute_credential_hash(mdoc: &Mdoc) -> Result<Sha256Digest, anyhow::Error> {
+///
+/// This also returns the preimage of the hash, and writes SHA-256 witness values.
+pub(super) fn compute_credential_hash<'a>(
+    mdoc: &Mdoc,
+    witness: &'a mut Sha256Witness<'a, SHA_256_CREDENTIAL_WITNESS_WIRES>,
+    bit_plucker: &BitPlucker<4, Field2_128>,
+) -> Result<Sha256Result, anyhow::Error> {
     let mut body_protected = ByteString(Vec::new());
     ciborium::into_writer(&ProtectedHeadersEs256, &mut body_protected.0)
         .context("could not encode protected headers")?;
@@ -374,7 +382,11 @@ pub(super) fn compute_credential_hash(mdoc: &Mdoc) -> Result<Sha256Digest, anyho
     ciborium::into_writer(&sig_structure, &mut message)
         .context("could not encode Sig_structure")?;
 
-    Ok(run_sha256(message.as_slice()))
+    run_sha256_witnessed::<SHA_256_CREDENTIAL_WITNESS_WIRES>(
+        message.as_slice(),
+        witness,
+        bit_plucker,
+    )
 }
 
 /// Convert a SHA-256 hash from an ECDSA signature into a base field element for use as a circuit input.

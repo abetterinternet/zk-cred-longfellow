@@ -1,6 +1,12 @@
-use crate::Sha256Digest;
-#[cfg(test)]
-use crate::mdoc_zk::layout::Sha256BlockWitness;
+use crate::{
+    Sha256Digest,
+    fields::field2_128::Field2_128,
+    mdoc_zk::{
+        BitPlucker,
+        layout::{Sha256BlockWitness, Sha256Witness},
+    },
+};
+use anyhow::anyhow;
 use std::iter;
 
 const INITIAL_HASH_VALUE: [u32; 8] = [
@@ -19,7 +25,9 @@ const K: [u32; 64] = [
 ];
 
 /// Pads the input to SHA-256 in-place.
-fn pad_input(input: &mut Vec<u8>) {
+///
+/// Returns the number of SHA-256 blocks.
+fn pad_input(input: &mut Vec<u8>) -> usize {
     let length_bytes = input.len();
     // Unwrap safety: SHA-2 spec limits message length to 2^64-1 bits, so the byte count will fit into u64.
     let length_bits = u64::try_from(length_bytes).unwrap() * 8;
@@ -27,6 +35,17 @@ fn pad_input(input: &mut Vec<u8>) {
     let zero_bytes = 63 - (length_bytes + 8) % 64;
     input.extend(iter::repeat_n(0, zero_bytes));
     input.extend_from_slice(&length_bits.to_be_bytes());
+    (length_bytes + 9 + zero_bytes) / 64
+}
+
+/// The result of a SHA-256 hash operation, along with auxiliary information.
+pub(super) struct Sha256Result {
+    /// The SHA-256 digest.
+    pub(super) digest: Sha256Digest,
+    /// The padded input.
+    pub(super) padded_input: Vec<u8>,
+    /// The number of SHA-256 blocks needed to compute the hash.
+    pub(super) num_blocks: usize,
 }
 
 /// Compute the SHA-256 hash of an input.
@@ -39,6 +58,50 @@ pub(super) fn run_sha256(input: &[u8]) -> Sha256Digest {
         process_block(chunk.try_into().unwrap(), &mut hash_value);
     }
     serialize_hash_value(&hash_value)
+}
+
+/// Compute the SHA-256 hash of an input, and write intermediate computations to the witness.
+pub(super) fn run_sha256_witnessed<'a, const WIRES: usize>(
+    input: &[u8],
+    witness: &'a mut Sha256Witness<'a, WIRES>,
+    bit_plucker: &BitPlucker<4, Field2_128>,
+) -> Result<Sha256Result, anyhow::Error> {
+    // Calculate the length of the input after adding extra zeroed blocks, to match the fixed size
+    // of the circuit inputs.
+    let circuit_num_blocks = WIRES / Sha256BlockWitness::LENGTH;
+    let circuit_input_len = circuit_num_blocks * 64;
+    assert_eq!(WIRES % Sha256BlockWitness::LENGTH, 0);
+
+    let mut padded_input = Vec::with_capacity(circuit_input_len);
+    padded_input.extend_from_slice(input);
+    let num_blocks = pad_input(&mut padded_input);
+    padded_input.resize(circuit_input_len, 0);
+
+    let mut hash_value = INITIAL_HASH_VALUE;
+    let mut digest = None;
+    for (block_number, (chunk, mut block_witness)) in padded_input
+        .chunks_exact(64)
+        .zip(witness.iter_blocks())
+        .enumerate()
+    {
+        // Unwrap safety: chunks_exact above guarantees the length is correct.
+        witness_block(
+            chunk.try_into().unwrap(),
+            &mut hash_value,
+            &mut block_witness,
+            bit_plucker,
+        );
+        if block_number + 1 == num_blocks {
+            digest = Some(serialize_hash_value(&hash_value));
+        }
+    }
+
+    let digest = digest.ok_or_else(|| anyhow!("SHA-256 input was too long"))?;
+    Ok(Sha256Result {
+        digest,
+        padded_input,
+        num_blocks,
+    })
 }
 
 /// Process a block of input.
@@ -59,20 +122,24 @@ fn process_block(message_block: &[u8; 64], hash_value: &mut [u32; 8]) {
     hash_value[7] = hash_value[7].wrapping_add(h);
 }
 
-#[cfg(test)]
 /// Compute one block of SHA-256 and record witness values.
 pub(super) fn witness_block(
     message_block: &[u8; 64],
     hash_value: &mut [u32; 8],
-    _witness: &mut Sha256BlockWitness<'_>,
-    _bit_plucker: &(),
+    witness: &mut Sha256BlockWitness<'_>,
+    bit_plucker: &BitPlucker<4, Field2_128>,
 ) {
     let message_schedule = message_schedule(message_block);
-    // TODO: record computed message schedule values in witness.
+    bit_plucker.encode_u32_array(&message_schedule[16..], witness.message_schedule);
+
     let mut state = *hash_value;
-    for (k_t, w_t) in K.iter().zip(&message_schedule) {
+    for ((k_t, w_t), state_e_a) in K
+        .iter()
+        .zip(&message_schedule)
+        .zip(witness.state_e_a.chunks_exact_mut(2 * 32 / 4))
+    {
         round(&mut state, *k_t, *w_t);
-        // TODO: record a and e in witness.
+        bit_plucker.encode_u32_array(&[state[4], state[0]], state_e_a);
     }
     let [a, b, c, d, e, f, g, h] = state;
     hash_value[0] = hash_value[0].wrapping_add(a);
@@ -83,6 +150,7 @@ pub(super) fn witness_block(
     hash_value[5] = hash_value[5].wrapping_add(f);
     hash_value[6] = hash_value[6].wrapping_add(g);
     hash_value[7] = hash_value[7].wrapping_add(h);
+    bit_plucker.encode_u32_array(hash_value, witness.intermediate_hash_value);
 }
 
 /// Expand a block of the message into the message schedule.
@@ -162,6 +230,7 @@ mod tests {
     use crate::{
         fields::{FieldElement, field2_128::Field2_128},
         mdoc_zk::{
+            BitPlucker,
             layout::Sha256BlockWitness,
             sha256::{process_block, run_sha256, witness_block},
         },
@@ -207,7 +276,8 @@ mod tests {
             intermediate_hash_value: &mut intermediate_hash_value,
         };
         let mut hash_value_2 = hash_value;
-        witness_block(message_block, &mut hash_value_2, &mut witness, &());
+        let bit_plucker = BitPlucker::<4, Field2_128>::new();
+        witness_block(message_block, &mut hash_value_2, &mut witness, &bit_plucker);
 
         assert_eq!(hash_value_1, hash_value_2);
     }

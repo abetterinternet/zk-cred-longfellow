@@ -48,9 +48,7 @@ pub(super) struct Mdoc {
     pub(super) device_signature: Signature,
 
     // Attributes.
-    #[allow(unused)]
-    pub(super) attribute_preimages: HashMap<String, Vec<Vec<u8>>>,
-    #[allow(unused)]
+    pub(super) attribute_preimages: HashMap<String, Vec<EncodedCbor>>,
     pub(super) attribute_digests: HashMap<String, HashMap<u64, Vec<u8>>>,
 
     pub(super) mso_offsets: MsoOffsets,
@@ -146,15 +144,7 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
     let attribute_preimages = document
         .issuer_signed
         .name_spaces
-        .ok_or_else(|| anyhow!("issuer signed namespaces are missing"))?
-        .into_iter()
-        .map(|(namespace, items)| {
-            (
-                namespace,
-                items.into_iter().map(|item| item.0.0).collect::<Vec<_>>(),
-            )
-        })
-        .collect::<HashMap<_, _>>();
+        .ok_or_else(|| anyhow!("issuer signed namespaces are missing"))?;
 
     // RFC 8152 encodes coordinates for EC2 keys according to SEC 1, in big-endian form.
     let mut device_public_key_x_bytes = <[u8; 32]>::try_from(mso.device_key_info.device_key.x)
@@ -250,6 +240,12 @@ struct ZkDocument {}
 /// and IssuerSignedItemBytes from ISO 18013-5.
 type EncodedCbor = tag::Required<ByteString, 24>;
 
+/// Length of the tag and byte string headers at the start of an `encoded-cbor` item.
+///
+/// This may not be valid for very long byte strings, but this should not matter for the range of
+/// lengths supported by the circuit.
+pub(super) const ENCODED_CBOR_PREFIX_LENGTH: usize = 4;
+
 /// MobileSecurityObject from ISO 18013-5.
 #[derive(Debug)]
 #[cfg_attr(test, derive(Deserialize, PartialEq, Eq))]
@@ -275,7 +271,6 @@ pub(super) struct MsoOffsets {
     ///
     /// The outer `HashMap` is keyed by namespace, and the inner `HashMap` is keyed by `DigestID`.
     /// The values are offsets for each digest.
-    #[allow(unused)]
     pub(super) value_digests_items: HashMap<String, HashMap<u64, usize>>,
 }
 
@@ -433,21 +428,25 @@ pub(super) fn hash_to_field_element(mut digest: Sha256Digest) -> Result<FieldP25
 /// Information about an attribute extracted from an mdoc.
 #[derive(Debug, Clone)]
 pub(super) struct ParsedAttribute {
-    pub(super) _digest_id: u64,
-    pub(super) _issuer_signed_item_data: Vec<u8>,
+    pub(super) digest_id: u64,
+    pub(super) issuer_signed_item_bytes: EncodedCbor,
     pub(super) public_cbor_data: Vec<u8>,
-    pub(super) _public_cbor_offset: usize,
+    pub(super) public_cbor_offset: usize,
 }
 
 /// Locate attributes by their identifier, and return their values and related witnesses.
 pub(super) fn find_attributes(
-    attribute_preimages: &HashMap<String, Vec<Vec<u8>>>,
+    attribute_preimages: &HashMap<String, Vec<EncodedCbor>>,
+    namespace: &str,
     attribute_ids: &[String],
 ) -> Result<Vec<ParsedAttribute>, anyhow::Error> {
     let mut out: Vec<Option<ParsedAttribute>> = vec![None; attribute_ids.len()];
     let mut scratch = [0u8; 256];
-    for bytes in attribute_preimages.values().flatten() {
-        let mut decoder = Decoder::from(bytes.as_slice());
+    let namespace_attrs = attribute_preimages
+        .get(namespace)
+        .ok_or_else(|| anyhow!("could not find namespace in DeviceResponse"))?;
+    for encoded_cbor in namespace_attrs {
+        let mut decoder = Decoder::from(encoded_cbor.0.0.as_slice());
 
         let map_header = pull(&mut decoder, "reading attribute failed")?;
         let Header::Map(map_size_opt) = map_header else {
@@ -505,8 +504,10 @@ pub(super) fn find_attributes(
                         let Some(start_offset) = last_value_offset else {
                             return Err(anyhow!("elementValue did not follow elementIdentifier"));
                         };
-                        public_cbor_data_and_offset =
-                            Some((bytes[start_offset..end_offset].to_vec(), start_offset));
+                        public_cbor_data_and_offset = Some((
+                            encoded_cbor.0.0[start_offset..end_offset].to_vec(),
+                            start_offset,
+                        ));
                     }
                     _ => skip_body(decoder, scratch, value_header)?,
                 }
@@ -519,7 +520,7 @@ pub(super) fn find_attributes(
         )
         .context("error reading IssuerSignedItem")?;
 
-        if decoder.offset() != bytes.len() {
+        if decoder.offset() != encoded_cbor.0.0.len() {
             return Err(anyhow!("leftover data after reading IssuerSignedItem"));
         }
 
@@ -531,11 +532,11 @@ pub(super) fn find_attributes(
                     .take()
                     .ok_or_else(|| anyhow!("elementValue was missing for IssuerSignedItem"))?;
                 *opt = Some(ParsedAttribute {
-                    _digest_id: digest_id
+                    digest_id: digest_id
                         .ok_or_else(|| anyhow!("digestID was missing for IssuerSignedItem"))?,
-                    _issuer_signed_item_data: bytes.clone(),
+                    issuer_signed_item_bytes: encoded_cbor.clone(),
                     public_cbor_data,
-                    _public_cbor_offset: public_cbor_offset,
+                    public_cbor_offset,
                 });
                 break;
             }
@@ -1094,12 +1095,16 @@ mod tests {
         .unwrap();
 
         let attributes = find_attributes(
-            &HashMap::from([("org.iso.18013.5.1.aamva".to_string(), Vec::from([data]))]),
+            &HashMap::from([(
+                "org.iso.18013.5.1.aamva".to_string(),
+                Vec::from([tag::Required(ByteString(data))]),
+            )]),
+            "org.iso.18013.5.1.aamva",
             &["age_over_21".to_string()],
         )
         .unwrap();
         let attribute = &attributes[0];
-        assert_eq!(attribute._digest_id, 0);
+        assert_eq!(attribute.digest_id, 0);
         assert!(attribute.public_cbor_data.ends_with(&[0xf5])); // primitive(21), i.e. true
     }
 
@@ -1123,12 +1128,16 @@ mod tests {
         .unwrap();
 
         let attributes = find_attributes(
-            &HashMap::from([("org.iso.18013.5.1.aamva".to_string(), Vec::from([data]))]),
+            &HashMap::from([(
+                "org.iso.18013.5.1.aamva".to_string(),
+                Vec::from([tag::Required(ByteString(data))]),
+            )]),
+            "org.iso.18013.5.1.aamva",
             &["domestic_driving_privileges".to_string()],
         )
         .unwrap();
         let attribute = &attributes[0];
-        assert_eq!(attribute._digest_id, 0);
+        assert_eq!(attribute.digest_id, 0);
         let needle = b"Passenger";
         assert!(
             attribute
@@ -1154,7 +1163,11 @@ mod tests {
         .unwrap();
 
         let error = find_attributes(
-            &HashMap::from([("org.iso.18013.5.1.aamva".to_string(), Vec::from([data]))]),
+            &HashMap::from([(
+                "org.iso.18013.5.1.aamva".to_string(),
+                Vec::from([tag::Required(ByteString(data))]),
+            )]),
+            "org.iso.18013.5.1.aamva",
             &["age_over_21".to_string()],
         )
         .unwrap_err();

@@ -414,11 +414,6 @@ pub(super) fn find_attributes(
         let Header::Map(map_size_opt) = map_header else {
             return Err(anyhow!("IssuerSignedItem was not a map"));
         };
-        if let Some(map_size) = map_size_opt
-            && map_size < 4
-        {
-            return Err(anyhow!("IssuerSignedItem has too few entries"));
-        }
 
         // Version 6 of the circuit requires the elementIdentifier key-value pair to be immediately
         // followed by the elementValue key-value pair. We need to find those, and store an offset

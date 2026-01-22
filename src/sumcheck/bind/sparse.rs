@@ -265,10 +265,7 @@ impl<FE: FieldElement> PartialOrd for SparseQuadElement<FE> {
 }
 
 /// Interleave the bits of two integers.
-fn interleave(right: usize, left: usize) -> u128 {
-    // Ensure that this platform's usize is small enough for two to fit in u128
-    static_assertions::const_assert!(usize::BITS * 2 <= u128::BITS);
-
+fn interleave(right: u64, left: u64) -> u128 {
     let mut interleaved = 0u128;
     for bit in (0..usize::BITS).rev() {
         let mask = 1 << bit;
@@ -281,6 +278,9 @@ fn interleave(right: usize, left: usize) -> u128 {
 
 impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
     fn cmp(&self, other: &Self) -> Ordering {
+        // Ensure that this platform's usize is small enough for two to fit in u128
+        static_assertions::const_assert!(usize::BITS * 2 <= u128::BITS);
+
         // Sort the array using the lexicographic ordering of the gate index and the interleaving of
         // the bits of the right wire and left wire indices (in that order). See the module level
         // comment for discussion.
@@ -291,11 +291,11 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
         // Using the `Ord` impl on `(T, U)` gives us lexicographic ordering over the tuple elements.
         (
             self.gate_index,
-            interleave(self.right_wire_index, self.left_wire_index),
+            interleave(self.right_wire_index as u64, self.left_wire_index as u64),
         )
             .cmp(&(
                 other.gate_index,
-                interleave(other.right_wire_index, other.left_wire_index),
+                interleave(other.right_wire_index as u64, other.left_wire_index as u64),
             ))
     }
 }

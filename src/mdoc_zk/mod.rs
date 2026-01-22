@@ -197,34 +197,34 @@ impl CircuitInputs {
         );
 
         // Set the CBOR offsets into the MSO.
-        u12_as_bits(
-            mdoc.mso_offsets
-                .valid_from
-                .try_into()
-                .map_err(|_| anyhow!("offset to validFrom is too large"))?,
-            split_hash_input.valid_from_offset,
-        );
-        u12_as_bits(
-            mdoc.mso_offsets
-                .valid_until
-                .try_into()
-                .map_err(|_| anyhow!("offset to validUntil is too large"))?,
-            split_hash_input.valid_until_offset,
-        );
-        u12_as_bits(
-            mdoc.mso_offsets
-                .device_key_info
-                .try_into()
-                .map_err(|_| anyhow!("offset to deviceKeyInfo is too large"))?,
-            split_hash_input.device_key_info_offset,
-        );
-        u12_as_bits(
-            mdoc.mso_offsets
-                .value_digests
-                .try_into()
-                .map_err(|_| anyhow!("offset to valueDigests is too large"))?,
-            split_hash_input.value_digests_offset,
-        );
+        mdoc.mso_offsets
+            .valid_from
+            .try_into()
+            .map_err(anyhow::Error::from)
+            .and_then(|valid_from| u12_as_bits(valid_from, split_hash_input.valid_from_offset))
+            .context("offset to validFrom is too large")?;
+        mdoc.mso_offsets
+            .valid_until
+            .try_into()
+            .map_err(anyhow::Error::from)
+            .and_then(|valid_until| u12_as_bits(valid_until, split_hash_input.valid_until_offset))
+            .context("offset to validUntil is too large")?;
+        mdoc.mso_offsets
+            .device_key_info
+            .try_into()
+            .map_err(anyhow::Error::from)
+            .and_then(|device_key_info| {
+                u12_as_bits(device_key_info, split_hash_input.device_key_info_offset)
+            })
+            .context("offset to deviceKeyInfo is too large")?;
+        mdoc.mso_offsets
+            .value_digests
+            .try_into()
+            .map_err(anyhow::Error::from)
+            .and_then(|value_digests| {
+                u12_as_bits(value_digests, split_hash_input.value_digests_offset)
+            })
+            .context("offset to valueDigests is too large")?;
 
         // Smoke test: iterate through SHA-256 block witnesses.
         for _ in split_hash_input.attribute_witnesses.inputs[0]
@@ -307,10 +307,20 @@ fn byte_array_as_bits(bytes: &[u8], out: &mut [Field2_128]) {
 ///
 /// This is used for offsets into the CBOR byte string encoding the `MobileSecurityObject` or an
 /// `IssuerSignedItem`.
-fn u12_as_bits(mut u12: u16, out: &mut [Field2_128; 12]) {
+///
+/// # Errors
+///
+/// Returns an error if the input is larger than 4095.
+fn u12_as_bits(mut u12: u16, out: &mut [Field2_128; 12]) -> Result<(), anyhow::Error> {
     for out_elem in out.iter_mut() {
         *out_elem = Field2_128::inject_bits::<1>(u12 & 1);
         u12 >>= 1;
+    }
+
+    if u12 > 0 {
+        Err(anyhow!("CBOR offset is over 4095"))
+    } else {
+        Ok(())
     }
 }
 

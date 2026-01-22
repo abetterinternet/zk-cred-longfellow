@@ -1,6 +1,7 @@
 use crate::{
     Codec,
     fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
+    ligero::LigeroParameters,
     mdoc_zk::{
         bit_plucker::BitPlucker,
         ec::{AffinePoint, fill_ecdsa_witness},
@@ -21,9 +22,11 @@ mod bit_plucker;
 mod ec;
 mod layout;
 mod mdoc;
+pub mod prover;
 mod sha256;
 
 /// Versions of the mdoc_zk circuit interface.
+#[derive(Clone, Copy)]
 pub enum CircuitVersion {
     V6 = 6,
 }
@@ -44,7 +47,7 @@ impl CircuitInputs {
         mdoc_device_response: &[u8],
         transcript: &[u8],
         namespace: &str,
-        attribute_ids: &[String],
+        attribute_ids: &[&str],
         time: &str,
         mac_prover_key_shares: &[Field2_128; 6],
     ) -> Result<Self, anyhow::Error> {
@@ -419,13 +422,57 @@ fn u12_as_bits(mut u12: u16, out: &mut [Field2_128; 12]) -> Result<(), anyhow::E
     }
 }
 
+/// Inverse of the Reed-Solomon code's rate.
+const LIGERO_INVERSE_RATE: usize = 4;
+/// Number of columns requested to be opened during proof verification.
+const LIGERO_NREQ: usize = 189;
+
+/// Hardcoded Ligero parameters for the signature circuit.
+fn signature_ligero_parameters(circuit_version: CircuitVersion) -> LigeroParameters {
+    let block_enc = match circuit_version {
+        CircuitVersion::V6 => 2945,
+    };
+    let block_size = (block_enc + 1) / (2 + LIGERO_INVERSE_RATE);
+    let witnesses_per_row = block_size - LIGERO_NREQ;
+    LigeroParameters {
+        nreq: 189,
+        witnesses_per_row,
+        quadratic_constraints_per_row: witnesses_per_row,
+        block_size,
+        num_columns: block_enc,
+    }
+}
+
+/// Hardcoded Ligero parameters for the hash circuit.
+fn hash_ligero_parameters(
+    circuit_version: CircuitVersion,
+    num_attributes: usize,
+) -> LigeroParameters {
+    let block_enc = match (circuit_version, num_attributes) {
+        (_, 0) | (_, 5..) => panic!("unsupported number of attributes"),
+        (CircuitVersion::V6, 1) => 4096,
+        (CircuitVersion::V6, 2) => 4025,
+        (CircuitVersion::V6, 3) => 4121,
+        (CircuitVersion::V6, 4) => 4283,
+    };
+    let block_size = (block_enc + 1) / (2 + LIGERO_INVERSE_RATE);
+    let witnesses_per_row = block_size - LIGERO_NREQ;
+    LigeroParameters {
+        nreq: LIGERO_NREQ,
+        witnesses_per_row,
+        quadratic_constraints_per_row: witnesses_per_row,
+        block_size,
+        num_columns: block_enc,
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use crate::{
         Codec,
         circuit::Circuit,
         fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
-        mdoc_zk::{CircuitInputs, CircuitVersion, byte_array_as_bits},
+        mdoc_zk::{CircuitInputs, CircuitVersion, byte_array_as_bits, prover::compute_mac_tags},
     };
     use serde::Deserialize;
     use std::io::Cursor;
@@ -499,8 +546,8 @@ pub(super) mod tests {
         let attributes = test_vector
             .attributes
             .iter()
-            .map(|attr| attr.id.clone())
-            .collect::<Vec<_>>();
+            .map(|attr| attr.id.as_str())
+            .collect::<Vec<&str>>();
 
         let mac_verifier_key_share =
             Field2_128::try_from(test_vector.mac_verifier_key_share.as_slice()).unwrap();
@@ -523,16 +570,11 @@ pub(super) mod tests {
         )
         .unwrap();
 
-        let mut mac_tags = [Field2_128::ZERO; 6];
-        for ((mac_message, mac_prover_key_share), mac_tag) in inputs
-            .mac_messages
-            .iter()
-            .zip(&mac_prover_key_shares)
-            .zip(mac_tags.iter_mut())
-        {
-            let mac_key = mac_verifier_key_share + mac_prover_key_share;
-            *mac_tag = mac_key * mac_message;
-        }
+        let mac_tags = compute_mac_tags(
+            &inputs.mac_messages,
+            &mac_prover_key_shares,
+            &mac_verifier_key_share,
+        );
         inputs.update_macs(mac_verifier_key_share, mac_tags);
 
         let expected_signature_input = test_vector

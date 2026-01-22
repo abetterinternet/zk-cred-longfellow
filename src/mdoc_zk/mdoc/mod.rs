@@ -436,7 +436,7 @@ pub(super) struct ParsedAttribute {
 pub(super) fn find_attributes(
     attribute_preimages: &HashMap<String, Vec<EncodedCbor>>,
     namespace: &str,
-    attribute_ids: &[String],
+    attribute_ids: &[&str],
 ) -> Result<Vec<ParsedAttribute>, anyhow::Error> {
     let mut out: Vec<Option<ParsedAttribute>> = vec![None; attribute_ids.len()];
     let mut scratch = [0u8; 256];
@@ -1098,7 +1098,7 @@ mod tests {
                 Vec::from([tag::Required(ByteString(data))]),
             )]),
             "org.iso.18013.5.1.aamva",
-            &["age_over_21".to_string()],
+            &["age_over_21"],
         )
         .unwrap();
         let attribute = &attributes[0];
@@ -1131,7 +1131,7 @@ mod tests {
                 Vec::from([tag::Required(ByteString(data))]),
             )]),
             "org.iso.18013.5.1.aamva",
-            &["domestic_driving_privileges".to_string()],
+            &["domestic_driving_privileges"],
         )
         .unwrap();
         let attribute = &attributes[0];
@@ -1166,7 +1166,7 @@ mod tests {
                 Vec::from([tag::Required(ByteString(data))]),
             )]),
             "org.iso.18013.5.1.aamva",
-            &["age_over_21".to_string()],
+            &["age_over_21"],
         )
         .unwrap_err();
         let error_message = format!("{error:#}");

@@ -559,7 +559,7 @@ inputs above begins. The offset is encoded with one bit per input wire.
 
 ##### Unused Offset and Lengths
 
-Field elements per attribute: 12 \+ 12 \+ 12 \= 24
+Field elements per attribute: 12 \+ 12 \+ 12 \= 36
 
 Three more 12-bit fields are encoded, a length, an offset, and a length, but
 they are unused. This is likely an artifact of prior circuit interfaces, which

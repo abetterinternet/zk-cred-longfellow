@@ -264,6 +264,21 @@ impl<FE: FieldElement> PartialOrd for SparseQuadElement<FE> {
     }
 }
 
+/// Interleave the bits of two integers.
+fn interleave(right: usize, left: usize) -> u128 {
+    // Ensure that this platform's usize is small enough for two to fit in u128
+    static_assertions::const_assert!(usize::BITS * 2 <= u128::BITS);
+
+    let mut interleaved = 0u128;
+    for bit in (0..usize::BITS).rev() {
+        let mask = 1 << bit;
+        interleaved += (right as u128 & mask) << (bit + 1);
+        interleaved += (left as u128 & mask) << (bit);
+    }
+
+    interleaved
+}
+
 impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
     fn cmp(&self, other: &Self) -> Ordering {
         // Sort the array using the lexicographic ordering of the gate index and the interleaving of
@@ -272,19 +287,7 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
         //
         // We interleave into a u128 because that's big enough to fit all the bits of two usizes on
         // any platform we're likely to deploy to.
-        fn interleave(right: usize, left: usize) -> u128 {
-            // Ensure that this platform's usize is small enough for two to fit in u128
-            static_assertions::const_assert!(usize::BITS * 2 <= u128::BITS);
-
-            let mut interleaved = 0u128;
-            for bit in (0..usize::BITS).rev() {
-                let mask = 1 << bit;
-                interleaved += (right as u128 & mask) << (bit + 1);
-                interleaved += (left as u128 & mask) << (bit);
-            }
-
-            interleaved
-        }
+        //
         // Using the `Ord` impl on `(T, U)` gives us lexicographic ordering over the tuple elements.
         (
             self.gate_index,

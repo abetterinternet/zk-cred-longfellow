@@ -167,6 +167,9 @@ impl CircuitInputs {
                 "current time is not correctly formatted, must be 20 bytes long"
             ));
         }
+        if mdoc.valid_from > mdoc.valid_until {
+            return Err(anyhow!("credential validity interval is reversed"));
+        }
         if time < &mdoc.valid_from {
             return Err(anyhow!("credential is not yet valid"));
         }

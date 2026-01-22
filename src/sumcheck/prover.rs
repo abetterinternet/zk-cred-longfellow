@@ -12,7 +12,7 @@ use crate::{
     witness::Witness,
 };
 use anyhow::anyhow;
-use std::borrow::Cow;
+use std::{borrow::Cow, io::Write};
 
 /// Generate a sumcheck proof of evaluation of a circuit.
 #[derive(Clone, Debug)]
@@ -229,10 +229,10 @@ impl<FE: CodecFieldElement> ParameterizedCodec<Circuit<FE>> for SumcheckProof<FE
         })
     }
 
-    fn encode_with_param(
+    fn encode_with_param<W: Write>(
         &self,
         circuit: &Circuit<FE>,
-        bytes: &mut Vec<u8>,
+        bytes: &mut W,
     ) -> Result<(), anyhow::Error> {
         // Encode the layers as a fixed length array. That is, no length prefix.
         for (proof_layer, circuit_layer) in self.layers.iter().zip(&circuit.layers) {
@@ -303,10 +303,10 @@ impl<FE: CodecFieldElement> ParameterizedCodec<CircuitLayer> for ProofLayer<FE> 
         })
     }
 
-    fn encode_with_param(
+    fn encode_with_param<W: Write>(
         &self,
         _: &CircuitLayer,
-        bytes: &mut Vec<u8>,
+        bytes: &mut W,
     ) -> Result<(), anyhow::Error> {
         // Fixed length array, whose length depends on the circuit this is a proof of.
         // In longfellow-zk's encoding the array is indexed by hand, then wire/round

@@ -166,16 +166,13 @@ pub fn ligero_verify<FE: ProofFieldElement>(
 
     // Check the Merkle tree inclusion proof
     let mut included_nodes = Vec::with_capacity(layout.num_requested_columns());
-    let mut field_element_buf = vec![0u8; FE::num_bytes()];
     // The columns in the proof appear in the same order as the requested column indices.
     for index in 0..requested_column_indices.len() {
         let mut sha256 = Sha256::new();
 
         sha256.update(proof.merkle_tree_nonces[index]);
         for row in &proof.tableau_columns {
-            field_element_buf.truncate(0);
-            row[index].encode(&mut field_element_buf)?;
-            sha256.update(&field_element_buf);
+            sha256.update(row[index].as_byte_array()?);
         }
         included_nodes.push(Node::from(sha256));
     }

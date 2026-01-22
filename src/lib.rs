@@ -3,7 +3,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use crypto_common::{generic_array::GenericArray, typenum::U32};
 use std::{
     fmt::{self, Display},
-    io::{self, Cursor},
+    io::{self, Cursor, Write},
 };
 
 pub mod circuit;
@@ -57,7 +57,7 @@ impl Codec for Size {
         ))
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         if self.0 >= (1 << 24) {
             return Err(anyhow!(
                 "size {} too big to be serialized in 3 bytes",
@@ -93,7 +93,11 @@ impl Size {
     /// bit is used as the sign bit, with the actual value shifted up by one position ([1]).
     ///
     /// [1]: https://www.ietf.org/archive/id/draft-google-cfrg-libzk-00.html#section-7.6-5
-    pub fn encode_delta(&self, previous: Size, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    pub fn encode_delta<W: Write>(
+        &self,
+        previous: Size,
+        bytes: &mut W,
+    ) -> Result<(), anyhow::Error> {
         let delta = if self.0 >= previous.0 {
             // Delta is positive: shift the delta up by one, leaving sign bit clear
             (self.0 - previous.0)
@@ -175,10 +179,10 @@ pub trait Codec: Sized + PartialEq + Eq + std::fmt::Debug {
     }
 
     /// Append the encoded form of this object to the end of `bytes`, growing the vector as needed.
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error>;
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error>;
 
     /// Encode a variable length array of items.
-    fn encode_array(items: &[Self], bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode_array<W: Write>(items: &[Self], bytes: &mut W) -> Result<(), anyhow::Error> {
         // Variable length array encoding: length in elements as a Size, then the elements one after
         // the other.
         Size(
@@ -192,7 +196,7 @@ pub trait Codec: Sized + PartialEq + Eq + std::fmt::Debug {
     }
 
     /// Encode a fixed length array of items.
-    fn encode_fixed_array(items: &[Self], bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode_fixed_array<W: Write>(items: &[Self], bytes: &mut W) -> Result<(), anyhow::Error> {
         for item in items {
             item.encode(bytes)?;
         }
@@ -205,10 +209,8 @@ impl Codec for u8 {
         cursor.read_u8().context("failed to read u8")
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
-        bytes.push(*self);
-
-        Ok(())
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
+        bytes.write_u8(*self).context("failed to write u8")
     }
 }
 
@@ -219,7 +221,7 @@ impl Codec for u16 {
             .context("failed to read u16")
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         bytes
             .write_u16::<LittleEndian>(*self)
             .context("failed to write u16")
@@ -233,7 +235,7 @@ impl Codec for u32 {
             .context("failed to read u32")
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         bytes
             .write_u32::<LittleEndian>(*self)
             .context("failed to write u32")
@@ -262,7 +264,7 @@ impl Codec for Sha256Digest {
         Ok(Self(bytes))
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         u8::encode_fixed_array(self.0.as_slice(), bytes)
     }
 }
@@ -313,10 +315,10 @@ pub trait ParameterizedCodec<P>: Sized + PartialEq + Eq + std::fmt::Debug {
     }
 
     /// Append the encoded form of this object to the end of `bytes`, growing the vector as needed.
-    fn encode_with_param(
+    fn encode_with_param<W: Write>(
         &self,
         encoding_parameter: &P,
-        bytes: &mut Vec<u8>,
+        bytes: &mut W,
     ) -> Result<(), anyhow::Error>;
 
     /// Get the encoded form of this object, allocating a vector to hold it.
@@ -345,10 +347,10 @@ impl<C: Codec, T> ParameterizedCodec<T> for C {
         Self::decode(cursor)
     }
 
-    fn encode_with_param(
+    fn encode_with_param<W: Write>(
         &self,
         _encoding_parameter: &T,
-        bytes: &mut Vec<u8>,
+        bytes: &mut W,
     ) -> Result<(), anyhow::Error> {
         self.encode(bytes)
     }

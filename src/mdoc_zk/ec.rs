@@ -528,12 +528,12 @@ pub(super) fn fill_ecdsa_witness<'a>(
 }
 
 fn embed_scalar_in_base_field(scalar: FieldP256Scalar) -> FieldP256 {
-    let mut encoded = Vec::with_capacity(32);
+    let mut encoded = [0u8; 32];
     // Unwrap safety: this implementation is infallible.
-    scalar.encode(&mut encoded).unwrap();
+    scalar.encode(&mut &mut encoded[..]).unwrap();
     // Unwrap safety: this will succeed because the slice is the right size, and the size of the
     // scalar field is smaller than the base field.
-    FieldP256::try_from(encoded.as_slice()).unwrap()
+    FieldP256::try_from(&encoded).unwrap()
 }
 
 /// Perform the multi-scalar multiplication G*e + Q*r - R*s, and record related witnesses.

@@ -339,7 +339,6 @@ impl<'a, FE: ProofFieldElement> Tableau<'a, FE> {
         MerkleTreeNonceGenerator: FnMut() -> Nonce,
     {
         // Construct a Merkle tree from the tableau columns
-        let mut field_element_buf = Vec::with_capacity(FE::num_bytes());
         let tree_size = self.layout.num_columns() - self.layout.dblock();
         let mut tree = MerkleTree::new(tree_size);
 
@@ -351,9 +350,7 @@ impl<'a, FE: ProofFieldElement> Tableau<'a, FE> {
             let nonce = merkle_tree_nonce_generator();
             sha256.update(nonce);
             for row in &self.contents {
-                field_element_buf.truncate(0);
-                row[leaf_index].encode(&mut field_element_buf)?;
-                sha256.update(&field_element_buf);
+                sha256.update(row[leaf_index].as_byte_array()?);
             }
             tree.set_leaf(leaf_index - self.layout.dblock(), Node::from(sha256), nonce);
         }

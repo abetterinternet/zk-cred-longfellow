@@ -492,7 +492,7 @@ mod tests {
                 continue;
             }
 
-            first_nonzero[rank] = j.try_into().expect("u32 too big for usize?");
+            first_nonzero[rank] = j;
 
             // Pivot on [rank][j]
             for i in (rank + 1)..Field2_128::SUBFIELD_BIT_LENGTH {

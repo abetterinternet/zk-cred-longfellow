@@ -11,7 +11,7 @@ use crate::{
 };
 use anyhow::{Context, anyhow};
 use constants::{subfield_basis, subfield_basis_lu_decomposition};
-use serde::{Deserialize, Serialize, de::Error};
+use serde::{Deserialize, Serialize, de::Error as _, ser::Error as _};
 use sha2::{Digest, Sha256};
 #[cfg(target_arch = "aarch64")]
 use std::arch::is_aarch64_feature_detected;
@@ -19,7 +19,7 @@ use std::arch::is_aarch64_feature_detected;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::{
     fmt::Debug,
-    io::{Cursor, Read},
+    io::{Cursor, Read, Write},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
@@ -133,15 +133,15 @@ impl FieldElement for Field2_128 {
 }
 
 impl CodecFieldElement for Field2_128 {
-    const NUM_BITS: u32 = 128;
+    const NUM_BITS: usize = 128;
 
-    const FIELD_ID: super::FieldId = FieldId::GF2_128;
+    const FIELD_ID: FieldId = FieldId::GF2_128;
 
     fn is_in_subfield(&self) -> bool {
         self.uninject().is_some()
     }
 
-    fn encode_in_subfield(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
+    fn encode_in_subfield<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
         let subfield_encoding = self
             .uninject()
             .ok_or_else(|| anyhow!("GF(2^128) element {:?} is not in subfield", self))?;
@@ -162,10 +162,18 @@ impl CodecFieldElement for Field2_128 {
         // A characteristic 2 field is identified by an eight byte LE array containing the single
         // byte 2 to indicate the characteristic, then the bit length of the field.
         circuit_id.update(2u64.to_le_bytes());
-        // Casting u32 to u64 is always safe.
-        circuit_id.update((Self::NUM_BITS as u64).to_le_bytes());
+        circuit_id.update(
+            (u64::try_from(Self::NUM_BITS).context("usize too big for u64")?).to_le_bytes(),
+        );
 
         Ok(())
+    }
+
+    fn as_byte_array(&self) -> Result<impl AsRef<[u8]>, anyhow::Error> {
+        let mut buf = [0u8; Self::NUM_BITS / 8];
+        self.encode(&mut &mut buf[..])?;
+
+        Ok(buf)
     }
 }
 
@@ -174,7 +182,9 @@ impl Serialize for Field2_128 {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&hex::encode(self.get_encoded().unwrap()))
+        serializer.serialize_str(&hex::encode(
+            self.as_byte_array().map_err(S::Error::custom)?,
+        ))
     }
 }
 
@@ -271,8 +281,11 @@ impl Codec for Field2_128 {
         Ok(Self(u128::from_le_bytes(buffer)))
     }
 
-    fn encode(&self, bytes: &mut Vec<u8>) -> Result<(), anyhow::Error> {
-        bytes.extend_from_slice(&self.0.to_le_bytes());
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
+        bytes
+            .write_all(&self.0.to_le_bytes())
+            .context("failed to write Field2_128 element")?;
+
         Ok(())
     }
 }

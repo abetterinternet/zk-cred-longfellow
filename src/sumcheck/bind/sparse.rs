@@ -266,14 +266,26 @@ impl<FE: FieldElement> PartialOrd for SparseQuadElement<FE> {
 
 /// Interleave the bits of two integers.
 fn interleave(right: u64, left: u64) -> u128 {
-    let mut interleaved = 0u128;
-    for bit in (0..usize::BITS).rev() {
-        let mask = 1 << bit;
-        interleaved += (right as u128 & mask) << (bit + 1);
-        interleaved += (left as u128 & mask) << (bit);
-    }
+    // Adapted from https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN. See also
+    // `galois_square_u64_widening()` in `src/fields/field2_128/backend_bit_slicing.rs`.
 
-    interleaved
+    let right = right as u128;
+    let right = (right | (right << 32)) & 0x0000_0000_FFFF_FFFF_0000_0000_FFFF_FFFF;
+    let right = (right | (right << 16)) & 0x0000_FFFF_0000_FFFF_0000_FFFF_0000_FFFF;
+    let right = (right | (right << 8)) & 0x00FF_00FF_00FF_00FF_00FF_00FF_00FF_00FF;
+    let right = (right | (right << 4)) & 0x0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F;
+    let right = (right | (right << 2)) & 0x3333_3333_3333_3333_3333_3333_3333_3333;
+    let right = (right | (right << 1)) & 0x5555_5555_5555_5555_5555_5555_5555_5555;
+
+    let left = left as u128;
+    let left = (left | (left << 32)) & 0x0000_0000_FFFF_FFFF_0000_0000_FFFF_FFFF;
+    let left = (left | (left << 16)) & 0x0000_FFFF_0000_FFFF_0000_FFFF_0000_FFFF;
+    let left = (left | (left << 8)) & 0x00FF_00FF_00FF_00FF_00FF_00FF_00FF_00FF;
+    let left = (left | (left << 4)) & 0x0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F;
+    let left = (left | (left << 2)) & 0x3333_3333_3333_3333_3333_3333_3333_3333;
+    let left = (left | (left << 1)) & 0x5555_5555_5555_5555_5555_5555_5555_5555;
+
+    left | (right << 1)
 }
 
 impl<FE: FieldElement> Ord for SparseQuadElement<FE> {

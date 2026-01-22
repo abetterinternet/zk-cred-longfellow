@@ -282,7 +282,9 @@ impl Codec for Field2_128 {
     }
 
     fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
-        bytes.write_all(&self.0.to_le_bytes())?;
+        bytes
+            .write_all(&self.0.to_le_bytes())
+            .context("failed to write Field2_128 element")?;
 
         Ok(())
     }

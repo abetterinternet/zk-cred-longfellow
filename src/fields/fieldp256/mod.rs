@@ -404,7 +404,9 @@ impl Codec for FieldP256 {
         fiat_p256_from_montgomery(&mut non_montgomery, &self.0);
         let mut out = [0u8; 32];
         fiat_p256_to_bytes(&mut out, &non_montgomery.0);
-        bytes.write_all(&out)?;
+        bytes
+            .write_all(&out)
+            .context("failed to write FieldP256 element")?;
         Ok(())
     }
 }

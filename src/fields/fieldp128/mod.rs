@@ -378,7 +378,9 @@ impl Codec for FieldP128 {
         fiat_p128_from_montgomery(&mut non_montgomery, &self.0);
         let mut out = [0u8; 16];
         fiat_p128_to_bytes(&mut out, &non_montgomery.0);
-        bytes.write_all(&out)?;
+        bytes
+            .write_all(&out)
+            .context("failed to encode FieldP128 element")?;
         Ok(())
     }
 }

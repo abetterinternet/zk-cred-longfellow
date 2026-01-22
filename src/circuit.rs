@@ -331,59 +331,61 @@ impl<FE: CodecFieldElement> Circuit<FE> {
 
         fn update(
             circuit_id: &mut Sha256,
-            label: &'static str,
+            context: &'static str,
             value: usize,
         ) -> Result<(), anyhow::Error> {
-            circuit_id.update(
-                u64::try_from(value)
-                    .context(format!("{label} too big for u64"))?
-                    .to_le_bytes(),
-            );
+            circuit_id.update(u64::try_from(value).context(context)?.to_le_bytes());
 
             Ok(())
         }
 
         for (label, value) in [
-            ("num outputs", self.num_outputs),
+            ("num outputs too big for u64", self.num_outputs),
             (
-                "log_2(num_outputs)",
+                "log_2(num_outputs) too big for u64",
                 self.num_outputs
                     .next_power_of_two()
                     .ilog2()
                     .try_into()
                     .context("u32 too big for usize")?,
             ),
-            ("num copies", self.num_copies),
+            ("num copies too big for u64", self.num_copies),
             (
-                "log_2(num_copies)",
+                "log_2(num_copies) too big for u64",
                 self.num_copies
                     .next_power_of_two()
                     .ilog2()
                     .try_into()
                     .context("u32 too big for usize")?,
             ),
-            ("num layers", self.num_layers),
-            ("num inputs", self.num_inputs),
-            ("num public inputs", self.num_public_inputs),
-            ("subfield boundary", self.subfield_boundary),
+            ("num layers too big for u64", self.num_layers),
+            ("num inputs too big for u64", self.num_inputs),
+            ("num public inputs too big for u64", self.num_public_inputs),
+            ("subfield boundary too big for u64", self.subfield_boundary),
         ] {
             update(&mut circuit_digest, label, value)?;
         }
 
         for layer in &self.layers {
             for (label, value) in [
-                ("layer num wires", layer.num_wires()),
-                ("log_2(layer num wires)", layer.logw()),
-                ("num quads", layer.quads.len()),
+                ("layer num wires too big for u64", layer.num_wires()),
+                ("log_2(layer num wires) too big for u64", layer.logw()),
+                ("num quads too big for u64", layer.quads.len()),
             ] {
                 update(&mut circuit_digest, label, value)?;
             }
 
             for quad in &layer.quads {
                 for (label, value) in [
-                    ("quad gate index", quad.gate_index()),
-                    ("quad left wire index", quad.left_wire_index()),
-                    ("quad right wire index", quad.right_wire_index()),
+                    ("quad gate index too big for u64", quad.gate_index()),
+                    (
+                        "quad left wire index too big for u64",
+                        quad.left_wire_index(),
+                    ),
+                    (
+                        "quad right wire index too big for u64",
+                        quad.right_wire_index(),
+                    ),
                 ] {
                     update(&mut circuit_digest, label, value)?;
                 }

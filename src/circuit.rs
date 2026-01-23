@@ -223,9 +223,10 @@ impl<FE: CodecFieldElement> Circuit<FE> {
             for (quad_index, quad) in layer.quads.iter().enumerate() {
                 // Evaluate this quad: look up its value in the constants table, then multiply that
                 // by the value of the input wires.
-                let quad_value: FE = self.constant(quad.const_table_index()).context(format!(
-                    "constant missing in quad {quad_index} on layer {layer_index}"
-                ))?;
+                let quad_value: FE =
+                    self.constant(quad.const_table_index()).with_context(|| {
+                        format!("constant missing in quad {quad_index} on layer {layer_index}")
+                    })?;
 
                 let left_wire = wires[layer_index].get(quad.left_wire_index()).ok_or_else(
                     || {
@@ -336,7 +337,7 @@ impl<FE: CodecFieldElement> Circuit<FE> {
         ) -> Result<(), anyhow::Error> {
             circuit_id.update(
                 u64::try_from(value)
-                    .context(format!("{label} too big for u64"))?
+                    .with_context(|| format!("{label} too big for u64"))?
                     .to_le_bytes(),
             );
 

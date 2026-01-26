@@ -63,3 +63,6 @@ harness = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+lto = true

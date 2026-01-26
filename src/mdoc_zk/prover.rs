@@ -8,7 +8,7 @@ use crate::{
     ligero::{LigeroCommitment, LigeroParameters, prover::ligero_prove, tableau::Tableau},
     mdoc_zk::{CircuitInputs, CircuitVersion, hash_ligero_parameters, signature_ligero_parameters},
     sumcheck::{initialize_transcript, prover::SumcheckProver},
-    transcript::Transcript,
+    transcript::{Transcript, TranscriptMode},
     witness::{Witness, WitnessLayout},
 };
 use anyhow::anyhow;
@@ -103,7 +103,7 @@ impl MdocZkProver {
         )?;
 
         // Initialize Fiat-Shamir transcript.
-        let mut transcript = Transcript::new(session_transcript)?;
+        let mut transcript = Transcript::new(session_transcript, TranscriptMode::Normal)?;
 
         // Select one-time-pads, and produce Ligero witnesses.
         let hash_witness = Witness::fill_witness(

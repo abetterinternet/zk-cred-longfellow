@@ -6,7 +6,7 @@ use crate::{
     fields::ProofFieldElement,
     ligero::{LigeroParameters, tableau::TableauLayout, verifier::ligero_verify},
     sumcheck::initialize_transcript,
-    transcript::Transcript,
+    transcript::{Transcript, TranscriptMode},
     witness::WitnessLayout,
     zk_one_circuit::prover::Proof,
 };
@@ -52,7 +52,8 @@ impl<'a, FE: ProofFieldElement> Verifier<'a, FE> {
         inputs.extend(statement);
 
         // Start of Fiat-Shamir transcript.
-        let mut transcript = Transcript::new(proof.oracle()).unwrap();
+        let mut transcript =
+            Transcript::new(proof.oracle(), TranscriptMode::V3Compatibility).unwrap();
 
         transcript.write_byte_array(proof.ligero_commitment().as_bytes())?;
         initialize_transcript(&mut transcript, self.circuit, &inputs)?;

@@ -18,6 +18,8 @@ use sha2::{Digest, Sha256};
 /// coin challenges based on the state of the transcript at some moment.
 #[derive(Clone, Debug)]
 pub struct Transcript {
+    /// Domain separation tag configuration.
+    mode: TranscriptMode,
     /// Accumulated hash of messages written to the transcript, used as the seed to
     /// [`FiatShamirPseudoRandomFunction`] to generate verifier challenges.
     fsprf_seed: Sha256,
@@ -38,15 +40,16 @@ enum Tag {
     FieldElementArray,
 }
 
-impl From<Tag> for &'static [u8] {
-    fn from(value: Tag) -> Self {
-        match value {
-            Tag::ByteArray => &[0],
-            Tag::FieldElement => &[1],
-            // Even in longfellow-zk, this should be 2, but when they run their tests they use
-            // version = 3 which evidently had a bug where field element arrays are incorrectly
+impl Tag {
+    fn as_byte(&self, mode: TranscriptMode) -> u8 {
+        match (self, mode) {
+            (Tag::ByteArray, _) => 0,
+            (Tag::FieldElement, _) => 1,
+            (Tag::FieldElementArray, TranscriptMode::Normal) => 2,
+            // Even in longfellow-zk, this should be 2, but when they run some of their tests they
+            // use version = 3 which evidently had a bug where field element arrays are incorrectly
             // tagged.
-            Tag::FieldElementArray => &[1],
+            (Tag::FieldElementArray, TranscriptMode::V3Compatibility) => 1,
         }
     }
 }
@@ -61,8 +64,9 @@ impl Transcript {
     /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3.1.1>
     ///
     /// [1]: https://github.com/google/longfellow-zk/blob/87474f308020535e57a778a82394a14106f8be5b/lib/random/transcript.h#L76
-    pub fn new(session_id: &[u8]) -> Result<Self, anyhow::Error> {
+    pub fn new(session_id: &[u8], mode: TranscriptMode) -> Result<Self, anyhow::Error> {
         let mut transcript = Self {
+            mode,
             fsprf_seed: Sha256::new(),
             current_fsprf: None,
         };
@@ -114,7 +118,7 @@ impl Transcript {
         field_element: &FE,
     ) -> Result<(), anyhow::Error> {
         // Write tag for a single field element
-        self.write_bytes(Tag::FieldElement.into())?;
+        self.write_bytes(&[Tag::FieldElement.as_byte(self.mode)])?;
 
         // Write field element
         self.write_bytes(field_element.as_byte_array()?.as_ref())?;
@@ -131,7 +135,7 @@ impl Transcript {
             .context("field element array too big for transcript")?;
 
         // Write tag for field element array
-        self.write_bytes(Tag::FieldElementArray.into())?;
+        self.write_bytes(&[Tag::FieldElementArray.as_byte(self.mode)])?;
 
         // Write length of array as little endian bytes
         self.write_bytes(&length.to_le_bytes())?;
@@ -152,7 +156,7 @@ impl Transcript {
         let length = u64::try_from(bytes.len()).context("byte array too big for transcript")?;
 
         // Write tag for byte array.
-        self.write_bytes(Tag::ByteArray.into())?;
+        self.write_bytes(&[Tag::ByteArray.as_byte(self.mode)])?;
 
         // Write length of array as 8 little endian bytes
         self.write_bytes(&length.to_le_bytes())?;
@@ -274,6 +278,20 @@ impl PartialEq for Transcript {
 
 impl Eq for Transcript {}
 
+/// Backwards compatibility configuration for the Fiat-Shamir transcript.
+#[derive(Clone, Copy, Debug)]
+pub enum TranscriptMode {
+    /// Normal operation.
+    ///
+    /// This uses separate domain separation tags for each type of prover message.
+    Normal,
+    /// Backwards compatibility for circuit version three.
+    ///
+    /// This uses the same domain separation tags when the prover writes a single field element or
+    /// an array of field elements.
+    V3Compatibility,
+}
+
 /// An iterator producing an infinite stream of bytes based on the provided key.
 ///
 /// XXX: Could we just use the XOF from crate prio?
@@ -346,7 +364,7 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn deterministic() {
         fn run_transcript() -> Vec<FieldP256> {
-            let mut transcript = Transcript::new(b"test").unwrap();
+            let mut transcript = Transcript::new(b"test", TranscriptMode::Normal).unwrap();
 
             transcript
                 .write_field_element(&FieldP256::from_u128(10))
@@ -374,11 +392,11 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn distinct_session_id() {
-        let mut transcript1 = Transcript::new(b"test1").unwrap();
+        let mut transcript1 = Transcript::new(b"test1", TranscriptMode::Normal).unwrap();
         transcript1.write_byte_array(b"some bytes").unwrap();
         let challenge1 = transcript1.generate_challenge::<FieldP256>(10).unwrap();
 
-        let mut transcript2 = Transcript::new(b"test2").unwrap();
+        let mut transcript2 = Transcript::new(b"test2", TranscriptMode::Normal).unwrap();
         transcript2.write_byte_array(b"some bytes").unwrap();
         let challenge2 = transcript2.generate_challenge::<FieldP256>(10).unwrap();
 
@@ -390,11 +408,11 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn distinct_messages() {
-        let mut transcript1 = Transcript::new(b"test").unwrap();
+        let mut transcript1 = Transcript::new(b"test", TranscriptMode::Normal).unwrap();
         transcript1.write_byte_array(b"some bytes").unwrap();
         let challenge1 = transcript1.generate_challenge::<FieldP256>(10).unwrap();
 
-        let mut transcript2 = Transcript::new(b"test").unwrap();
+        let mut transcript2 = Transcript::new(b"test", TranscriptMode::Normal).unwrap();
         transcript2.write_byte_array(b"some other bytes").unwrap();
         let challenge2 = transcript2.generate_challenge::<FieldP256>(10).unwrap();
 
@@ -406,7 +424,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn writing_messages_changes_challenge() {
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::Normal).unwrap();
         transcript.write_byte_array(b"some bytes").unwrap();
         let challenge1 = transcript.generate_challenge::<FieldP256>(10).unwrap();
         transcript.write_byte_array(b"some more bytes").unwrap();
@@ -420,13 +438,13 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn writing_messages_resets_challenge() {
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::Normal).unwrap();
         transcript.write_byte_array(b"some bytes").unwrap();
         transcript.generate_challenge::<FieldP256>(10).unwrap();
         transcript.write_byte_array(b"more bytes").unwrap();
         let challenge1 = transcript.generate_challenge::<FieldP256>(10).unwrap();
 
-        let mut transcript2 = Transcript::new(b"test").unwrap();
+        let mut transcript2 = Transcript::new(b"test", TranscriptMode::Normal).unwrap();
         transcript2.write_byte_array(b"some bytes").unwrap();
         let _ = transcript2.generate_challenge::<FieldP256>(40).unwrap();
         transcript2.write_byte_array(b"more bytes").unwrap();
@@ -444,7 +462,7 @@ mod tests {
     fn test_vector() {
         // FSPRF test vector adapted from longfellow-zk/lib/random/transcript_test.cc
         // https://github.com/google/longfellow-zk/blob/7a329b35b846fa5b9eca6f0143d0197a73e126a2/lib/random/transcript_test.cc#L97
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
         let bytes: Vec<_> = (0..100).collect();
         transcript.write_byte_array(&bytes).unwrap();
 
@@ -493,7 +511,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk() {
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
 
         // Write a byte array
         let bytes: Vec<_> = (0..100).collect();
@@ -542,7 +560,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_byte_array() {
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
 
         let bytes: Vec<_> = (0..100).collect();
         transcript.write_byte_array(&bytes).unwrap();
@@ -563,7 +581,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_single_field_element() {
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
 
         transcript
             .write_field_element(&FieldP256::from_u128(7))
@@ -585,7 +603,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_against_longfellow_zk_field_element_array() {
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
 
         transcript
             .write_field_element_array(&[FieldP256::from_u128(8), FieldP256::from_u128(9)])
@@ -607,7 +625,7 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn generate_naturals_without_replacement() {
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
         transcript.write_bytes(b"some bytes").unwrap();
 
         let mut seen = HashSet::new();

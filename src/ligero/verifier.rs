@@ -199,7 +199,7 @@ mod tests {
         ligero::tableau::TableauLayout,
         sumcheck::initialize_transcript,
         test_vector::{CircuitTestVector, load_mac, load_rfc},
-        transcript::Transcript,
+        transcript::{Transcript, TranscriptMode},
         witness::WitnessLayout,
     };
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -209,7 +209,7 @@ mod tests {
         let mut public_inputs = vec![FE::ONE];
         public_inputs.extend(test_vector.valid_inputs());
 
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
 
         let quadratic_constraints = quadratic_constraints(&circuit);
 

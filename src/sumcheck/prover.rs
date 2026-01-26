@@ -335,6 +335,7 @@ mod tests {
         fields::{field2_128::Field2_128, fieldp128::FieldP128},
         sumcheck::initialize_transcript,
         test_vector::{CircuitTestVector, load_mac, load_rfc},
+        transcript::TranscriptMode,
         witness::WitnessLayout,
     };
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -351,7 +352,7 @@ mod tests {
         );
 
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
 
         transcript
             .write_byte_array(test_vector.ligero_commitment().as_bytes())
@@ -396,7 +397,7 @@ mod tests {
             || test_vector.pad(),
         );
 
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
 
         transcript
             .write_byte_array(test_vector.ligero_commitment().as_bytes())

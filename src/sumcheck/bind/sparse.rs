@@ -192,6 +192,9 @@ impl Hand {
     }
 }
 
+// Ensure that this platform's usize is small enough to fit in u64
+static_assertions::const_assert!(usize::BITS <= u64::BITS);
+
 /// An individual quad in the circuit. Unlike [`crate::circuit::Quad`], which contains an index into
 /// a constant table, this contains an actual value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -290,15 +293,13 @@ fn interleave(right: u64, left: u64) -> u128 {
 
 impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Ensure that this platform's usize is small enough for two to fit in u128
-        static_assertions::const_assert!(usize::BITS * 2 <= u128::BITS);
-
         // Sort the array using the lexicographic ordering of the gate index and the interleaving of
         // the bits of the right wire and left wire indices (in that order). See the module level
         // comment for discussion.
         //
-        // We interleave into a u128 because that's big enough to fit all the bits of two usizes on
-        // any platform we're likely to deploy to.
+        // We can cast the indices to u64, and interleave them into a u128, because that's big
+        // enough to fit all the bits of two usizes on any platform we're likely to deploy to. This
+        // is checked by a static assertion above.
         //
         // Using the `Ord` impl on `(T, U)` gives us lexicographic ordering over the tuple elements.
         (

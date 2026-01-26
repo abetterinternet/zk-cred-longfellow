@@ -16,8 +16,10 @@ use crate::{
 };
 use anyhow::anyhow;
 use std::io::Cursor;
+use wasm_bindgen::prelude::wasm_bindgen;
 
 /// Zero-knowledge prover for mdoc credential presentations.
+#[wasm_bindgen]
 pub struct MdocZkProver {
     pub(super) circuit_version: CircuitVersion,
     pub(super) num_attributes: usize,

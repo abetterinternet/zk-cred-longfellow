@@ -21,6 +21,7 @@ use crate::{
 };
 use anyhow::{Context, anyhow};
 use std::io::{Cursor, Write};
+use wasm_bindgen::prelude::wasm_bindgen;
 
 mod bit_plucker;
 mod ec;
@@ -32,6 +33,7 @@ pub mod verifier;
 
 /// Versions of the mdoc_zk circuit interface.
 #[derive(Clone, Copy)]
+#[wasm_bindgen]
 pub enum CircuitVersion {
     V6 = 6,
 }

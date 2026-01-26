@@ -425,7 +425,7 @@ fn u12_as_bits(mut u12: u16, out: &mut [Field2_128; 12]) -> Result<(), anyhow::E
 /// Inverse of the Reed-Solomon code's rate.
 const LIGERO_INVERSE_RATE: usize = 4;
 /// Number of columns requested to be opened during proof verification.
-const LIGERO_NREQ: usize = 189;
+const LIGERO_NREQ: usize = 128;
 
 /// Hardcoded Ligero parameters for the signature circuit.
 fn signature_ligero_parameters(circuit_version: CircuitVersion) -> LigeroParameters {
@@ -435,7 +435,7 @@ fn signature_ligero_parameters(circuit_version: CircuitVersion) -> LigeroParamet
     let block_size = (block_enc + 1) / (2 + LIGERO_INVERSE_RATE);
     let witnesses_per_row = block_size - LIGERO_NREQ;
     LigeroParameters {
-        nreq: 189,
+        nreq: LIGERO_NREQ,
         witnesses_per_row,
         quadratic_constraints_per_row: witnesses_per_row,
         block_size,

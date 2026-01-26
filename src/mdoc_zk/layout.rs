@@ -1,10 +1,10 @@
-#![allow(unused)]
-
 use crate::{
     fields::{field2_128::Field2_128, fieldp256::FieldP256},
     mdoc_zk::CircuitVersion,
 };
 use anyhow::anyhow;
+#[cfg(test)]
+use educe::Educe;
 
 /// Determines the layout of the signature circuit and hash circuit inputs for the mdoc_zk
 /// system.
@@ -395,14 +395,18 @@ pub(super) struct AttributeWitnesses<'a> {
     pub(super) inputs: [Option<AttributeWitness<'a>>; 4],
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[cfg_attr(test, derive(Debug, Educe))]
+#[cfg_attr(test, educe(PartialEq, Eq))]
 pub(super) struct AttributeWitness<'a> {
     pub(super) sha_256_input: &'a mut [Field2_128; 2 * 64 * 8],
     pub(super) sha_256_witness: Sha256Witness<'a, { 2 * Sha256BlockWitness::LENGTH }>,
     pub(super) digest_offset: &'a mut [Field2_128; CBOR_OFFSET_BITS],
     pub(super) cbor_data_offset: &'a mut [Field2_128; CBOR_OFFSET_BITS],
+    #[cfg_attr(test, educe(PartialEq(ignore)))]
     pub(super) cbor_data_length: &'a mut [Field2_128; CBOR_OFFSET_BITS],
+    #[cfg_attr(test, educe(PartialEq(ignore)))]
     pub(super) unused_offset: &'a mut [Field2_128; CBOR_OFFSET_BITS],
+    #[cfg_attr(test, educe(PartialEq(ignore)))]
     pub(super) unused_length: &'a mut [Field2_128; CBOR_OFFSET_BITS],
 }
 

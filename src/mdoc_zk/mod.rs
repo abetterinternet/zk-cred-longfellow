@@ -8,9 +8,11 @@ use crate::{
             AttributeInput, EcdsaWitness, InputLayout, SHA_256_CREDENTIAL_KNOWN_PREFIX_BYTES,
         },
         mdoc::{
-            ParsedAttribute, compute_credential_hash, compute_session_transcript_hash,
-            find_attributes, hash_to_field_element, parse_device_response,
+            ENCODED_CBOR_PREFIX_LENGTH, ParsedAttribute, compute_credential_hash,
+            compute_session_transcript_hash, find_attributes, hash_to_field_element,
+            parse_device_response,
         },
+        sha256::run_sha256_witnessed,
     },
 };
 use anyhow::{Context, anyhow};
@@ -41,6 +43,7 @@ impl CircuitInputs {
         version: CircuitVersion,
         mdoc_device_response: &[u8],
         transcript: &[u8],
+        namespace: &str,
         attribute_ids: &[String],
         time: &str,
         mac_prover_key_shares: &[Field2_128; 6],
@@ -54,7 +57,7 @@ impl CircuitInputs {
         )?;
 
         let mdoc = parse_device_response(mdoc_device_response)?;
-        let attributes = find_attributes(&mdoc.attribute_preimages, attribute_ids)?;
+        let attributes = find_attributes(&mdoc.attribute_preimages, namespace, attribute_ids)?;
 
         let mut signature_input = vec![FieldP256::ZERO; layout.signature_input_length()];
         let mut split_signature_input = layout.split_signature_input(&mut signature_input);
@@ -235,13 +238,96 @@ impl CircuitInputs {
             })
             .context("offset to valueDigests is too large")?;
 
-        // Smoke test: iterate through SHA-256 block witnesses.
-        for _ in split_hash_input.attribute_witnesses.inputs[0]
-            .as_mut()
-            .unwrap()
-            .sha_256_witness
-            .iter_blocks()
-        {}
+        for (attribute_witness_opt, parsed_attribute) in split_hash_input
+            .attribute_witnesses
+            .inputs
+            .iter_mut()
+            .zip(&attributes)
+        {
+            // Unwrap safety: when splitting the circuit inputs, we ensure there are as many `Some`
+            // values as there are requested attributes.
+            let attribute_witness = attribute_witness_opt.as_mut().unwrap();
+
+            // Re-encode the `IssuerSignedItemBytes` structure. This is less efficient than using a
+            // slice from the original encoded `DeviceResponse` input, but capturing the relevant
+            // offsets into the `DeviceResponse` structure would require significant additional
+            // parsing code.
+            let mut preimage = Vec::with_capacity(
+                parsed_attribute.issuer_signed_item_bytes.0.0.len() + ENCODED_CBOR_PREFIX_LENGTH,
+            );
+            ciborium::into_writer(&parsed_attribute.issuer_signed_item_bytes, &mut preimage)
+                .context("error encoding IssuerSignedItemBytes")?;
+            // Check that we pre-allocated the right amount.
+            debug_assert_eq!(
+                preimage.len(),
+                parsed_attribute.issuer_signed_item_bytes.0.0.len() + ENCODED_CBOR_PREFIX_LENGTH
+            );
+            let issuer_signed_item_bytes_prefix_length =
+                preimage.len() - parsed_attribute.issuer_signed_item_bytes.0.0.len();
+
+            // Fill SHA-256 hash witnesses.
+            let sha256_result = run_sha256_witnessed(
+                &preimage,
+                &mut attribute_witness.sha_256_witness,
+                &hash_bit_plucker,
+            )
+            .context("error hashing IssuerSignedItemBytes")?;
+
+            // Set the hash input.
+            byte_array_as_bits(&sha256_result.padded_input, attribute_witness.sha_256_input);
+
+            // Look up the digest and check that it matches.
+            let digest = mdoc
+                .attribute_digests
+                .get(namespace)
+                .ok_or_else(|| anyhow!("could not find namespace in valueDigests"))?
+                .get(&parsed_attribute.digest_id)
+                .ok_or_else(|| anyhow!("could not find digest in valueDigests"))?;
+            if digest != &sha256_result.digest.0 {
+                return Err(anyhow!("hash of attribute did not match"));
+            }
+            // Look up the offset of the digest.
+            let digest_offset = *mdoc
+                .mso_offsets
+                .value_digests_items
+                .get(namespace)
+                .ok_or_else(|| anyhow!("could not find namespace in valueDigests"))?
+                .get(&parsed_attribute.digest_id)
+                .ok_or_else(|| anyhow!("could not find digest in valueDigests"))?;
+            // Set the offset of the digest in the MobileSecurityObject.
+            digest_offset
+                .try_into()
+                .map_err(anyhow::Error::from)
+                .and_then(|digest_offset| {
+                    u12_as_bits(digest_offset, attribute_witness.digest_offset)
+                })
+                .context("offset of attribute hash is too large")?;
+
+            // Set witness values for the offset of the public statement in the
+            // IssuerSignedItemBytes.
+            //
+            // The offset recorded when parsing attribute structures is measured from the beginning
+            // of the `IssuerSignedItem`, but the circuit expects offsets from the beginning of the
+            // `IssuerSignedItemBytes`, which is what ISO 18013-5 says to hash. Thus, we add an
+            // additional offset to handle this difference.
+            (parsed_attribute.public_cbor_offset + issuer_signed_item_bytes_prefix_length)
+                .try_into()
+                .map_err(anyhow::Error::from)
+                .and_then(|offset| u12_as_bits(offset, attribute_witness.cbor_data_offset))
+                .context("offset into IssuerSignedItem is too large")?;
+
+            // Fill unused witness values with zeros.
+            //
+            // Unwrap safety: these won't fail because 0 is in range.
+            u12_as_bits(0, attribute_witness.cbor_data_length).unwrap();
+            u12_as_bits(0, attribute_witness.unused_offset).unwrap();
+            u12_as_bits(0, attribute_witness.unused_length).unwrap();
+        }
+
+        // Set MAC prover key shares.
+        split_hash_input
+            .mac_prover_key_shares
+            .copy_from_slice(mac_prover_key_shares);
 
         Ok(Self {
             layout,
@@ -406,7 +492,6 @@ pub(super) mod tests {
         .unwrap()
     }
 
-    #[ignore = "failing, witness preparation is incomplete"]
     #[wasm_bindgen_test(unsupported = test)]
     fn witness_preparation() {
         let test_vector = load_witness_test_vector();
@@ -431,6 +516,7 @@ pub(super) mod tests {
             CircuitVersion::V6,
             &test_vector.mdoc,
             &test_vector.transcript,
+            "org.iso.18013.5.1",
             &attributes,
             &test_vector.now,
             &mac_prover_key_shares,
@@ -562,7 +648,27 @@ pub(super) mod tests {
         );
 
         assert_eq!(inputs.signature_input(), expected_signature_input);
-        assert_eq!(inputs.hash_input(), expected_hash_input);
+
+        // Copy values for unused witness values. We don't care if these are different from the test
+        // vector.
+        for (attr_actual, attr_expected) in hash_actual_split
+            .attribute_witnesses
+            .inputs
+            .iter_mut()
+            .zip(hash_expected_split.attribute_witnesses.inputs.iter_mut())
+        {
+            let Some(attr_actual) = attr_actual else {
+                continue;
+            };
+            let Some(attr_expected) = attr_expected else {
+                continue;
+            };
+            *attr_actual.cbor_data_length = *attr_expected.cbor_data_length;
+            *attr_actual.unused_offset = *attr_expected.unused_offset;
+            *attr_actual.unused_length = *attr_expected.unused_length;
+        }
+
+        assert_eq!(hash_actual, expected_hash_input);
     }
 
     #[wasm_bindgen_test(unsupported = test)]

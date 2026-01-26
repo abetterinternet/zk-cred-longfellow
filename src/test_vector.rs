@@ -135,6 +135,12 @@ impl<FE: CodecFieldElement> CircuitTestVector<FE> {
         test_vector.serialized_ligero_proof = ligero_proof.to_vec();
 
         assert_eq!(circuit.num_quads(), test_vector.quads as usize);
+        // Verify that encoded circuits contains quads in the appropriate order for efficient
+        // binding of the combined quad. See src/sumcheck/bind/sparse.rs.
+        for layer in 0..circuit.num_layers() {
+            let combined_quad = circuit.combined_quad(layer, FE::ONE).unwrap();
+            assert!(combined_quad.contents().is_sorted());
+        }
 
         (test_vector, circuit)
     }

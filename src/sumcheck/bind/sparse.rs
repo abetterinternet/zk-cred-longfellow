@@ -105,7 +105,7 @@
 //! g: 0 l: 00 r: 10
 //! g: 0 l: 01 r: 10
 //! ```
-
+//!
 //! (We stop including the values `v` because now they start to become complex expressions that
 //! distract more than they help. It suffices to remember that the sparse array is no longer ordered
 //! in the natural order of the dense array.)
@@ -300,26 +300,25 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
         // We can cast the indices to u64, and interleave them into a u128, because that's big
         // enough to fit all the bits of two usizes on any platform we're likely to deploy to. This
         // is checked by a static assertion above.
-        //
-        // Using the `Ord` impl on `(T, U)` gives us lexicographic ordering over the tuple elements.
-        (
-            self.gate_index,
-            interleave(self.right_wire_index as u64, self.left_wire_index as u64),
-        )
-            .cmp(&(
-                other.gate_index,
-                interleave(other.right_wire_index as u64, other.left_wire_index as u64),
-            ))
+        let wires_cmp = interleave(self.right_wire_index as u64, self.left_wire_index as u64).cmp(
+            &interleave(other.right_wire_index as u64, other.left_wire_index as u64),
+        );
+        if wires_cmp == Ordering::Equal {
+            return self.gate_index.cmp(&other.gate_index);
+        } else {
+            wires_cmp
+        }
     }
 }
 
 impl<FE: FieldElement> From<Vec<SparseQuadElement<FE>>> for SparseSumcheckArray<FE> {
-    fn from(mut contents: Vec<SparseQuadElement<FE>>) -> Self {
-        contents.sort_unstable();
+    fn from(contents: Vec<SparseQuadElement<FE>>) -> Self {
+        assert!(contents.is_sorted());
         Self { contents }
     }
 }
 
+#[cfg(test)]
 impl<FE: FieldElement> From<Vec<Vec<Vec<FE>>>> for SparseSumcheckArray<FE> {
     fn from(value: Vec<Vec<Vec<FE>>>) -> Self {
         // Assumes that the value is a non-sparse array of coefficients indexed by g, l, r
@@ -341,11 +340,12 @@ impl<FE: FieldElement> From<Vec<Vec<Vec<FE>>>> for SparseSumcheckArray<FE> {
                 }
             }
         }
-
+        contents.sort_unstable();
         Self::from(contents)
     }
 }
 
+#[cfg(test)]
 impl<FE: FieldElement> From<Vec<Vec<FE>>> for SparseSumcheckArray<FE> {
     fn from(value: Vec<Vec<FE>>) -> Self {
         // Make a 2D array into 3D by setting gate_index = 0 for all values
@@ -505,8 +505,6 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
             element.coefficient *= bindeq[element.gate_index];
             element.gate_index = 0;
         }
-
-        self.contents.sort_unstable();
 
         // Compact entries with duplicate index
         let mut write = 1;

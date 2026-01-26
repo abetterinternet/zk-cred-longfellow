@@ -192,6 +192,9 @@ impl Hand {
     }
 }
 
+// Ensure that this platform's usize is small enough to fit in u64
+static_assertions::const_assert!(usize::BITS <= u64::BITS);
+
 /// An individual quad in the circuit. Unlike [`crate::circuit::Quad`], which contains an index into
 /// a constant table, this contains an actual value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -264,35 +267,48 @@ impl<FE: FieldElement> PartialOrd for SparseQuadElement<FE> {
     }
 }
 
+/// Interleave the bits of two integers.
+fn interleave(right: u64, left: u64) -> u128 {
+    // Adapted from https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN. See also
+    // `galois_square_u64_widening()` in `src/fields/field2_128/backend_bit_slicing.rs`.
+
+    let right = right as u128;
+    let right = (right | (right << 32)) & 0x0000_0000_FFFF_FFFF_0000_0000_FFFF_FFFF;
+    let right = (right | (right << 16)) & 0x0000_FFFF_0000_FFFF_0000_FFFF_0000_FFFF;
+    let right = (right | (right << 8)) & 0x00FF_00FF_00FF_00FF_00FF_00FF_00FF_00FF;
+    let right = (right | (right << 4)) & 0x0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F;
+    let right = (right | (right << 2)) & 0x3333_3333_3333_3333_3333_3333_3333_3333;
+    let right = (right | (right << 1)) & 0x5555_5555_5555_5555_5555_5555_5555_5555;
+
+    let left = left as u128;
+    let left = (left | (left << 32)) & 0x0000_0000_FFFF_FFFF_0000_0000_FFFF_FFFF;
+    let left = (left | (left << 16)) & 0x0000_FFFF_0000_FFFF_0000_FFFF_0000_FFFF;
+    let left = (left | (left << 8)) & 0x00FF_00FF_00FF_00FF_00FF_00FF_00FF_00FF;
+    let left = (left | (left << 4)) & 0x0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F;
+    let left = (left | (left << 2)) & 0x3333_3333_3333_3333_3333_3333_3333_3333;
+    let left = (left | (left << 1)) & 0x5555_5555_5555_5555_5555_5555_5555_5555;
+
+    left | (right << 1)
+}
+
 impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
     fn cmp(&self, other: &Self) -> Ordering {
         // Sort the array using the lexicographic ordering of the gate index and the interleaving of
         // the bits of the right wire and left wire indices (in that order). See the module level
         // comment for discussion.
         //
-        // We interleave into a u128 because that's big enough to fit all the bits of two usizes on
-        // any platform we're likely to deploy to.
-        fn interleave(right: usize, left: usize) -> u128 {
-            // Ensure that this platform's usize is small enough for two to fit in u128
-            static_assertions::const_assert!(usize::BITS * 2 <= u128::BITS);
-
-            let mut interleaved = 0u128;
-            for bit in (0..usize::BITS).rev() {
-                let mask = 1 << bit;
-                interleaved += (right as u128 & mask) << (bit + 1);
-                interleaved += (left as u128 & mask) << (bit);
-            }
-
-            interleaved
-        }
+        // We can cast the indices to u64, and interleave them into a u128, because that's big
+        // enough to fit all the bits of two usizes on any platform we're likely to deploy to. This
+        // is checked by a static assertion above.
+        //
         // Using the `Ord` impl on `(T, U)` gives us lexicographic ordering over the tuple elements.
         (
             self.gate_index,
-            interleave(self.right_wire_index, self.left_wire_index),
+            interleave(self.right_wire_index as u64, self.left_wire_index as u64),
         )
             .cmp(&(
                 other.gate_index,
-                interleave(other.right_wire_index, other.left_wire_index),
+                interleave(other.right_wire_index as u64, other.left_wire_index as u64),
             ))
     }
 }

@@ -1,5 +1,5 @@
 use crate::mdoc_zk::{CircuitVersion, prover::MdocZkProver};
-use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 
 /// Initialize the prover by loading a compressed circuit file.
 #[wasm_bindgen]
@@ -7,8 +7,8 @@ pub fn initialize(
     circuit: &[u8],
     circuit_version: CircuitVersion,
     num_attributes: usize,
-) -> Result<MdocZkProver, String> {
-    MdocZkProver::new(circuit, circuit_version, num_attributes).map_err(|e| format!("{e:#}"))
+) -> Result<MdocZkProver, JsError> {
+    MdocZkProver::new(circuit, circuit_version, num_attributes).map_err(convert_error)
 }
 
 /// Create a proof for a credential presentation.
@@ -31,7 +31,7 @@ pub fn prove(
     requested_claims: Box<[String]>,
     session_transcript: &[u8],
     time: &str,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, JsError> {
     let requested_claims = requested_claims
         .iter()
         .map(String::as_str)
@@ -44,5 +44,10 @@ pub fn prove(
             session_transcript,
             time,
         )
-        .map_err(|e| format!("{e:#}"))
+        .map_err(convert_error)
+}
+
+fn convert_error(error: anyhow::Error) -> JsError {
+    let message = format!("{error:#}");
+    JsError::new(&message)
 }

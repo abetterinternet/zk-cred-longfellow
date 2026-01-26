@@ -304,7 +304,7 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
             &interleave(other.right_wire_index as u64, other.left_wire_index as u64),
         );
         if wires_cmp == Ordering::Equal {
-            return self.gate_index.cmp(&other.gate_index);
+            self.gate_index.cmp(&other.gate_index)
         } else {
             wires_cmp
         }

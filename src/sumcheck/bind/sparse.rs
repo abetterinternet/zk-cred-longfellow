@@ -300,16 +300,12 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
         // We can cast the indices to u64, and interleave them into a u128, because that's big
         // enough to fit all the bits of two usizes on any platform we're likely to deploy to. This
         // is checked by a static assertion above.
-        //
-        // Using the `Ord` impl on `(T, U)` gives us lexicographic ordering over the tuple elements.
-        (
-            self.gate_index,
-            interleave(self.right_wire_index as u64, self.left_wire_index as u64),
-        )
-            .cmp(&(
-                other.gate_index,
-                interleave(other.right_wire_index as u64, other.left_wire_index as u64),
+        self.gate_index.cmp(&other.gate_index).then_with(|| {
+            interleave(self.right_wire_index as u64, self.left_wire_index as u64).cmp(&interleave(
+                other.right_wire_index as u64,
+                other.left_wire_index as u64,
             ))
+        })
     }
 }
 

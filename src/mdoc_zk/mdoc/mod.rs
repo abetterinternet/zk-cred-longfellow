@@ -36,9 +36,7 @@ pub(super) struct Mdoc {
     pub(super) issuer_signature: Signature,
 
     // Validity information.
-    #[allow(unused)]
     pub(super) valid_from: String,
-    #[allow(unused)]
     pub(super) valid_until: String,
 
     // Authentication of the mdoc.

@@ -304,6 +304,13 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
             &interleave(other.right_wire_index as u64, other.left_wire_index as u64),
         );
         if wires_cmp == Ordering::Equal {
+            if self.gate_index == other.gate_index {
+                assert_eq!(
+                    self.coefficient, other.coefficient,
+                    "published circuits should never contain duplicated indices",
+                );
+            }
+
             self.gate_index.cmp(&other.gate_index)
         } else {
             wires_cmp

@@ -1,8 +1,13 @@
 use crate::mdoc_zk::{CircuitVersion, prover::MdocZkProver};
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 
-/// Initialize the prover by loading a compressed circuit file.
-#[wasm_bindgen]
+/// Initialize the prover by loading a decompressed circuit file.
+///
+/// @param {Uint8Array} circuit - The decompressed circuit file.
+/// @param {CircuitVersion} circuit_version - The version of the mdoc_zk circuit interface.
+/// @param {number} num_attributes - The number of attributes to be disclosed in the presentation.
+/// @returns {MdocZkProver}
+#[wasm_bindgen(skip_jsdoc)]
 pub fn initialize(
     circuit: &[u8],
     circuit_version: CircuitVersion,
@@ -13,15 +18,14 @@ pub fn initialize(
 
 /// Create a proof for a credential presentation.
 ///
-/// # Arguments
-///
-/// * `prover`: The prover returned from `initialize()`.
-/// * `device_response`: The mdoc's DeviceResponse, as CBOR data.
-/// * `namespace`:  The namespace of the claims.
-/// * `requested_claims`: The identifiers of the claims to be disclosed.
-/// * `session_transcript`: The `SessionTranscript`, as CBOR data.
-/// * `time`: The current time. This must be in RFC 3339 format, in UTC, with no time zone offset.
-#[wasm_bindgen]
+/// @param {MdocZkProver} prover - The prover returned from `initialize()`.
+/// @param {Uint8Array} device_response - The mdoc's DeviceResponse, as CBOR data.
+/// @param {string} namespace -  The namespace of the claims.
+/// @param {string[]} requested_claims - The identifiers of the claims to be disclosed.
+/// @param {Uint8Array} session_transcript - The `SessionTranscript`, as CBOR data.
+/// @param {string} time - The current time. This must be in RFC 3339 format, in UTC, with no time zone offset.
+/// @returns {Uint8Array} The serialized proof.
+#[wasm_bindgen(skip_jsdoc)]
 // We have to use `Box<[String]>` because wasm-bindgen does not support `&[String]` arguments.
 #[allow(clippy::boxed_local)]
 pub fn prove(

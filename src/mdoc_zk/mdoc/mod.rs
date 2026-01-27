@@ -294,7 +294,8 @@ const TAG_TDATE: u64 = 0;
 
 /// Compute the hash of the session transcript, for the mdoc signature.
 pub(super) fn compute_session_transcript_hash(
-    mdoc: &Mdoc,
+    doc_type: String,
+    device_name_spaces_bytes: Vec<u8>,
     transcript: &[u8],
 ) -> Result<Sha256Digest, anyhow::Error> {
     let session_transcript = ciborium::from_reader::<Value, _>(transcript)
@@ -302,8 +303,8 @@ pub(super) fn compute_session_transcript_hash(
 
     let device_authentication = DeviceAuthentication {
         session_transcript,
-        doc_type: mdoc.doc_type.clone(),
-        device_name_spaces_bytes: tag::Required(ByteString(mdoc.device_name_spaces_bytes.clone())),
+        doc_type,
+        device_name_spaces_bytes: tag::Required(ByteString(device_name_spaces_bytes)),
     };
     let mut buffer = Vec::new();
     ciborium::into_writer(&device_authentication, &mut buffer)

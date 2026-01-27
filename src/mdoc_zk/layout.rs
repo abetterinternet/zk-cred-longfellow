@@ -30,10 +30,10 @@ impl InputLayout {
         })
     }
 
-    /// Returns the length of the input for the signature circuit, in P-256 field elements.
+    /// Returns the length of the statement for the signature circuit, in P-256 field elements.
     ///
-    /// This includes all public and private inputs, including the implicit 1.
-    pub(super) fn signature_input_length(&self) -> usize {
+    /// This includes only public inputs, including the implicit 1.
+    pub(super) fn signature_statement_length(&self) -> usize {
         match self.version {
             CircuitVersion::V6 => {}
         }
@@ -42,11 +42,51 @@ impl InputLayout {
             + 1 // hash of session transcript
             + 3 * 2 * 128 // MAC tags
             + 128 // MAC verifier key share
+    }
+
+    /// Returns the length of the input for the signature circuit, in P-256 field elements.
+    ///
+    /// This includes all public and private inputs, including the implicit 1.
+    pub(super) fn signature_input_length(&self) -> usize {
+        match self.version {
+            CircuitVersion::V6 => {}
+        }
+        self.signature_statement_length()
             + 1 // hash of credential
             + 2 // device public key
             + EcdsaWitness::LENGTH // signature verification witness, credential
             + EcdsaWitness::LENGTH // signature verification witness, device binding
             + 3 * (256 * 2 / 2) // MAC prover key shares and messages
+    }
+
+    /// Segments the signature circuit's public inputs by purpose.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the input slice is not of the length given by [`Self::signature_statement_length()`].
+    pub(super) fn split_signature_statement<'a>(
+        &self,
+        input: &'a mut [FieldP256],
+    ) -> SplitSignatureStatement<'a> {
+        assert_eq!(input.len(), self.signature_statement_length());
+        // After this assertion, all subsequent `unwrap()` and `split_at_mut()` calls should not panic.
+
+        let (implicit_one, input) = input.split_first_mut().unwrap();
+        let (issuer_public_key_x, input) = input.split_first_mut().unwrap();
+        let (issuer_public_key_y, input) = input.split_first_mut().unwrap();
+        let (e_session_transcript, input) = input.split_first_mut().unwrap();
+        let (mac_tags, input) = input.split_at_mut(3 * 2 * 128);
+        let (mac_verifier_key_share, input) = input.split_at_mut(128);
+        assert!(input.is_empty());
+
+        SplitSignatureStatement {
+            implicit_one,
+            issuer_public_key_x,
+            issuer_public_key_y,
+            e_session_transcript,
+            mac_tags: mac_tags.try_into().unwrap(),
+            mac_verifier_key_share: mac_verifier_key_share.try_into().unwrap(),
+        }
     }
 
     /// Segments the signature circuit's inputs by purpose.
@@ -61,12 +101,8 @@ impl InputLayout {
         assert_eq!(input.len(), self.signature_input_length());
         // After this assertion, all subsequent `unwrap()` and `split_at_mut()` calls should not panic.
 
-        let (implicit_one, input) = input.split_first_mut().unwrap();
-        let (issuer_public_key_x, input) = input.split_first_mut().unwrap();
-        let (issuer_public_key_y, input) = input.split_first_mut().unwrap();
-        let (e_session_transcript, input) = input.split_first_mut().unwrap();
-        let (mac_tags, input) = input.split_at_mut(3 * 2 * 128);
-        let (mac_verifier_key_share, input) = input.split_at_mut(128);
+        let (statement, input) = input.split_at_mut(self.signature_statement_length());
+        let statement = self.split_signature_statement(statement);
         let (e_credential, input) = input.split_first_mut().unwrap();
         let (device_public_key_x, input) = input.split_first_mut().unwrap();
         let (device_public_key_y, input) = input.split_first_mut().unwrap();
@@ -76,12 +112,7 @@ impl InputLayout {
         assert!(input.is_empty());
 
         SplitSignatureInput {
-            implicit_one,
-            issuer_public_key_x,
-            issuer_public_key_y,
-            e_session_transcript,
-            mac_tags: mac_tags.try_into().unwrap(),
-            mac_verifier_key_share: mac_verifier_key_share.try_into().unwrap(),
+            statement,
             e_credential,
             device_public_key_x,
             device_public_key_y,
@@ -93,10 +124,10 @@ impl InputLayout {
         }
     }
 
-    /// Returns the length of the input for the hash circuit, in GF(2^128) field elements.
+    /// Returns the length of the statement for the hash circuit, in GF(2^128) field elements.
     ///
-    /// This includes all public and private inputs, including the implicit 1.
-    pub(super) fn hash_input_length(&self) -> usize {
+    /// This includes only public inputs, including the implicit 1.
+    pub(super) fn hash_statement_length(&self) -> usize {
         match self.version {
             CircuitVersion::V6 => {}
         }
@@ -105,6 +136,16 @@ impl InputLayout {
             + 20 * 8 // time in RFC 3339 format
             + 3 * 2 // MAC tags
             + 1 // MAC verifier key share
+    }
+
+    /// Returns the length of the input for the hash circuit, in GF(2^128) field elements.
+    ///
+    /// This includes all public and private inputs, including the implicit 1.
+    pub(super) fn hash_input_length(&self) -> usize {
+        match self.version {
+            CircuitVersion::V6 => {}
+        }
+        self.hash_statement_length()
             + 256 // hash of credential
             + 2 * 256 // device public key
             + 8 // number of SHA-256 blocks
@@ -116,6 +157,51 @@ impl InputLayout {
             + 12 // valueDigests CBOR offset
             + usize::from(self.attributes) * AttributeWitness::LENGTH
             + 3 * 2 // MAC prover key shares
+    }
+
+    /// Segments the hash circuit's public inputs by purpose.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the input slice is not of the length given by [`Self::hash_statement_length()`].
+    pub(super) fn split_hash_statement<'a>(
+        &self,
+        input: &'a mut [Field2_128],
+    ) -> SplitHashStatement<'a> {
+        assert_eq!(input.len(), self.hash_statement_length());
+        // After this assertion, all subsequent `unwrap()` and `split_at_mut()` calls should not panic.
+
+        // Re-assert the bounds on `attributes` that were previously checked in the constructor.
+        assert!(self.attributes >= 1);
+        assert!(self.attributes <= 4);
+
+        let (implicit_one, mut input) = input.split_first_mut().unwrap();
+
+        let mut attribute_inputs = AttributeInputs::default();
+        for out in attribute_inputs.inputs[0..self.attributes.into()].iter_mut() {
+            let (chunk, rest) = input.split_at_mut(AttributeInput::LENGTH);
+            input = rest;
+
+            let (cbor_data, cbor_length) = chunk.split_at_mut(ATTRIBUTE_CBOR_DATA_LENGTH * 8);
+
+            *out = Some(AttributeInput {
+                cbor_data: cbor_data.try_into().unwrap(),
+                cbor_length: cbor_length.try_into().unwrap(),
+            });
+        }
+
+        let (time, input) = input.split_at_mut(20 * 8);
+        let (mac_tags, input) = input.split_at_mut(3 * 2);
+        let (mac_verifier_key_share, input) = input.split_first_mut().unwrap();
+        assert!(input.is_empty());
+
+        SplitHashStatement {
+            implicit_one,
+            attribute_inputs,
+            time: time.try_into().unwrap(),
+            mac_tags: mac_tags.try_into().unwrap(),
+            mac_verifier_key_share,
+        }
     }
 
     /// Segments the hash circuit's inputs by purpose.
@@ -131,24 +217,8 @@ impl InputLayout {
         assert!(self.attributes >= 1);
         assert!(self.attributes <= 4);
 
-        let (implicit_one, mut input) = input.split_first_mut().unwrap();
-
-        let mut attribute_inputs = AttributeInputs::default();
-        for out in attribute_inputs.inputs[0..self.attributes.into()].iter_mut() {
-            let (chunk, rest) = input.split_at_mut(AttributeInput::LENGTH);
-            input = rest;
-
-            let (cbor_data, cbor_length) = chunk.split_at_mut(96 * 8);
-
-            *out = Some(AttributeInput {
-                cbor_data: cbor_data.try_into().unwrap(),
-                cbor_length: cbor_length.try_into().unwrap(),
-            });
-        }
-
-        let (time, input) = input.split_at_mut(20 * 8);
-        let (mac_tags, input) = input.split_at_mut(3 * 2);
-        let (mac_verifier_key_share, input) = input.split_first_mut().unwrap();
+        let (statement, input) = input.split_at_mut(self.hash_statement_length());
+        let statement = self.split_hash_statement(statement);
         let (e_credential, input) = input.split_at_mut(256);
         let (device_public_key_x, input) = input.split_at_mut(256);
         let (device_public_key_y, input) = input.split_at_mut(256);
@@ -192,11 +262,7 @@ impl InputLayout {
         assert!(input.is_empty());
 
         SplitHashInput {
-            implicit_one,
-            attribute_inputs,
-            time: time.try_into().unwrap(),
-            mac_tags: mac_tags.try_into().unwrap(),
-            mac_verifier_key_share,
+            statement,
             e_credential: e_credential.try_into().unwrap(),
             device_public_key_x: device_public_key_x.try_into().unwrap(),
             device_public_key_y: device_public_key_y.try_into().unwrap(),
@@ -215,15 +281,21 @@ impl InputLayout {
     }
 }
 
-/// Pointers to different parts of the signature circuit's inputs.
+/// Pointers to different parts of the signature circuit's public inputs.
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
-pub(super) struct SplitSignatureInput<'a> {
+pub(super) struct SplitSignatureStatement<'a> {
     pub(super) implicit_one: &'a mut FieldP256,
     pub(super) issuer_public_key_x: &'a mut FieldP256,
     pub(super) issuer_public_key_y: &'a mut FieldP256,
     pub(super) e_session_transcript: &'a mut FieldP256,
     pub(super) mac_tags: &'a mut [FieldP256; 3 * 2 * 128],
     pub(super) mac_verifier_key_share: &'a mut [FieldP256; 128],
+}
+
+/// Pointers to different parts of the signature circuit's inputs.
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+pub(super) struct SplitSignatureInput<'a> {
+    pub(super) statement: SplitSignatureStatement<'a>,
     pub(super) e_credential: &'a mut FieldP256,
     pub(super) device_public_key_x: &'a mut FieldP256,
     pub(super) device_public_key_y: &'a mut FieldP256,
@@ -308,14 +380,20 @@ impl<'a> EcdsaWitness<'a> {
     }
 }
 
-/// Pointers to different parts of the hash circuit's inputs.
+/// Pointers to different parts of the hash circuit's public inputs.
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
-pub(super) struct SplitHashInput<'a> {
+pub(super) struct SplitHashStatement<'a> {
     pub(super) implicit_one: &'a mut Field2_128,
     pub(super) attribute_inputs: AttributeInputs<'a>,
     pub(super) time: &'a mut [Field2_128; 20 * 8],
     pub(super) mac_tags: &'a mut [Field2_128; 6],
     pub(super) mac_verifier_key_share: &'a mut Field2_128,
+}
+
+/// Pointers to different parts of the hash circuit's inputs.
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+pub(super) struct SplitHashInput<'a> {
+    pub(super) statement: SplitHashStatement<'a>,
     pub(super) e_credential: &'a mut [Field2_128; 256],
     pub(super) device_public_key_x: &'a mut [Field2_128; 256],
     pub(super) device_public_key_y: &'a mut [Field2_128; 256],
@@ -338,13 +416,13 @@ pub(super) struct AttributeInputs<'a> {
 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct AttributeInput<'a> {
-    pub(super) cbor_data: &'a mut [Field2_128; 96 * 8],
+    pub(super) cbor_data: &'a mut [Field2_128; ATTRIBUTE_CBOR_DATA_LENGTH * 8],
     pub(super) cbor_length: &'a mut [Field2_128; 8],
 }
 
 impl<'a> AttributeInput<'a> {
     const LENGTH: usize = {
-        96 * 8 // attribute identifier and value CBOR data
+        ATTRIBUTE_CBOR_DATA_LENGTH * 8 // attribute identifier and value CBOR data
             + 8 // length of CBOR data
     };
 }
@@ -438,6 +516,8 @@ const SHA_256_INPUT_WIRES: usize =
     (SHA_256_CREDENTIAL_MAX_BLOCKS * 64 - SHA_256_CREDENTIAL_KNOWN_PREFIX_BYTES) * 8;
 /// Number of bits and wires for each CBOR offset.
 const CBOR_OFFSET_BITS: usize = 12;
+/// Number of bytes allocated for attribute identifier and value.
+pub(super) const ATTRIBUTE_CBOR_DATA_LENGTH: usize = 96;
 
 #[cfg(test)]
 mod tests {

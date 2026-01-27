@@ -6,7 +6,10 @@ use crate::{
     },
     fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
     ligero::{LigeroCommitment, LigeroParameters, prover::ligero_prove, tableau::Tableau},
-    mdoc_zk::{CircuitInputs, CircuitVersion, hash_ligero_parameters, signature_ligero_parameters},
+    mdoc_zk::{
+        CircuitInputs, CircuitVersion, MdocZkProof, ProofContext, hash_ligero_parameters,
+        signature_ligero_parameters,
+    },
     sumcheck::{initialize_transcript, prover::SumcheckProver},
     transcript::{Transcript, TranscriptMode},
     witness::{Witness, WitnessLayout},
@@ -16,16 +19,16 @@ use std::io::Cursor;
 
 /// Zero-knowledge prover for mdoc credential presentations.
 pub struct MdocZkProver {
-    circuit_version: CircuitVersion,
-    num_attributes: usize,
-    hash_circuit: Circuit<Field2_128>,
-    hash_ligero_parameters: LigeroParameters,
-    hash_witness_layout: WitnessLayout,
-    hash_quadratic_constraints: Vec<QuadraticConstraint>,
-    signature_circuit: Circuit<FieldP256>,
-    signature_ligero_parameters: LigeroParameters,
-    signature_witness_layout: WitnessLayout,
-    signature_quadratic_constraints: Vec<QuadraticConstraint>,
+    pub(super) circuit_version: CircuitVersion,
+    pub(super) num_attributes: usize,
+    pub(super) hash_circuit: Circuit<Field2_128>,
+    pub(super) hash_ligero_parameters: LigeroParameters,
+    pub(super) hash_witness_layout: WitnessLayout,
+    pub(super) hash_quadratic_constraints: Vec<QuadraticConstraint>,
+    pub(super) signature_circuit: Circuit<FieldP256>,
+    pub(super) signature_ligero_parameters: LigeroParameters,
+    pub(super) signature_witness_layout: WitnessLayout,
+    pub(super) signature_quadratic_constraints: Vec<QuadraticConstraint>,
 }
 
 impl MdocZkProver {
@@ -208,18 +211,25 @@ impl MdocZkProver {
         )?;
 
         // Serialize MAC tags and proofs.
-        let mut proof = Vec::with_capacity(1 << 19);
-        for mac_tag in mac_tags {
-            mac_tag.encode(&mut proof)?;
-        }
-        hash_commitment.encode(&mut proof)?;
-        hash_sumcheck_proof.encode_with_param(&self.hash_circuit, &mut proof)?;
-        hash_ligero_proof.encode_with_param(hash_tableau.layout(), &mut proof)?;
-        signature_commitment.encode(&mut proof)?;
-        signature_sumcheck_proof.encode_with_param(&self.signature_circuit, &mut proof)?;
-        signature_ligero_proof.encode_with_param(signature_tableau.layout(), &mut proof)?;
+        let mut proof_buffer = Vec::with_capacity(1 << 19);
+        let proof = MdocZkProof {
+            mac_tags,
+            hash_commitment,
+            hash_sumcheck_proof,
+            hash_ligero_proof,
+            signature_commitment,
+            signature_sumcheck_proof,
+            signature_ligero_proof,
+        };
+        let context = ProofContext {
+            hash_circuit: &self.hash_circuit,
+            signature_circuit: &self.signature_circuit,
+            hash_layout: hash_tableau.layout(),
+            signature_layout: signature_tableau.layout(),
+        };
+        proof.encode_with_param(&context, &mut proof_buffer)?;
 
-        Ok(proof)
+        Ok(proof_buffer)
     }
 }
 
@@ -244,7 +254,6 @@ mod tests {
     use crate::mdoc_zk::{CircuitVersion, prover::MdocZkProver, tests::load_witness_test_vector};
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[ignore = "slow test"]
     #[wasm_bindgen_test(unsupported = test)]
     fn test_generate_proof() {
         let compressed = include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice();

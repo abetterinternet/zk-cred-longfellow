@@ -8,7 +8,7 @@ use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 /// @param {number} num_attributes - The number of attributes to be disclosed in the presentation.
 /// @returns {MdocZkProver}
 #[wasm_bindgen(skip_jsdoc)]
-pub fn initialize(
+pub fn initialize_prover(
     circuit: &[u8],
     circuit_version: CircuitVersion,
     num_attributes: usize,

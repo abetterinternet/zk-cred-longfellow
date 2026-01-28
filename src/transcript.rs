@@ -3,8 +3,6 @@
 //!
 //! <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-00#section-3>
 
-use std::fmt::Debug;
-
 use crate::{Sha256Digest, circuit::Circuit, fields::CodecFieldElement, sumcheck::Polynomial};
 use aes::{
     Aes256,
@@ -13,6 +11,7 @@ use aes::{
 use anyhow::Context;
 use crypto_common::{BlockSizeUser, generic_array::GenericArray};
 use sha2::{Digest, Sha256};
+use std::{cmp::min, fmt::Debug};
 
 /// A transcript of the prover's execution of a protocol, used to generate the verifier's public
 /// coin challenges based on the state of the transcript at some moment.
@@ -152,14 +151,7 @@ impl Transcript {
     ///
     /// <https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.1.2>
     pub fn write_byte_array(&mut self, bytes: &[u8]) -> Result<(), anyhow::Error> {
-        // Length prefix is 8 bytes, so reject slices that are too big
-        let length = u64::try_from(bytes.len()).context("byte array too big for transcript")?;
-
-        // Write tag for byte array.
-        self.write_bytes(&[Tag::ByteArray.as_byte(self.mode)])?;
-
-        // Write length of array as 8 little endian bytes
-        self.write_bytes(&length.to_le_bytes())?;
+        self.begin_write_byte_array(bytes.len())?;
 
         // Write array
         self.write_bytes(bytes)?;
@@ -176,6 +168,41 @@ impl Transcript {
         // isn't clear on this, but longfellow-zk writes individual field elements.
         self.write_field_element(&polynomial.p0)?;
         self.write_field_element(&polynomial.p2)?;
+
+        Ok(())
+    }
+
+    /// Write an array of zero bytes to the transcript. For large arrays, this will be faster and
+    /// use less memory than [`Self::write_byte_array`].
+    pub fn write_zero_array(&mut self, mut count: usize) -> Result<(), anyhow::Error> {
+        self.begin_write_byte_array(count)?;
+
+        // Invalidate any FSPRF we have because any challenges generated past this point need to
+        // incorporate the new bytes.
+        self.current_fsprf = None;
+
+        // Write zeroes in chunks of 16k.
+        let zeroes = [0u8; 16834];
+
+        while count > 0 {
+            let written = min(count, zeroes.len());
+            self.fsprf_seed.update(&zeroes[..written]);
+            count -= written;
+        }
+
+        Ok(())
+    }
+
+    /// Write the tag and length for a byte array.
+    fn begin_write_byte_array(&mut self, length: usize) -> Result<(), anyhow::Error> {
+        // Length prefix is 8 bytes, so reject slices that are too big
+        let length = u64::try_from(length).context("byte array too big for transcript")?;
+
+        // Write tag for byte array.
+        self.write_bytes(&[Tag::ByteArray.as_byte(self.mode)])?;
+
+        // Write length of array as 8 little endian bytes
+        self.write_bytes(&length.to_le_bytes())?;
 
         Ok(())
     }
@@ -632,6 +659,28 @@ mod tests {
         for natural in transcript.generate_naturals_without_replacement(1_000_001, 1_000_000) {
             assert!(natural < 1_000_001);
             assert!(seen.insert(natural));
+        }
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn write_zero_array_equivalence() {
+        for (label, length) in [
+            ("less than buffer size", 100),
+            ("exactly buffer size", 16384),
+            ("greater than buffer size", 16384 + 1),
+        ] {
+            let mut transcript1 = Transcript::new(b"test", TranscriptMode::Normal).expect(label);
+            let zeroes = vec![0u8; length];
+            transcript1.write_byte_array(&zeroes).expect(label);
+
+            let mut transcript2 = Transcript::new(b"test", TranscriptMode::Normal).expect(label);
+            transcript2.write_zero_array(length).expect(label);
+
+            assert_eq!(
+                transcript1.generate_challenge::<FieldP256>(1).unwrap(),
+                transcript2.generate_challenge::<FieldP256>(1).unwrap(),
+                "test case {label}: generated challenges do not match"
+            );
         }
     }
 }

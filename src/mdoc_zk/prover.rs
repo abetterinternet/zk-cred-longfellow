@@ -1,16 +1,17 @@
 use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::{
-        LinearConstraints, QuadraticConstraint, quadratic_constraints,
-    },
+    constraints::proof_constraints::{QuadraticConstraint, quadratic_constraints},
     fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
     ligero::{LigeroCommitment, LigeroParameters, prover::ligero_prove, tableau::Tableau},
     mdoc_zk::{
         CircuitInputs, CircuitVersion, MdocZkProof, ProofContext, hash_ligero_parameters,
         signature_ligero_parameters,
     },
-    sumcheck::{initialize_transcript, prover::SumcheckProver},
+    sumcheck::{
+        initialize_transcript,
+        prover::{ProverResult, SumcheckProtocol},
+    },
     transcript::{Transcript, TranscriptMode},
     witness::{Witness, WitnessLayout},
 };
@@ -85,8 +86,8 @@ impl MdocZkProver {
             return Err(anyhow!("wrong number of attributes"));
         }
 
-        let hash_sumcheck_prover = SumcheckProver::new(&self.hash_circuit);
-        let signature_sumcheck_prover = SumcheckProver::new(&self.signature_circuit);
+        let hash_sumcheck_prover = SumcheckProtocol::new(&self.hash_circuit);
+        let signature_sumcheck_prover = SumcheckProtocol::new(&self.signature_circuit);
 
         // Pick MAC prover key shares.
         let mut mac_prover_key_shares = [Field2_128::ZERO; 6];
@@ -166,16 +167,10 @@ impl MdocZkProver {
             &self.hash_circuit,
             hash_evaluation.public_inputs(self.hash_circuit.num_public_inputs()),
         )?;
-        let mut constraint_transcript = transcript.clone();
-        let hash_sumcheck_proof = hash_sumcheck_prover
-            .prove(&hash_evaluation, &mut transcript, &hash_witness)?
-            .proof;
-        let hash_linear_constraints = LinearConstraints::from_proof(
-            &self.hash_circuit,
-            hash_evaluation.public_inputs(self.hash_circuit.num_public_inputs()),
-            &mut constraint_transcript,
-            &hash_sumcheck_proof,
-        )?;
+        let ProverResult {
+            proof: hash_sumcheck_proof,
+            linear_constraints: hash_linear_constraints,
+        } = hash_sumcheck_prover.prove(&hash_evaluation, &mut transcript, &hash_witness)?;
 
         let hash_ligero_proof = ligero_prove(
             &mut transcript,
@@ -191,15 +186,13 @@ impl MdocZkProver {
             &self.signature_circuit,
             signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),
         )?;
-        let mut constraint_transcript = transcript.clone();
-        let signature_sumcheck_proof = signature_sumcheck_prover
-            .prove(&signature_evaluation, &mut transcript, &signature_witness)?
-            .proof;
-        let signature_linear_constraints = LinearConstraints::from_proof(
-            &self.signature_circuit,
-            signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),
-            &mut constraint_transcript,
-            &signature_sumcheck_proof,
+        let ProverResult {
+            proof: signature_sumcheck_proof,
+            linear_constraints: signature_linear_constraints,
+        } = signature_sumcheck_prover.prove(
+            &signature_evaluation,
+            &mut transcript,
+            &signature_witness,
         )?;
 
         let signature_ligero_proof = ligero_prove(

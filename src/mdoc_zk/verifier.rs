@@ -1,14 +1,14 @@
 use crate::{
     ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::{LinearConstraints, QuadraticConstraint},
+    constraints::proof_constraints::QuadraticConstraint,
     fields::{field2_128::Field2_128, fieldp256::FieldP256},
     ligero::{LigeroParameters, tableau::TableauLayout, verifier::ligero_verify},
     mdoc_zk::{
         ATTRIBUTE_CBOR_DATA_LENGTH, CircuitStatements, CircuitVersion, MdocZkProof, ProofContext,
         prover::MdocZkProver,
     },
-    sumcheck::initialize_transcript,
+    sumcheck::{initialize_transcript, prover::SumcheckProtocol},
     transcript::{Transcript, TranscriptMode},
     witness::WitnessLayout,
 };
@@ -146,12 +146,12 @@ impl MdocZkVerifier {
             &self.hash_circuit,
             statements.hash_statement(),
         )?;
-        let hash_linear_constraints = LinearConstraints::from_proof(
-            &self.hash_circuit,
-            statements.hash_statement(),
-            &mut transcript,
-            &proof.hash_sumcheck_proof,
-        )?;
+        let hash_linear_constraints = SumcheckProtocol::new(&self.hash_circuit)
+            .linear_constraints(
+                statements.hash_statement(),
+                &mut transcript,
+                &proof.hash_sumcheck_proof,
+            )?;
 
         ligero_verify(
             proof.hash_commitment,
@@ -168,12 +168,12 @@ impl MdocZkVerifier {
             &self.signature_circuit,
             statements.signature_statement(),
         )?;
-        let signature_linear_constraints = LinearConstraints::from_proof(
-            &self.signature_circuit,
-            statements.signature_statement(),
-            &mut transcript,
-            &proof.signature_sumcheck_proof,
-        )?;
+        let signature_linear_constraints = SumcheckProtocol::new(&self.signature_circuit)
+            .linear_constraints(
+                statements.signature_statement(),
+                &mut transcript,
+                &proof.signature_sumcheck_proof,
+            )?;
 
         ligero_verify(
             proof.signature_commitment,

@@ -294,7 +294,8 @@ const TAG_TDATE: u64 = 0;
 
 /// Compute the hash of the session transcript, for the mdoc signature.
 pub(super) fn compute_session_transcript_hash(
-    mdoc: &Mdoc,
+    doc_type: String,
+    device_name_spaces_bytes: Vec<u8>,
     transcript: &[u8],
 ) -> Result<Sha256Digest, anyhow::Error> {
     let session_transcript = ciborium::from_reader::<Value, _>(transcript)
@@ -302,8 +303,8 @@ pub(super) fn compute_session_transcript_hash(
 
     let device_authentication = DeviceAuthentication {
         session_transcript,
-        doc_type: mdoc.doc_type.clone(),
-        device_name_spaces_bytes: tag::Required(ByteString(mdoc.device_name_spaces_bytes.clone())),
+        doc_type,
+        device_name_spaces_bytes: tag::Required(ByteString(device_name_spaces_bytes)),
     };
     let mut buffer = Vec::new();
     ciborium::into_writer(&device_authentication, &mut buffer)
@@ -436,7 +437,7 @@ pub(super) struct ParsedAttribute {
 pub(super) fn find_attributes(
     attribute_preimages: &HashMap<String, Vec<EncodedCbor>>,
     namespace: &str,
-    attribute_ids: &[String],
+    attribute_ids: &[&str],
 ) -> Result<Vec<ParsedAttribute>, anyhow::Error> {
     let mut out: Vec<Option<ParsedAttribute>> = vec![None; attribute_ids.len()];
     let mut scratch = [0u8; 256];
@@ -1098,7 +1099,7 @@ mod tests {
                 Vec::from([tag::Required(ByteString(data))]),
             )]),
             "org.iso.18013.5.1.aamva",
-            &["age_over_21".to_string()],
+            &["age_over_21"],
         )
         .unwrap();
         let attribute = &attributes[0];
@@ -1131,7 +1132,7 @@ mod tests {
                 Vec::from([tag::Required(ByteString(data))]),
             )]),
             "org.iso.18013.5.1.aamva",
-            &["domestic_driving_privileges".to_string()],
+            &["domestic_driving_privileges"],
         )
         .unwrap();
         let attribute = &attributes[0];
@@ -1166,7 +1167,7 @@ mod tests {
                 Vec::from([tag::Required(ByteString(data))]),
             )]),
             "org.iso.18013.5.1.aamva",
-            &["age_over_21".to_string()],
+            &["age_over_21"],
         )
         .unwrap_err();
         let error_message = format!("{error:#}");

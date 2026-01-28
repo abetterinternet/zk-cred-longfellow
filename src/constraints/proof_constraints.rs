@@ -337,6 +337,7 @@ mod tests {
         ligero::LigeroCommitment,
         sumcheck::{initialize_transcript, prover::SumcheckProver},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
+        transcript::TranscriptMode,
         witness::Witness,
     };
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -355,7 +356,8 @@ mod tests {
             FieldP128::sample,
         );
 
-        let mut proof_transcript = Transcript::new(b"test").unwrap();
+        let mut proof_transcript =
+            Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
         proof_transcript
             .write_byte_array(LigeroCommitment::test_commitment().as_bytes())
             .unwrap();
@@ -441,7 +443,7 @@ mod tests {
             || test_vector.pad(),
         );
 
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
         transcript
             .write_byte_array(test_vector.ligero_commitment().as_bytes())
             .unwrap();

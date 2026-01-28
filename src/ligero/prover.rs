@@ -400,7 +400,7 @@ mod tests {
         ligero::LigeroCommitment,
         sumcheck::initialize_transcript,
         test_vector::{CircuitTestVector, load_mac, load_rfc},
-        transcript::Transcript,
+        transcript::{Transcript, TranscriptMode},
         witness::{Witness, WitnessLayout},
     };
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -434,7 +434,7 @@ mod tests {
         let ligero_commitment = LigeroCommitment::from(merkle_tree.root());
 
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
-        let mut transcript = Transcript::new(b"test").unwrap();
+        let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
         transcript
             .write_byte_array(ligero_commitment.as_bytes())
             .unwrap();

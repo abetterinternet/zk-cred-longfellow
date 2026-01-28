@@ -41,15 +41,19 @@ sha2 = "0.10.9"
 wasm-bindgen-test = "0.3"
 
 [[bench]]
-name = "field"
-harness = false
-
-[[bench]]
 name = "extend"
 harness = false
 
 [[bench]]
+name = "field"
+harness = false
+
+[[bench]]
 name = "longfellow_one_field"
+harness = false
+
+[[bench]]
+name = "mdoc_zk"
 harness = false
 
 [[bench]]

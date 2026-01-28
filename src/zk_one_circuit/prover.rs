@@ -14,7 +14,7 @@ use crate::{
         initialize_transcript,
         prover::{SumcheckProof, SumcheckProver},
     },
-    transcript::Transcript,
+    transcript::{Transcript, TranscriptMode},
     witness::{Witness, WitnessLayout},
     zk_one_circuit::verifier::Verifier,
 };
@@ -70,7 +70,7 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
         let commitment = LigeroCommitment::from(merkle_tree.root());
 
         // Start of Fiat-Shamir transcript.
-        let mut transcript = Transcript::new(session_id).unwrap();
+        let mut transcript = Transcript::new(session_id, TranscriptMode::V3Compatibility).unwrap();
         transcript.write_byte_array(commitment.as_bytes())?;
         initialize_transcript(
             &mut transcript,

@@ -63,11 +63,11 @@ quads at that version.
 ### `witness_test_vector.json`
 
 This test vector was generated using a custom test from commit
-[be2dec03c673ddbb80cab288794efda0a8e3a4c3][commit]. It provides all high-level prover inputs, plus
+[a766c1c2ef1af6b45b686180b9436e88545d4d21][commit]. It provides all high-level prover inputs, plus
 MAC key shares generated randomly or from Fiat-Shamir challenges, and the resulting circuit input
 values.
 
-[commit]: https://github.com/divergentdave/longfellow-zk/commit/be2dec03c673ddbb80cab288794efda0a8e3a4c3
+[commit]: https://github.com/divergentdave/longfellow-zk/commit/a766c1c2ef1af6b45b686180b9436e88545d4d21
 
 ## `bind`
 

@@ -1,5 +1,5 @@
 use crate::mdoc_zk::{CircuitVersion, prover::MdocZkProver};
-use wasm_bindgen::{JsError, prelude::wasm_bindgen};
+use wasm_bindgen::prelude::wasm_bindgen;
 
 /// Initialize the prover by loading a decompressed circuit file.
 ///
@@ -12,7 +12,7 @@ pub fn initialize_prover(
     circuit: &[u8],
     circuit_version: CircuitVersion,
     num_attributes: usize,
-) -> Result<MdocZkProver, JsError> {
+) -> Result<MdocZkProver, MdocZkError> {
     MdocZkProver::new(circuit, circuit_version, num_attributes).map_err(convert_error)
 }
 
@@ -35,7 +35,7 @@ pub fn prove(
     requested_claims: Box<[String]>,
     session_transcript: &[u8],
     time: &str,
-) -> Result<Vec<u8>, JsError> {
+) -> Result<Vec<u8>, MdocZkError> {
     let requested_claims = requested_claims
         .iter()
         .map(String::as_str)
@@ -51,7 +51,15 @@ pub fn prove(
         .map_err(convert_error)
 }
 
-fn convert_error(error: anyhow::Error) -> JsError {
+#[wasm_bindgen(module = "/js/error.js")]
+extern "C" {
+    pub type MdocZkError;
+
+    #[wasm_bindgen(constructor)]
+    fn new(message: String) -> MdocZkError;
+}
+
+fn convert_error(error: anyhow::Error) -> MdocZkError {
     let message = format!("{error:#}");
-    JsError::new(&message)
+    MdocZkError::new(message)
 }

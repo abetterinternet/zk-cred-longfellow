@@ -973,7 +973,6 @@ pub(super) mod tests {
     }
 
     /// Test the prover and verifier against each other.
-    // #[ignore = "slow test"]
     #[wasm_bindgen_test(unsupported = test)]
     fn end_to_end() {
         let witness_test_vector = load_witness_test_vector();

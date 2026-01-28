@@ -264,7 +264,6 @@ mod tests {
     use crate::mdoc_zk::{CircuitVersion, prover::MdocZkProver, tests::load_witness_test_vector};
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    //#[ignore = "slow test"]
     #[wasm_bindgen_test(unsupported = test)]
     fn test_generate_proof() {
         let compressed = include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice();

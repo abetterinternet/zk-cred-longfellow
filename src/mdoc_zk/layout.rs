@@ -525,7 +525,6 @@ mod tests {
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = test)]
-    //    #[ignore = "slow test"]
     fn correct_lengths() {
         for attributes in 1..=4 {
             let (sig_circuit, hash_circuit) = load_circuits(attributes);

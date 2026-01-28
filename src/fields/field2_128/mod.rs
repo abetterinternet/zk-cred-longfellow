@@ -378,9 +378,12 @@ impl ConditionallySelectable for Field2_128 {
 
 #[cfg(target_arch = "aarch64")]
 mod backend_aarch64;
+#[cfg(any(test, not(all(target_arch = "wasm32", target_feature = "simd128"))))]
 mod backend_bit_slicing;
 #[cfg(test)]
 mod backend_naive_loop;
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+mod backend_wasm_simd;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod backend_x86;
 mod constants;
@@ -448,7 +451,13 @@ fn galois_multiply(x: u128, y: u128) -> u128 {
     if FEATURES.get() {
         return unsafe { backend_aarch64::galois_multiply(x, y) };
     }
-    backend_bit_slicing::galois_multiply(x, y)
+
+    // WASM does not support runtime detection of extensions, so we choose between the remaining two
+    // implementations with just `#[cfg]`.
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    return backend_wasm_simd::galois_multiply(x, y);
+    #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+    return backend_bit_slicing::galois_multiply(x, y);
 }
 
 /// Squares a GF(2^128) element, represented as a `u128`.
@@ -464,13 +473,21 @@ fn galois_square(x: u128) -> u128 {
     if FEATURES.get() {
         return unsafe { backend_aarch64::galois_square(x) };
     }
-    backend_bit_slicing::galois_square(x)
+
+    // WASM does not support runtime detection of extensions, so we choose between the remaining two
+    // implementations with just `#[cfg]`.
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    return backend_wasm_simd::galois_square(x);
+    #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+    return backend_bit_slicing::galois_square(x);
 }
 
 #[cfg(test)]
 mod tests {
     #[cfg(target_arch = "aarch64")]
     use crate::fields::field2_128::backend_aarch64;
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    use crate::fields::field2_128::backend_wasm_simd;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     use crate::fields::field2_128::backend_x86;
     use crate::fields::{
@@ -567,6 +584,15 @@ mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    fn test_vector_wasm_simd() {
+        let result = backend_wasm_simd::galois_multiply(TEST_VECTOR_A, TEST_VECTOR_B);
+        assert_eq!(result, TEST_VECTOR_PRODUCT);
+        let result = backend_wasm_simd::galois_multiply(TEST_VECTOR_B, TEST_VECTOR_A);
+        assert_eq!(result, TEST_VECTOR_PRODUCT);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
     #[ignore = "nondeterministic test"]
     fn random_test_multiply_bit_slicing() {
         for _ in 0..10_000 {
@@ -658,6 +684,37 @@ mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    #[ignore = "nondeterministic test"]
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    fn random_test_multiply_wasm_simd() {
+        for _ in 0..10_000 {
+            let x = random();
+            let y = random();
+            let expected = backend_bit_slicing::galois_multiply(x, y);
+            let result = backend_wasm_simd::galois_multiply(x, y);
+            assert_eq!(
+                expected, result,
+                "0x{x:032x} * 0x{y:032x} returned 0x{result:032x} not 0x{expected:032x}"
+            );
+        }
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    #[ignore = "nondeterministic test"]
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    fn random_test_square_wasm_simd() {
+        for _ in 0..10_000 {
+            let x = random();
+            let expected = backend_bit_slicing::galois_square(x);
+            let result = backend_wasm_simd::galois_square(x);
+            assert_eq!(
+                expected, result,
+                "0x{x:032x}^2 returned 0x{result:032x} not 0x{expected:032x}"
+            );
+        }
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
     #[ignore = "test is slow without optimization"]
     fn low_hamming_weight_bit_slicing() {
         for i in 0..128 {
@@ -719,6 +776,29 @@ mod tests {
             }
             let expected = backend_bit_slicing::galois_square(x);
             let result = unsafe { backend_aarch64::galois_square(x) };
+            assert_eq!(
+                expected, result,
+                "0x{x:032x}^2 returned 0x{result:032x} not 0x{expected:032x}"
+            );
+        }
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    fn low_hamming_weight_wasm_simd() {
+        for i in 0..128 {
+            let x = 1 << i;
+            for j in 0..128 {
+                let y = 1 << j;
+                let expected = backend_bit_slicing::galois_multiply(x, y);
+                let result = backend_wasm_simd::galois_multiply(x, y);
+                assert_eq!(
+                    expected, result,
+                    "0x{x:032x} * 0x{y:032x} returned 0x{result:032x} not 0x{expected:032x}"
+                );
+            }
+            let expected = backend_bit_slicing::galois_square(x);
+            let result = backend_wasm_simd::galois_square(x);
             assert_eq!(
                 expected, result,
                 "0x{x:032x}^2 returned 0x{result:032x} not 0x{expected:032x}"

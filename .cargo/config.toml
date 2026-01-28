@@ -2,4 +2,15 @@
 xtask = "run --package xtask --"
 
 [target.wasm32-unknown-unknown]
-rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+rustflags = [
+    '--cfg',
+    'getrandom_backend="wasm_js"',
+    '-C',
+    'target-feature=+simd128',
+]
+
+[target.wasm32-wasip1]
+rustflags = [
+    '-C',
+    'target-feature=+simd128',
+]

@@ -320,7 +320,7 @@ impl<FE: FieldElement> Ord for SparseQuadElement<FE> {
 
 impl<FE: FieldElement> From<Vec<SparseQuadElement<FE>>> for SparseSumcheckArray<FE> {
     fn from(contents: Vec<SparseQuadElement<FE>>) -> Self {
-        assert!(contents.is_sorted());
+        debug_assert!(contents.is_sorted());
         Self { contents }
     }
 }

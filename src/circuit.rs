@@ -83,10 +83,6 @@ impl<FE: CodecFieldElement> Codec for Circuit<FE> {
             id,
         };
 
-        if id != circuit.circuit_id()? {
-            return Err(anyhow!("circuit ID does not match"));
-        }
-
         Ok(circuit)
     }
 
@@ -670,8 +666,22 @@ pub(crate) mod tests {
             assert!(intersection.is_empty(), "Q and Z quads intersect");
 
             quads_count += layer.quads.len();
+
+            // Verify that encoded circuits contains quads in the appropriate order for efficient
+            // binding of the combined quad. See src/sumcheck/bind/sparse.rs.
+            let combined_quad = circuit.combined_quad(layer_index, FE::ONE).unwrap();
+            assert!(combined_quad.contents().is_sorted());
         }
         assert_eq!(test_vector.quads as usize, quads_count);
+
+        // Compute the circuit ID and check it against the one encoded into the circuit. We avoid
+        // doing this in `Circuit::decode` because it's fairly expensive.
+        assert_eq!(
+            circuit.id,
+            circuit.circuit_id().unwrap(),
+            "encoded circuit ID does not match computed",
+        );
+
         assert_eq!(
             circuit.get_encoded().unwrap(),
             test_vector.serialized_circuit

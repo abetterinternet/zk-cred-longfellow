@@ -709,7 +709,9 @@ pub(super) mod tests {
         let decompressed = zstd::decode_all(data).unwrap();
         let mut cursor = Cursor::new(decompressed.as_slice());
         let first_circuit = Circuit::decode(&mut cursor).unwrap();
+        first_circuit.check_invariants(None, None);
         let second_circuit = Circuit::decode(&mut cursor).unwrap();
+        second_circuit.check_invariants(None, None);
         assert_eq!(
             cursor.position(),
             u64::try_from(decompressed.len()).unwrap(),

@@ -53,10 +53,10 @@ where
     // how many outputs the actual circuit has.
     transcript.write_field_element(&FE::ZERO)?;
 
-    // 3.1.3 item 3: write an array of zero bytes. The spec implies that its length should be
-    // the number of arithmetic gates in the circuit, but longfellow-zk uses the number of quads
-    // aka the number of terms.
-    transcript.write_byte_array(vec![0u8; circuit.num_quads()].as_slice())?;
+    // 3.1.3 item 3: write an array of zero bytes. The spec implies that its length should be the
+    // number of arithmetic gates in the circuit, but longfellow-zk uses the number of quads aka the
+    // number of terms.
+    transcript.write_zero_array(circuit.num_quads())?;
 
     Ok(())
 }

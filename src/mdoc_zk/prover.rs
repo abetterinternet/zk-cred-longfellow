@@ -167,15 +167,21 @@ impl MdocZkProver {
             hash_evaluation.public_inputs(self.hash_circuit.num_public_inputs()),
         )?;
         let mut constraint_transcript = transcript.clone();
-        let hash_sumcheck_proof = hash_sumcheck_prover
-            .prove(&hash_evaluation, &mut transcript, &hash_witness)?
-            .proof;
-        let hash_linear_constraints = LinearConstraints::from_proof(
-            &self.hash_circuit,
+        let (hash_linear_constraints, hash_sumcheck_proof) = hash_sumcheck_prover.prove_inner(
             hash_evaluation.public_inputs(self.hash_circuit.num_public_inputs()),
-            &mut constraint_transcript,
-            &hash_sumcheck_proof,
+            Some(&hash_evaluation),
+            &mut transcript,
+            Some(&hash_witness),
+            None,
         )?;
+        let hash_sumcheck_proof = hash_sumcheck_proof.unwrap().proof;
+
+        // let hash_linear_constraints = LinearConstraints::from_proof(
+        //     &self.hash_circuit,
+        //     hash_evaluation.public_inputs(self.hash_circuit.num_public_inputs()),
+        //     &mut constraint_transcript,
+        //     &hash_sumcheck_proof,
+        // )?;
 
         let hash_ligero_proof = ligero_prove(
             &mut transcript,
@@ -192,15 +198,21 @@ impl MdocZkProver {
             signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),
         )?;
         let mut constraint_transcript = transcript.clone();
-        let signature_sumcheck_proof = signature_sumcheck_prover
-            .prove(&signature_evaluation, &mut transcript, &signature_witness)?
-            .proof;
-        let signature_linear_constraints = LinearConstraints::from_proof(
-            &self.signature_circuit,
-            signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),
-            &mut constraint_transcript,
-            &signature_sumcheck_proof,
-        )?;
+        let (signature_linear_constraints, signature_sumcheck_proof) = signature_sumcheck_prover
+            .prove_inner(
+                signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),
+                Some(&signature_evaluation),
+                &mut transcript,
+                Some(&signature_witness),
+                None,
+            )?;
+        let signature_sumcheck_proof = signature_sumcheck_proof.unwrap().proof;
+        // let signature_linear_constraints = LinearConstraints::from_proof(
+        //     &self.signature_circuit,
+        //     signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),
+        //     &mut constraint_transcript,
+        //     &signature_sumcheck_proof,
+        // )?;
 
         let signature_ligero_proof = ligero_prove(
             &mut transcript,
@@ -254,6 +266,7 @@ mod tests {
     use crate::mdoc_zk::{CircuitVersion, prover::MdocZkProver, tests::load_witness_test_vector};
     use wasm_bindgen_test::wasm_bindgen_test;
 
+    //#[ignore = "slow test"]
     #[wasm_bindgen_test(unsupported = test)]
     fn test_generate_proof() {
         let compressed = include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice();

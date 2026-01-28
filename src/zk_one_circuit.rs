@@ -48,7 +48,7 @@ mod tests {
         test_vector_end_to_end::<Field2_128>(test_vector, circuit);
     }
 
-    #[ignore = "slow test"]
+    //    #[ignore = "slow test"]
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b_mutation() {
         let (test_vector, circuit) = load_rfc();

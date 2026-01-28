@@ -69,13 +69,20 @@ pub fn quadratic_constraints<FE: CodecFieldElement>(
 /// Ligero linear constraints generated from a Sumcheck proof.
 pub struct LinearConstraints<FieldElement> {
     /// Terms contributing to the left hand sides of linear constraints.
-    lhs_terms: Vec<LinearConstraintLhsTerm<FieldElement>>,
+    pub(crate) lhs_terms: Vec<LinearConstraintLhsTerm<FieldElement>>,
 
     /// Vector of right hand sides of linear constraints.
-    rhs: Vec<FieldElement>,
+    pub(crate) rhs: Vec<FieldElement>,
 }
 
 impl<FE: ProofFieldElement> LinearConstraints<FE> {
+    pub fn new() -> Self {
+        Self {
+            lhs_terms: Vec::new(),
+            rhs: Vec::new(),
+        }
+    }
+
     /// Construct constraints from the provided proof of execution for the circuit and public
     /// inputs.
     ///
@@ -370,54 +377,75 @@ mod tests {
 
         // Fork the transcript
         let mut constraint_transcript = proof_transcript.clone();
+        let mut constraint_transcript_again = proof_transcript.clone();
 
         let proof = SumcheckProver::new(&circuit)
-            .prove(&evaluation, &mut proof_transcript, &witness)
+            .prove_inner(
+                evaluation.public_inputs(circuit.num_public_inputs()),
+                Some(&evaluation),
+                &mut proof_transcript,
+                Some(&witness),
+                None,
+            )
+            .unwrap();
+
+        let linear_constraints_again = SumcheckProver::new(&circuit)
+            .linear_constraints(
+                evaluation.public_inputs(circuit.num_public_inputs()),
+                &mut constraint_transcript_again,
+                &proof.1.as_ref().unwrap().proof,
+            )
             .unwrap();
 
         let linear_constraints = LinearConstraints::from_proof(
             &circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
             &mut constraint_transcript,
-            &proof.proof,
+            &proof.1.as_ref().unwrap().proof,
         )
         .unwrap();
 
         // Transcripts should have received the same sequence of writes.
         assert_eq!(proof_transcript, constraint_transcript);
+        assert_eq!(proof_transcript, constraint_transcript_again);
 
-        // Check that we allocated appropriate size for LHS terms. Ideally we won't reallocate in
-        // the constraint generator loop.
-        assert_eq!(
-            linear_constraints.lhs_terms.len(),
-            3 * circuit.num_layers()
-                + 2 * (circuit.num_layers() - 1)
-                + circuit.logw_sum() * 2 * 2
-                + circuit.num_private_inputs()
-                + 2
-        );
+        let check_constraints = |linear_constraints: &LinearConstraints<FieldP128>| {
+            // Check that we allocated appropriate size for LHS terms. Ideally we won't reallocate in
+            // the constraint generator loop.
+            assert_eq!(
+                linear_constraints.lhs_terms.len(),
+                3 * circuit.num_layers()
+                    + 2 * (circuit.num_layers() - 1)
+                    + circuit.logw_sum() * 2 * 2
+                    + circuit.num_private_inputs()
+                    + 2
+            );
 
-        for lhs_term in &linear_constraints.lhs_terms {
-            // All LHS terms should refer to elements of the RHS and witness vectors.
-            assert!(lhs_term.constraint_number < linear_constraints.rhs.len());
-            assert!(lhs_term.witness_index < witness_layout.length());
-            // No LHS element should have a constant factor of 0.
-            assert_ne!(lhs_term.constant_factor, FieldP128::ZERO);
-        }
+            for lhs_term in &linear_constraints.lhs_terms {
+                // All LHS terms should refer to elements of the RHS and witness vectors.
+                assert!(lhs_term.constraint_number < linear_constraints.rhs.len());
+                assert!(lhs_term.witness_index < witness_layout.length());
+                // No LHS element should have a constant factor of 0.
+                assert_ne!(lhs_term.constant_factor, FieldP128::ZERO);
+            }
 
-        let mut lhs_summed = vec![FieldP128::ZERO; linear_constraints.rhs.len()];
-        for LinearConstraintLhsTerm {
-            constraint_number,
-            witness_index,
-            constant_factor,
-        } in linear_constraints.lhs_terms
-        {
-            lhs_summed[constraint_number] += witness.element(witness_index) * constant_factor;
-        }
+            let mut lhs_summed = vec![FieldP128::ZERO; linear_constraints.rhs.len()];
+            for LinearConstraintLhsTerm {
+                constraint_number,
+                witness_index,
+                constant_factor,
+            } in &linear_constraints.lhs_terms
+            {
+                lhs_summed[*constraint_number] += witness.element(*witness_index) * constant_factor;
+            }
 
-        assert_eq!(lhs_summed, linear_constraints.rhs);
+            assert_eq!(lhs_summed, linear_constraints.rhs);
 
-        assert_eq!(linear_constraints.rhs.len(), circuit.num_layers() + 1);
+            assert_eq!(linear_constraints.rhs.len(), circuit.num_layers() + 1);
+        };
+        check_constraints(&linear_constraints);
+        check_constraints(&linear_constraints_again);
+        check_constraints(&proof.0);
 
         let quadratic_constraints = quadratic_constraints(&circuit);
 

@@ -109,6 +109,10 @@ pub struct Witness<FieldElement> {
 }
 
 impl<FE: FieldElement> Witness<FE> {
+    pub fn layout(&self) -> &WitnessLayout {
+        &self.layout
+    }
+
     /// Number of field elements in the witness.
     pub fn len(&self) -> usize {
         self.values.len()

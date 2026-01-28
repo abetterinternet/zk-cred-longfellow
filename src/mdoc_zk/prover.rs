@@ -1,9 +1,7 @@
 use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::{
-        LinearConstraints, QuadraticConstraint, quadratic_constraints,
-    },
+    constraints::proof_constraints::{QuadraticConstraint, quadratic_constraints},
     fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
     ligero::{LigeroCommitment, LigeroParameters, prover::ligero_prove, tableau::Tableau},
     mdoc_zk::{
@@ -168,16 +166,22 @@ impl MdocZkProver {
             &self.hash_circuit,
             hash_evaluation.public_inputs(self.hash_circuit.num_public_inputs()),
         )?;
-        let mut constraint_transcript = transcript.clone();
-        let hash_sumcheck_proof = hash_sumcheck_prover
-            .prove(&hash_evaluation, &mut transcript, &hash_witness)?
-            .proof;
-        let hash_linear_constraints = LinearConstraints::from_proof(
-            &self.hash_circuit,
+        let _constraint_transcript = transcript.clone();
+        let (hash_linear_constraints, hash_sumcheck_proof) = hash_sumcheck_prover.prove_inner(
             hash_evaluation.public_inputs(self.hash_circuit.num_public_inputs()),
-            &mut constraint_transcript,
-            &hash_sumcheck_proof,
+            Some(&hash_evaluation),
+            &mut transcript,
+            Some(&hash_witness),
+            None,
         )?;
+        let hash_sumcheck_proof = hash_sumcheck_proof.unwrap().proof;
+
+        // let hash_linear_constraints = LinearConstraints::from_proof(
+        //     &self.hash_circuit,
+        //     hash_evaluation.public_inputs(self.hash_circuit.num_public_inputs()),
+        //     &mut constraint_transcript,
+        //     &hash_sumcheck_proof,
+        // )?;
 
         let hash_ligero_proof = ligero_prove(
             &mut transcript,
@@ -193,16 +197,22 @@ impl MdocZkProver {
             &self.signature_circuit,
             signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),
         )?;
-        let mut constraint_transcript = transcript.clone();
-        let signature_sumcheck_proof = signature_sumcheck_prover
-            .prove(&signature_evaluation, &mut transcript, &signature_witness)?
-            .proof;
-        let signature_linear_constraints = LinearConstraints::from_proof(
-            &self.signature_circuit,
-            signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),
-            &mut constraint_transcript,
-            &signature_sumcheck_proof,
-        )?;
+        let _constraint_transcript = transcript.clone();
+        let (signature_linear_constraints, signature_sumcheck_proof) = signature_sumcheck_prover
+            .prove_inner(
+                signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),
+                Some(&signature_evaluation),
+                &mut transcript,
+                Some(&signature_witness),
+                None,
+            )?;
+        let signature_sumcheck_proof = signature_sumcheck_proof.unwrap().proof;
+        // let signature_linear_constraints = LinearConstraints::from_proof(
+        //     &self.signature_circuit,
+        //     signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),
+        //     &mut constraint_transcript,
+        //     &signature_sumcheck_proof,
+        // )?;
 
         let signature_ligero_proof = ligero_prove(
             &mut transcript,

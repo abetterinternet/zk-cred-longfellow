@@ -1,4 +1,4 @@
-class MdocZkError extends Error {
+export class MdocZkError extends Error {
     constructor(message) {
         super(message);
     }

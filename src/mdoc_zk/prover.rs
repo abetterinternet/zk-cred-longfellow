@@ -1,9 +1,7 @@
 use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::{
-        LinearConstraints, QuadraticConstraint, quadratic_constraints,
-    },
+    constraints::proof_constraints::{QuadraticConstraint, quadratic_constraints},
     fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
     ligero::{LigeroCommitment, LigeroParameters, prover::ligero_prove, tableau::Tableau},
     mdoc_zk::{
@@ -166,7 +164,7 @@ impl MdocZkProver {
             &self.hash_circuit,
             hash_evaluation.public_inputs(self.hash_circuit.num_public_inputs()),
         )?;
-        let mut constraint_transcript = transcript.clone();
+        let _constraint_transcript = transcript.clone();
         let (hash_linear_constraints, hash_sumcheck_proof) = hash_sumcheck_prover.prove_inner(
             hash_evaluation.public_inputs(self.hash_circuit.num_public_inputs()),
             Some(&hash_evaluation),
@@ -197,7 +195,7 @@ impl MdocZkProver {
             &self.signature_circuit,
             signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),
         )?;
-        let mut constraint_transcript = transcript.clone();
+        let _constraint_transcript = transcript.clone();
         let (signature_linear_constraints, signature_sumcheck_proof) = signature_sumcheck_prover
             .prove_inner(
                 signature_evaluation.public_inputs(self.signature_circuit.num_public_inputs()),

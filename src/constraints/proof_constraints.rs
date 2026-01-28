@@ -76,13 +76,6 @@ pub struct LinearConstraints<FieldElement> {
 }
 
 impl<FE: ProofFieldElement> LinearConstraints<FE> {
-    pub fn new() -> Self {
-        Self {
-            lhs_terms: Vec::new(),
-            rhs: Vec::new(),
-        }
-    }
-
     /// Construct constraints from the provided proof of execution for the circuit and public
     /// inputs.
     ///

@@ -13,7 +13,7 @@ use crate::{
         bind::{DenseSumcheckArray, sparse::Hand},
     },
     transcript::Transcript,
-    witness::{self, Witness, WitnessLayout},
+    witness::{Witness, WitnessLayout},
 };
 use anyhow::anyhow;
 use std::{borrow::Cow, io::Write};
@@ -241,8 +241,8 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
                         let polynomial_pad =
                             witness.polynomial_witnesses(layer_index, round, hand as usize);
                         let poly_evaluation = Polynomial {
-                            p0: evaluate_polynomial(FE::ZERO, &wires) - polynomial_pad.p0,
-                            p2: evaluate_polynomial(FE::SUMCHECK_P2, &wires) - polynomial_pad.p2,
+                            p0: evaluate_polynomial(FE::ZERO, wires) - polynomial_pad.p0,
+                            p2: evaluate_polynomial(FE::SUMCHECK_P2, wires) - polynomial_pad.p2,
                         };
 
                         proof_polynomials[hand as usize] = poly_evaluation;

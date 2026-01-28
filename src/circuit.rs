@@ -392,6 +392,80 @@ impl<FE: CodecFieldElement> Circuit<FE> {
 
         Ok(Sha256Digest(circuit_digest.finalize().into()))
     }
+
+    /// Verifies that circuits conform to a few invariants that we have interpreted from the
+    /// specification. Panics if any invariant does not hold for this circuit.
+    #[cfg(test)]
+    pub(crate) fn check_invariants(
+        &self,
+        expected_depth: Option<usize>,
+        expected_quads: Option<usize>,
+    ) {
+        if let Some(expected_depth) = expected_depth {
+            assert_eq!(expected_depth - 1, self.num_layers());
+            assert_eq!(expected_depth - 1, self.layers.len());
+        }
+
+        let mut quads_count = 0;
+        for (layer_index, layer) in self.layers.iter().enumerate() {
+            let mut q_quad_gates = HashSet::new();
+            let mut z_quad_gates = HashSet::new();
+
+            for (quad_index, quad) in layer.quads.iter().enumerate() {
+                assert!(quad.left_wire_index < layer.num_wires());
+                assert!(quad.right_wire_index < layer.num_wires());
+                assert!(quad.const_table_index < self.constant_table.len());
+
+                let next_layer_num_wires = if layer_index == 0 {
+                    self.num_outputs()
+                } else {
+                    // The Longfellow convention is that layer 0 is outputs and layer num_layers is
+                    // inputs, so the next layer of the circuit is -1.
+                    // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.3.1
+                    self.layers[layer_index - 1].num_wires()
+                };
+                if quad.gate_index() >= next_layer_num_wires {
+                    panic!(
+                        "quad {quad_index} on layer {layer_index} has gate number {} exceeding the \
+                        number of input wires on the next layer",
+                        quad.gate_index
+                    );
+                }
+
+                // Force parsing of the constants
+                let quad_value = self.constant(quad.const_table_index()).unwrap();
+                if quad_value.is_zero().into() {
+                    z_quad_gates.insert(quad.gate_index);
+                } else {
+                    q_quad_gates.insert(quad.gate_index);
+                }
+            }
+
+            // Our interpretation of the specification is that gates should get contributions from
+            // either Q or Z but never both.
+            let intersection: Vec<_> = q_quad_gates.intersection(&z_quad_gates).collect();
+            assert!(intersection.is_empty(), "Q and Z quads intersect");
+
+            quads_count += layer.quads.len();
+
+            // Verify that encoded circuits contains quads in the appropriate order for efficient
+            // binding of the combined quad. See src/sumcheck/bind/sparse.rs.
+            let combined_quad = self.combined_quad(layer_index, FE::ONE).unwrap();
+            assert!(combined_quad.contents().is_sorted());
+        }
+
+        if let Some(expected_quads) = expected_quads {
+            assert_eq!(expected_quads, quads_count);
+        }
+
+        // Compute the circuit ID and check it against the one encoded into the circuit. We avoid
+        // doing this in `Circuit::decode` because it's fairly expensive.
+        assert_eq!(
+            self.id,
+            self.circuit_id().unwrap(),
+            "encoded circuit ID does not match computed",
+        );
+    }
 }
 
 /// The evaluation of a circuit.
@@ -594,7 +668,7 @@ pub(crate) mod tests {
         fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
     };
-    use std::{collections::HashSet, io::Cursor};
+    use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -620,66 +694,9 @@ pub(crate) mod tests {
     fn roundtrip_circuit_test_vector<FE: CodecFieldElement>(
         (test_vector, circuit): (CircuitTestVector<FE>, Circuit<FE>),
     ) {
-        // Verifies that circuits conform to a few invariants that we have interpreted from the
-        // specification. Panics if any invariant does not hold for this circuit.
-        assert_eq!(Size::from(test_vector.depth - 1), circuit.num_layers());
-        assert_eq!(test_vector.depth as usize - 1, circuit.layers.len());
-
-        let mut quads_count = 0;
-        for (layer_index, layer) in circuit.layers.iter().enumerate() {
-            let mut q_quad_gates = HashSet::new();
-            let mut z_quad_gates = HashSet::new();
-
-            for (quad_index, quad) in layer.quads.iter().enumerate() {
-                assert!(quad.left_wire_index < layer.num_wires());
-                assert!(quad.right_wire_index < layer.num_wires());
-                assert!(quad.const_table_index < circuit.constant_table.len());
-
-                let next_layer_num_wires = if layer_index == 0 {
-                    circuit.num_outputs()
-                } else {
-                    // The Longfellow convention is that layer 0 is outputs and layer num_layers is
-                    // inputs, so the next layer of the circuit is -1.
-                    // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.3.1
-                    circuit.layers[layer_index - 1].num_wires()
-                };
-                if quad.gate_index() >= next_layer_num_wires {
-                    panic!(
-                        "quad {quad_index} on layer {layer_index} has gate number {} exceeding the \
-                        number of input wires on the next layer",
-                        quad.gate_index
-                    );
-                }
-
-                // Force parsing of the constants
-                let quad_value = circuit.constant(quad.const_table_index()).unwrap();
-                if quad_value.is_zero().into() {
-                    z_quad_gates.insert(quad.gate_index);
-                } else {
-                    q_quad_gates.insert(quad.gate_index);
-                }
-            }
-
-            // Our interpretation of the specification is that gates should get contributions from
-            // either Q or Z but never both.
-            let intersection: Vec<_> = q_quad_gates.intersection(&z_quad_gates).collect();
-            assert!(intersection.is_empty(), "Q and Z quads intersect");
-
-            quads_count += layer.quads.len();
-
-            // Verify that encoded circuits contains quads in the appropriate order for efficient
-            // binding of the combined quad. See src/sumcheck/bind/sparse.rs.
-            let combined_quad = circuit.combined_quad(layer_index, FE::ONE).unwrap();
-            assert!(combined_quad.contents().is_sorted());
-        }
-        assert_eq!(test_vector.quads as usize, quads_count);
-
-        // Compute the circuit ID and check it against the one encoded into the circuit. We avoid
-        // doing this in `Circuit::decode` because it's fairly expensive.
-        assert_eq!(
-            circuit.id,
-            circuit.circuit_id().unwrap(),
-            "encoded circuit ID does not match computed",
+        circuit.check_invariants(
+            Some(usize::try_from(test_vector.depth).unwrap()),
+            Some(usize::try_from(test_vector.quads).unwrap()),
         );
 
         assert_eq!(

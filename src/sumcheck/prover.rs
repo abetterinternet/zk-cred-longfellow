@@ -6,13 +6,16 @@ use crate::{
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
         Polynomial,
-        bind::{DenseSumcheckArray, sparse::Hand},
+        bind::{
+            DenseSumcheckArray,
+            sparse::{Hand, SparseQuadElement, SparseSumcheckArray},
+        },
     },
     transcript::Transcript,
     witness::Witness,
 };
 use anyhow::anyhow;
-use std::{borrow::Cow, io::Write};
+use std::io::Write;
 
 /// Generate a sumcheck proof of evaluation of a circuit.
 #[derive(Clone, Debug)]
@@ -66,6 +69,9 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
 
             // The combined quad, aka QZ[g, l, r], a three dimensional array.
             let mut quad = self.circuit.combined_quad(layer_index, beta)?;
+            let mut sparse_bound_quad_clone = SparseSumcheckArray::from(
+                Vec::<SparseQuadElement<FE>>::with_capacity(quad.contents().len()),
+            );
 
             // Bind the combined quad to G.
             quad.bindv_gate(&bindings[0], &bindings[1], alpha);
@@ -94,48 +100,68 @@ impl<'a, FE: ProofFieldElement> SumcheckProver<'a, FE> {
                 evaluation.wires[layer_index + 1].clone(),
                 evaluation.wires[layer_index + 1].clone(),
             ];
+            let mut wire_clone: Vec<FE> = Vec::with_capacity(wires[0].len());
 
             for (round, proof_polynomials) in layer_proof_polynomials.iter_mut().enumerate() {
                 for hand in [Hand::Left, Hand::Right] {
                     // Implements the polynomial from the specification:
                     // Let p(x) = SUM_{l, r} bind(QUAD, x)[l, r] * bind(VL, x)[l] * VR[r]
-                    let evaluate_polynomial = |at: FE| {
-                        // Bind a *copy* of the quad
-                        let mut sparse_bound_quad_clone = quad.clone();
-                        // Binding to alternating hands is equivalent to transposing the array at
-                        // each iteration and binding to the outermost dimension.
-                        sparse_bound_quad_clone.bind_hand(hand, at);
+                    let evaluate_polynomial =
+                        |at: FE,
+                         sparse_bound_quad_clone: &mut SparseSumcheckArray<FE>,
+                         wires: &mut [Vec<FE>],
+                         wire_clone: &mut Vec<FE>| {
+                            // Bind the quad, but not in place.
+                            // Binding to alternating hands is equivalent to transposing the array at
+                            // each iteration and binding to the outermost dimension.
+                            quad.bind_hand_into(hand, at, sparse_bound_quad_clone.contents_mut());
 
-                        // SUM_{l, r} is interpreted to mean evaluating the expression at all
-                        // possible left and right wire indices.
-                        // In sumcheck terms, we're evaluating the function at each of the vertices
-                        // of a 2*logw-dimensional unit hypercube, or evaluating the function at all
-                        // possible 2*logw length bitstrings.
-                        // But since we use a sparse array, we can skip all the bitstrings where the
-                        // coefficient is known to be zero.
-                        // The specification instructs us to swap the left and right wire arrays at
-                        // each iteration and always bind to the left. We instead bind the wire
-                        // array corresponding to the current hand.
-                        // Use Cow to avoid copying whichever wires array we're not binding.
-                        let mut bound_wires = [Cow::from(&wires[0]), Cow::from(&wires[1])];
-                        bound_wires[hand as usize].to_mut().bind(at);
+                            // SUM_{l, r} is interpreted to mean evaluating the expression at all
+                            // possible left and right wire indices.
+                            // In sumcheck terms, we're evaluating the function at each of the vertices
+                            // of a 2*logw-dimensional unit hypercube, or evaluating the function at all
+                            // possible 2*logw length bitstrings.
+                            // But since we use a sparse array, we can skip all the bitstrings where the
+                            // coefficient is known to be zero.
+                            // The specification instructs us to swap the left and right wire arrays at
+                            // each iteration and always bind to the left. We instead bind the wire
+                            // array corresponding to the current hand.
+                            let (left_wires, right_wires) = if hand == Hand::Left {
+                                wires[Hand::Left as usize].bind_into(at, wire_clone);
 
-                        sparse_bound_quad_clone
-                            .contents()
-                            .iter()
-                            .fold(FE::ZERO, |acc, element| {
-                                acc + element.coefficient
-                                    * bound_wires[Hand::Left as usize][element.left_wire_index]
-                                    * bound_wires[Hand::Right as usize][element.right_wire_index]
-                            })
-                    };
+                                (wire_clone, &mut wires[1])
+                            } else {
+                                wires[Hand::Right as usize].bind_into(at, wire_clone);
+
+                                (&mut wires[0], wire_clone)
+                            };
+
+                            sparse_bound_quad_clone.contents().iter().fold(
+                                FE::ZERO,
+                                |acc, element| {
+                                    acc + element.coefficient
+                                        * left_wires[element.left_wire_index]
+                                        * right_wires[element.right_wire_index]
+                                },
+                            )
+                        };
 
                     // Evaluate the polynomial at P0 and P2, subtracting the pad
                     let polynomial_pad =
                         witness.polynomial_witnesses(layer_index, round, hand as usize);
                     let poly_evaluation = Polynomial {
-                        p0: evaluate_polynomial(FE::ZERO) - polynomial_pad.p0,
-                        p2: evaluate_polynomial(FE::SUMCHECK_P2) - polynomial_pad.p2,
+                        p0: evaluate_polynomial(
+                            FE::ZERO,
+                            &mut sparse_bound_quad_clone,
+                            &mut wires,
+                            &mut wire_clone,
+                        ) - polynomial_pad.p0,
+                        p2: evaluate_polynomial(
+                            FE::SUMCHECK_P2,
+                            &mut sparse_bound_quad_clone,
+                            &mut wires,
+                            &mut wire_clone,
+                        ) - polynomial_pad.p2,
                     };
 
                     // Commit to the padded polynomial.

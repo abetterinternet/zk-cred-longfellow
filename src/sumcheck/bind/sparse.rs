@@ -396,6 +396,14 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
         &self.contents
     }
 
+    pub fn contents_mut(&mut self) -> &mut Vec<SparseQuadElement<FE>> {
+        &mut self.contents
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.contents.truncate(len);
+    }
+
     /// Bind this array to `binding` in the dimension indicated by `hand`, in-place. That is, if
     /// `hand == Hand::Left`, bind `self[g, 2i, r]` and `self[g, 2i+1, r]` into `self[g, i, r]` for
     /// all g, r. If `hand == Hand::Right`, bind `self[g, l, 2i]` and `self[g, l, 2i+i]` into
@@ -464,6 +472,68 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
         // Truncate the sparse array, which effectively zeroes out all elements of the original
         // array we didn't overwrite.
         self.contents.truncate(write);
+    }
+
+    /// Variant of [`Self::bind_hand`] that writes the bound array into the provided `Vec` instead
+    /// of in-place.
+    pub fn bind_hand_into(&self, hand: Hand, binding: FE, into: &mut Vec<SparseQuadElement<FE>>) {
+        into.truncate(0);
+        // Walk the elements of the array and work out what bound elements they contribute to. See
+        // the module level comment for discussion of this strategy.
+        let mut write = 0;
+        let mut read = 0;
+        while read < self.contents.len() {
+            let curr = self.contents[read];
+            let next = self.contents.get(read + 1);
+            assert_eq!(
+                curr.gate_index, 0,
+                "sparse array should have been bound down to 2D before binding a hand",
+            );
+
+            // If element 2i+1 is in the array, it will be immediately after element 2i. See the
+            // module level doccomment for an explanation of how we sort the sparse array to impose
+            // this invariant.
+            read += 1;
+            let (coeff_2i, coeff_2i_plus_1) = if curr.hand_wire(hand).is_multiple_of(2) {
+                // curr is 2i
+                (
+                    curr.coefficient,
+                    if let Some(next) = curr.is_next_wire(hand, next) {
+                        // next is 2i+1. Advance read index again.
+                        assert_eq!(
+                            next.gate_index, 0,
+                            "sparse array should have been bound down to 2D before binding a hand",
+                        );
+                        read += 1;
+                        next.coefficient
+                    } else {
+                        // sparse array does not contain 2i+1
+                        FE::ZERO
+                    },
+                )
+            } else {
+                // curr is 2i+1, sparse array does not contain 2i
+                (FE::ZERO, curr.coefficient)
+            };
+
+            // Don't bother writing elements with zero coefficient
+            let coefficient = (FE::ONE - binding) * coeff_2i + binding * coeff_2i_plus_1;
+            if coefficient != FE::ZERO {
+                into.push(SparseQuadElement::new(
+                    0,
+                    hand,
+                    // 2i-th or 2i+1-th element contributes to the i-th bound element
+                    curr.hand_wire(hand) >> 1,
+                    curr.hand_wire(hand.opposite()),
+                    coefficient,
+                ));
+                write += 1;
+            }
+        }
+
+        // Truncate the sparse array, which effectively zeroes out all elements of the original
+        // array we didn't overwrite.
+        into.truncate(write);
     }
 
     /// Treating self as the combined quad for a sumcheck layer, compute the bound quad:

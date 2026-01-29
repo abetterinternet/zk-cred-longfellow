@@ -19,12 +19,16 @@ pub trait DenseSumcheckArray<FieldElement>: Sized {
     /// Retrieve the element at the index, or zero if no element is defined for the index.
     fn element(&self, index: usize) -> FieldElement;
 
-    /// Bind a array of field elements to a single field element, in-place.
+    /// Bind an array of field elements to a single field element, in-place.
     ///
     /// This corresponds to `bind()` from [6.1][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
     fn bind(&mut self, binding: FieldElement);
+
+    /// Bind an array of field elements to a single field element, writing the bound array to
+    /// `into`.
+    fn bind_into(&self, binding: FieldElement, into: &mut Vec<FieldElement>);
 }
 
 impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
@@ -47,6 +51,27 @@ impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
         }
 
         self.truncate(new_len);
+    }
+
+    fn bind_into(&self, binding: FE, into: &mut Vec<FE>) {
+        assert!(
+            self.len() > 1,
+            "binding over a vector that's already reduced to a single element"
+        );
+
+        into.truncate(0);
+
+        // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+        // The back half of B[i] will always be zero so we can skip computing those elements
+        let new_len = self.len().div_ceil(2);
+        for index in 0..new_len {
+            into.push(
+                (FE::ONE - binding) * self.element(2 * index)
+                    + binding * self.element(2 * index + 1),
+            );
+        }
+
+        into.truncate(new_len);
     }
 }
 

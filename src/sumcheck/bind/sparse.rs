@@ -543,6 +543,7 @@ mod tests {
             load_sparse_3d_array_bind_gate_p128, load_sparse_3d_array_bind_gate_p256,
         },
     };
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     fn sparse_2d_array_bind_hand_test_vector<FE: CodecFieldElement>(
         test_vector: BindTestVector<Sparse2DArrayBindHandTestCase<FE>>,
@@ -574,17 +575,17 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn sparse_2d_array_bind_hand_test_vector_p128() {
         sparse_2d_array_bind_hand_test_vector(load_sparse_2d_array_bind_hand_p128())
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn sparse_2d_array_bind_hand_test_vector_p256() {
         sparse_2d_array_bind_hand_test_vector(load_sparse_2d_array_bind_hand_p256())
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn sparse_2d_array_bind_hand_test_vector_2_128() {
         sparse_2d_array_bind_hand_test_vector(load_sparse_2d_array_bind_hand_2_128())
     }
@@ -607,17 +608,17 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn sparse_3d_array_bind_gate_test_vector_p128() {
         sparse_3d_array_bind_gate_test_vector(load_sparse_3d_array_bind_gate_p128())
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn sparse_3d_array_bind_gate_test_vector_p256() {
         sparse_3d_array_bind_gate_test_vector(load_sparse_3d_array_bind_gate_p256())
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn sparse_3d_array_bind_gate_test_vector_2_128() {
         sparse_3d_array_bind_gate_test_vector(load_sparse_3d_array_bind_gate_2_128())
     }

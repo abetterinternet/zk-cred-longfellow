@@ -220,17 +220,17 @@ fn check_1d_dense_array_bind_test_vector_consistency<FE: CodecFieldElement>(
     assert_eq!(checked_in_vector, generated_vector);
 }
 
-#[test]
+#[wasm_bindgen_test(unsupported = test)]
 fn check_1d_dense_array_bind_test_vector_consistency_p128() {
     check_1d_dense_array_bind_test_vector_consistency(load_dense_1d_array_bind_p128());
 }
 
-#[test]
+#[wasm_bindgen_test(unsupported = test)]
 fn check_1d_dense_array_bind_test_vector_consistency_p256() {
     check_1d_dense_array_bind_test_vector_consistency(load_dense_1d_array_bind_p256());
 }
 
-#[test]
+#[wasm_bindgen_test(unsupported = test)]
 fn check_1d_dense_array_bind_test_vector_consistency_2_128() {
     check_1d_dense_array_bind_test_vector_consistency(load_dense_1d_array_bind_2_128());
 }
@@ -313,17 +313,17 @@ fn check_2d_sparse_array_bind_test_vector_consistency<FE: CodecFieldElement>(
     assert_eq!(checked_in_vector, generated_vector);
 }
 
-#[test]
+#[wasm_bindgen_test(unsupported = test)]
 fn check_2d_sparse_array_bind_test_vector_consistency_p128() {
     check_2d_sparse_array_bind_test_vector_consistency(load_sparse_2d_array_bind_hand_p128());
 }
 
-#[test]
+#[wasm_bindgen_test(unsupported = test)]
 fn check_2d_sparse_array_bind_test_vector_consistency_p256() {
     check_2d_sparse_array_bind_test_vector_consistency(load_sparse_2d_array_bind_hand_p256());
 }
 
-#[test]
+#[wasm_bindgen_test(unsupported = test)]
 fn check_2d_sparse_array_bind_test_vector_consistency_2_128() {
     check_2d_sparse_array_bind_test_vector_consistency(load_sparse_2d_array_bind_hand_2_128());
 }
@@ -404,17 +404,17 @@ fn check_3d_sparse_array_bind_test_vector_consistency<FE: CodecFieldElement>(
     assert_eq!(checked_in_vector, generated_vector);
 }
 
-#[test]
+#[wasm_bindgen_test(unsupported = test)]
 fn check_3d_sparse_array_bind_test_vector_consistency_p128() {
     check_3d_sparse_array_bind_test_vector_consistency(load_sparse_3d_array_bind_gate_p128());
 }
 
-#[test]
+#[wasm_bindgen_test(unsupported = test)]
 fn check_3d_sparse_array_bind_test_vector_consistency_p256() {
     check_3d_sparse_array_bind_test_vector_consistency(load_sparse_3d_array_bind_gate_p256());
 }
 
-#[test]
+#[wasm_bindgen_test(unsupported = test)]
 fn check_3d_sparse_array_bind_test_vector_consistency_2_128() {
     check_3d_sparse_array_bind_test_vector_consistency(load_sparse_3d_array_bind_gate_2_128());
 }

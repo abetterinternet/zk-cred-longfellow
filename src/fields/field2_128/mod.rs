@@ -548,7 +548,7 @@ mod tests {
         assert_eq!(result, TEST_VECTOR_PRODUCT);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_vector_x86() {
         let result = unsafe { backend_x86::galois_multiply(TEST_VECTOR_A, TEST_VECTOR_B) };
@@ -557,7 +557,7 @@ mod tests {
         assert_eq!(result, TEST_VECTOR_PRODUCT);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     #[cfg(target_arch = "aarch64")]
     fn test_vector_aarch64() {
         let result = unsafe { backend_aarch64::galois_multiply(TEST_VECTOR_A, TEST_VECTOR_B) };
@@ -595,7 +595,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     #[ignore = "nondeterministic test"]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn random_test_multiply_x86() {
@@ -611,7 +611,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     #[ignore = "nondeterministic test"]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn random_test_square_x86() {
@@ -626,7 +626,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     #[ignore = "nondeterministic test"]
     #[cfg(target_arch = "aarch64")]
     fn random_test_multiply_aarch64() {
@@ -642,7 +642,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     #[ignore = "nondeterministic test"]
     #[cfg(target_arch = "aarch64")]
     fn random_test_square_aarch64() {
@@ -680,7 +680,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn low_hamming_weight_x86() {
         for i in 0..128 {
@@ -703,7 +703,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     #[cfg(target_arch = "aarch64")]
     fn low_hamming_weight_aarch64() {
         for i in 0..128 {
@@ -726,7 +726,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn inject_roundtrip() {
         for to_inject in 0..u16::MAX {
             let in_subfield = Field2_128::inject(to_inject);
@@ -735,7 +735,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn inject_not_in_subfield() {
         let not_in_subfield = Field2_128::from_u128_const(u128::MAX);
         assert!(!not_in_subfield.is_in_subfield());

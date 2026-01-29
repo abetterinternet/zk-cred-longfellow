@@ -284,8 +284,9 @@ mod tests {
     use crate::fields::ProofFieldElement;
     use rand::random;
     use std::{iter::repeat_with, ops::Range};
+    use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn twiddles_equivalency() {
         let power = 16;
         let mut twiddled = vec![Field2_128::ZERO; 1 << (power - 1)];
@@ -300,7 +301,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn extend_gf_2_128() {
         fn eval_horners_method(polynomial: &[Field2_128], eval_at: Range<u16>) -> Vec<Field2_128> {
             eval_at

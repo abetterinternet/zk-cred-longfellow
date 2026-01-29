@@ -119,17 +119,17 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn dense_1d_array_bind_test_vector_p128() {
         dense_1d_array_bind_test_vector(load_dense_1d_array_bind_p128())
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn dense_1d_array_bind_test_vector_p256() {
         dense_1d_array_bind_test_vector(load_dense_1d_array_bind_p256())
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn dense_1d_array_bind_test_vector_2_128() {
         dense_1d_array_bind_test_vector(load_dense_1d_array_bind_2_128())
     }

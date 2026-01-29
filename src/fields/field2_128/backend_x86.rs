@@ -148,8 +148,9 @@ fn unpack_u128(value: __m128i) -> u128 {
 #[cfg(test)]
 mod tests {
     use crate::fields::field2_128::backend_x86::{pack_u128, unpack_u128};
+    use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn roundtrip_pack_unpack() {
         for x in [
             0x00000000000000000000000000000001,

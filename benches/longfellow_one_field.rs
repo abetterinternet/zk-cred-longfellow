@@ -1,21 +1,19 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::{fs, hint::black_box, io::Cursor};
+use std::{hint::black_box, io::Cursor};
 use zk_cred_longfellow::{
     Codec,
     circuit::Circuit,
-    fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
+    fields::{FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
     ligero::LigeroParameters,
     zk_one_circuit::{prover::Prover, verifier::Verifier},
 };
 
-fn load_circuit<FE: CodecFieldElement>(name: &str) -> Circuit<FE> {
-    let compressed = fs::read(format!("test-vectors/one-circuit/{name}.circuit.zst")).unwrap();
-    let bytes = zstd::decode_all(compressed.as_slice()).unwrap();
-    Circuit::decode(&mut Cursor::new(&bytes)).unwrap()
-}
-
 fn rfc_1(c: &mut Criterion) {
-    let circuit = load_circuit("longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b");
+    let compressed = include_bytes!(
+        "../test-vectors/one-circuit/longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b.circuit.zst"
+    );
+    let bytes = zstd::decode_all(compressed.as_slice()).unwrap();
+    let circuit = Circuit::decode(&mut Cursor::new(&bytes)).unwrap();
     let ligero_parameters = LigeroParameters {
         nreq: 6,
         witnesses_per_row: 15,
@@ -58,7 +56,11 @@ fn rfc_1(c: &mut Criterion) {
 }
 
 fn mac(c: &mut Criterion) {
-    let circuit = load_circuit("longfellow-mac-circuit-66aeaf09a9cc98e36873e868307ac07279d5f7e0-1");
+    let compressed = include_bytes!(
+        "../test-vectors/one-circuit/longfellow-mac-circuit-66aeaf09a9cc98e36873e868307ac07279d5f7e0-1.circuit.zst"
+    );
+    let bytes = zstd::decode_all(compressed.as_slice()).unwrap();
+    let circuit = Circuit::decode(&mut Cursor::new(&bytes)).unwrap();
     let ligero_parameters = LigeroParameters {
         nreq: 128,
         witnesses_per_row: 213,

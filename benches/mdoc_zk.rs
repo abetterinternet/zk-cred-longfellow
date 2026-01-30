@@ -1,10 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use serde_json::Value;
-use std::{
-    fs::{self, File},
-    hint::black_box,
-    time::Duration,
-};
+use std::{hint::black_box, time::Duration};
 use zk_cred_longfellow::mdoc_zk::{
     CircuitVersion,
     prover::MdocZkProver,
@@ -12,17 +8,16 @@ use zk_cred_longfellow::mdoc_zk::{
 };
 
 fn load_circuit_file() -> Vec<u8> {
-    let compressed = fs::read(
-        "test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6",
-    )
-    .unwrap();
+    let compressed = include_bytes!(
+        "../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6",
+    );
     zstd::decode_all(compressed.as_slice()).unwrap()
 }
 
 fn load_inputs() -> (Vec<u8>, Vec<u8>, String) {
-    let value = serde_json::from_reader::<_, Value>(
-        File::open("test-vectors/mdoc_zk/witness_test_vector.json").unwrap(),
-    )
+    let value = serde_json::from_slice::<Value>(include_bytes!(
+        "../test-vectors/mdoc_zk/witness_test_vector.json"
+    ))
     .unwrap();
     let object = value.as_object().unwrap();
     let mdoc = object["mdoc"].as_str().unwrap();
@@ -57,7 +52,7 @@ fn verify(c: &mut Criterion) {
         let circuit = load_circuit_file();
         let verifier = MdocZkVerifier::new(&circuit, CircuitVersion::V6, 1).unwrap();
         let (_, session_transcript, time) = load_inputs();
-        let proof = fs::read("test-vectors/mdoc_zk/proof.bin").unwrap();
+        let proof = include_bytes!("../test-vectors/mdoc_zk/proof.bin");
         b.iter(|| {
             verifier
                 .verify(
@@ -70,7 +65,7 @@ fn verify(c: &mut Criterion) {
                     b"\xA0",
                     black_box(&session_transcript),
                     &time,
-                    black_box(&proof),
+                    black_box(proof),
                 )
                 .unwrap();
         });

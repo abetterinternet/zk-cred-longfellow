@@ -16,7 +16,6 @@ pub(super) struct CoseSign1 {
     ///
     /// If there are no protected header parameters, this will be the empty byte string. Otherwise,
     /// it will be the CBOR encoding of a map.
-    #[allow(unused)]
     pub(super) protected: Vec<u8>,
     /// Unprotected header parameters.
     pub(super) unprotected: CoseUnprotectedHeaders,

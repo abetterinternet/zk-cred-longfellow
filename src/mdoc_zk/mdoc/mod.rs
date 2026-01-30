@@ -32,6 +32,7 @@ pub(super) struct Mdoc {
     // Issuer signature information.
     pub(super) issuer_public_key_x: FieldP256,
     pub(super) issuer_public_key_y: FieldP256,
+    pub(super) issuer_signature_protected_headers: Vec<u8>,
     pub(super) issuer_signature_payload: Vec<u8>,
     pub(super) issuer_signature: Signature,
 
@@ -167,6 +168,7 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
     Ok(Mdoc {
         issuer_public_key_x,
         issuer_public_key_y,
+        issuer_signature_protected_headers: document.issuer_signed.issuer_auth.protected,
         issuer_signature_payload: document.issuer_signed.issuer_auth.payload.unwrap(),
         issuer_signature,
         valid_from: mso.validity_info.valid_from.0,
@@ -392,12 +394,8 @@ pub(super) fn compute_credential_hash<'a>(
     witness: &'a mut Sha256Witness<'a, SHA_256_CREDENTIAL_WITNESS_WIRES>,
     bit_plucker: &BitPlucker<4, Field2_128>,
 ) -> Result<Sha256Result, anyhow::Error> {
-    let mut body_protected = ByteString(Vec::new());
-    ciborium::into_writer(&ProtectedHeadersEs256, &mut body_protected.0)
-        .context("could not encode protected headers")?;
-
     let sig_structure = SigStructure {
-        body_protected,
+        body_protected: ByteString(mdoc.issuer_signature_protected_headers.clone()),
         external_aad: ByteString(Vec::new()),
         payload: ByteString(mdoc.issuer_signature_payload.clone()),
     };

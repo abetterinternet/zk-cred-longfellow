@@ -199,6 +199,34 @@ class FdTable {
 
 let fdTable = new FdTable();
 
+class SerializedArgs {
+    constructor(args) {
+        this.offsets = new Array(args.length);
+
+        // Start with one byte per argument for null terminators.
+        let bufferLength = args.length;
+        for (let arg of args) {
+            // Add three bytes per character, to guarantee that encoding will
+            // succeed.
+            bufferLength += arg.length * 3;
+        }
+        this.buffer = new ArrayBuffer(bufferLength);
+
+        let encoder = new TextEncoder();
+        let array = new Uint8Array(this.buffer);
+        let position = 0;
+        for (let i = 0; i < args.length; i++) {
+            this.offsets[i] = position;
+            let result = encoder.encodeInto(args[i], array.subarray(position));
+            position += result.written;
+            array.fill(0, position, position + 1);
+            position += 1;
+        }
+    }
+}
+
+let args = new SerializedArgs(["a.out", "--bench"]);
+
 // ;;; Return command-line argument data sizes.
 // (@interface func (export "args_sizes_get")
 //   ;;; Returns the number of arguments and the size of the argument string
@@ -210,8 +238,8 @@ let fdTable = new FdTable();
 //
 // WASM function type: (func (param i32 i32) (result i32))
 function args_sizes_get(ptrNumArgs, ptrDataSize) {
-    getMemoryDataView().setUint32(ptrNumArgs, 0, true);
-    getMemoryDataView().setUint32(ptrDataSize, 0, true);
+    getMemoryDataView().setUint32(ptrNumArgs, args.offsets.length, true);
+    getMemoryDataView().setUint32(ptrDataSize, args.buffer.byteLength, true);
     return errno.success;
 }
 
@@ -232,7 +260,15 @@ function args_sizes_get(ptrNumArgs, ptrDataSize) {
 // )
 //
 // WASM function type: (func (param i32 i32) (result i32))
-function args_get(_ptrArgv, _ptrArgvBuf) {
+function args_get(ptrArgv, ptrArgvBuf) {
+    for (let i = 0; i < args.offsets.length; i++) {
+        getMemoryDataView().setUint32(
+            ptrArgv + i * 4,
+            ptrArgvBuf + args.offsets[i],
+            true
+        );
+    }
+    getMemoryByteArray().set(new Uint8Array(args.buffer), ptrArgvBuf);
     return errno.success;
 }
 

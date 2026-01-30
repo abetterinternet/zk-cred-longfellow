@@ -153,7 +153,7 @@ class FdStat {
 // A virtual file representing stdout or stderr.
 class OutputPipe {
     stat() {
-        return new FdStat(filetype.character_device, 0, rights.fd_write, 0n);
+        return new FdStat(filetype.regular_file, 0, rights.fd_write, 0n);
     }
 
     writev(ptrIovecArray, lengthIovecArray) {

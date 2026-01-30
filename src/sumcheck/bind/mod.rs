@@ -19,12 +19,18 @@ pub trait DenseSumcheckArray<FieldElement>: Sized {
     /// Retrieve the element at the index, or zero if no element is defined for the index.
     fn element(&self, index: usize) -> FieldElement;
 
-    /// Bind a array of field elements to a single field element, in-place.
+    /// Bind an array of field elements to a single field element, in-place.
     ///
     /// This corresponds to `bind()` from [6.1][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
     fn bind(&mut self, binding: FieldElement);
+
+    /// Bind an array of field elements to a single field element, writing the bound array to
+    /// `into`.
+    fn bind_into(&mut self, binding: FieldElement, into: &mut Vec<FieldElement>);
+
+    fn bind_inner(&mut self, binding: FieldElement, into: Option<&mut Vec<FieldElement>>) -> usize;
 }
 
 impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
@@ -33,6 +39,17 @@ impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
     }
 
     fn bind(&mut self, binding: FE) {
+        let new_len = self.bind_inner(binding, None);
+        // Truncate the bound array, effectively zeroing out the positions we didn't write to.
+        self.truncate(new_len);
+    }
+
+    fn bind_into(&mut self, binding: FE, into: &mut Vec<FE>) {
+        into.truncate(0);
+        self.bind_inner(binding, Some(into));
+    }
+
+    fn bind_inner(&mut self, binding: FE, mut into: Option<&mut Vec<FE>>) -> usize {
         assert!(
             self.len() > 1,
             "binding over a vector that's already reduced to a single element"
@@ -44,11 +61,16 @@ impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
         // The back half of B[i] will always be zero so we can skip computing those elements
         let new_len = self.len().div_ceil(2);
         for index in 0..new_len {
-            self[index] = self.element(2 * index)
+            let value = self.element(2 * index)
                 + binding * (self.element(2 * index + 1) - self.element(2 * index));
-        }
 
-        self.truncate(new_len);
+            if let Some(into) = into.as_mut() {
+                into.push(value);
+            } else {
+                self[index] = value;
+            }
+        }
+        new_len
     }
 }
 

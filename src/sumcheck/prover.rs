@@ -1,5 +1,6 @@
 //! Sumcheck prover.
 
+use super::bind::bindeq;
 use crate::{
     ParameterizedCodec,
     circuit::{Circuit, CircuitLayer, Evaluation},
@@ -10,7 +11,10 @@ use crate::{
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
         Polynomial,
-        bind::{DenseSumcheckArray, sparse::Hand},
+        bind::{
+            DenseSumcheckArray,
+            sparse::{Hand, SparseQuadElement},
+        },
     },
     transcript::Transcript,
     witness::{Witness, WitnessLayout},
@@ -18,7 +22,35 @@ use crate::{
 use anyhow::anyhow;
 use std::{borrow::Cow, io::Write};
 
-use super::bind::bindeq;
+/// Copies of the wires on a circuit evaluation layer used by the prover.
+///
+/// At each layer, the prover needs left and right hand copies of the wires `(VL, VR) = wires`,
+/// which over the course of the Sumcheck loop will each be bound to a challenge `layer.logw` times,
+/// exactly enough to reduce these arrays to a single element, which will become the layer claims
+/// `vl` and `vr`.
+///
+/// We need a third array of wires that `evaluate_polynomial` can bind into. Unlike the left or
+/// right wires, we don't re-bind the same array multiple times, but we do want to re-use the same
+/// allocation.
+#[derive(Debug, Clone)]
+struct ProverWires<FieldElement> {
+    wires: Vec<[Vec<FieldElement>; 2]>,
+}
+
+impl<FE: ProofFieldElement> ProverWires<FE> {
+    /// Mutable left and right wire copies for the layer.
+    fn layer_mut(&mut self, index: usize) -> &mut [Vec<FE>; 2] {
+        // Recall that evaluation.wires includes the circuit output wires at
+        // index 0 so we have to go up one to get the input wires for this
+        // layer.
+        &mut self.wires[index + 1]
+    }
+
+    /// Left and right wire copies for the layer.
+    fn layer(&self, index: usize) -> &[Vec<FE>; 2] {
+        &self.wires[index + 1]
+    }
+}
 
 /// Mode of operation for the sumcheck prover.
 #[derive(Clone, Debug)]
@@ -32,11 +64,17 @@ enum ProtocolRole<'a, FieldElement> {
         /// The proof is preallocated by the caller and moved into `SumcheckProtocol::run_protocol`,
         /// then returned back to the caller. Putting the proof value in this enum variant makes the
         /// handling of the prover role less awkward in `SumcheckProtocol::run_protocol`.
-        proof: SumcheckProof<FieldElement>,
-        /// Left and right hand copies of the wires at each layer of the evaluation. Putting the
-        /// wire copies in this enum variant makes the handling of the prover role less awkward in
+        sumcheck_proof: SumcheckProof<FieldElement>,
+        /// Copies of the wires at each layer of the evaluation. Putting the wire copies in this
+        /// enum variant makes the handling of the prover role less awkward in
         /// `SumcheckProtocol::run_protocol`.
-        wires: Vec<[Vec<FieldElement>; 2]>,
+        wires: ProverWires<FieldElement>,
+        /// Scratch space for `evaluate_polynomial` to bind wires into. An array as long as the
+        /// longest wire array in the evaluation.
+        wires_scratch: Vec<FieldElement>,
+        /// Scratch space for `evaluate_polynomial` to bind the combined quad into. An array as long
+        /// as the longest combined quad in the circuit.
+        combined_quad_scratch: Vec<SparseQuadElement<FieldElement>>,
     },
     /// The Longfellow verifier has only public inputs and a sumcheck proof from the Longfellow
     /// prover and wants to compute the linear constraints.
@@ -90,6 +128,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
         let mut proof = SumcheckProof {
             layers: Vec::with_capacity(self.circuit.num_layers()),
         };
+        let mut longest_combined_quad = 0;
         for layer in &self.circuit().layers {
             proof.layers.push(ProofLayer {
                 polynomials: vec![
@@ -102,14 +141,21 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
                 vl: FE::ZERO,
                 vr: FE::ZERO,
             });
+            if layer.combined_quad_len() > longest_combined_quad {
+                longest_combined_quad = layer.combined_quad_len();
+            }
         }
 
         // Pre-copy the wire values from the evaluation into left and right-hand arrays that
         // Self::run_protocol will mutate by successive binding. Having these arrays inside the
         // ProtocolRole::Prover variant makes handling them more graceful in Self::run_protocol.
         let mut wires = Vec::with_capacity(self.circuit.num_layers());
+        let mut longest_wires = 0;
         for layer in &evaluation.wires {
             wires.push([layer.clone(), layer.clone()]);
+            if layer.len() > longest_wires {
+                longest_wires = layer.len();
+            }
         }
 
         let (linear_constraints, proof) = self.run_protocol(
@@ -117,8 +163,10 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
             ProtocolRole::Prover {
                 evaluation,
                 witness,
-                proof,
-                wires,
+                sumcheck_proof: proof,
+                wires: ProverWires { wires },
+                wires_scratch: Vec::with_capacity(longest_wires),
+                combined_quad_scratch: Vec::with_capacity(longest_combined_quad),
             },
         )?;
 
@@ -275,28 +323,21 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
                     let polynomial = match &mut protocol_role {
                         ProtocolRole::Prover {
                             witness,
-                            proof,
+                            sumcheck_proof: proof,
                             wires,
+                            wires_scratch,
+                            combined_quad_scratch,
                             ..
                         } => {
-                            // (VL, VR) = wires
-                            // The specification says "wires[j]" where 0 <= j < circuit.num_layers.
-                            // Recall that evaluation.wires includes the circuit output wires at
-                            // index 0 so we have to go up one to get the input wires for this
-                            // layer.
-                            // Over the course of the loop, we'll bind each array to a challenge
-                            // layer.logw times, exactly enough to reduce these arrays to a single
-                            // element, which become the layer claims vl and vr.
-                            let wires = &wires[layer_index + 1];
-
                             // Implements the polynomial from the specification:
                             // Let p(x) = SUM_{l, r} bind(QUAD, x)[l, r] * bind(VL, x)[l] * VR[r]
-                            let evaluate_polynomial = |at: FE| {
-                                // Bind a *copy* of the quad
-                                let mut sparse_bound_quad_clone = quad.clone();
+                            let mut evaluate_polynomial = |at: FE| {
+                                // Bind the quad into combined_quad_scratch, reusing the allocation.                                // allocation.
                                 // Binding to alternating hands is equivalent to transposing the
                                 // array at each iteration and binding to the outermost dimension.
-                                sparse_bound_quad_clone.bind_hand(hand, at);
+                                quad.bind_hand_into(hand, at, combined_quad_scratch);
+
+                                let wires = wires.layer_mut(layer_index);
 
                                 // SUM_{l, r} is interpreted to mean evaluating the expression at
                                 // all possible left and right wire indices.
@@ -308,20 +349,18 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
                                 // The specification instructs us to swap the left and right wire
                                 // arrays at each iteration and always bind to the left. We instead
                                 // bind the wire array corresponding to the current hand.
-                                // Use Cow to avoid copying whichever wires array we're not binding.
-                                let mut bound_wires = [Cow::from(&wires[0]), Cow::from(&wires[1])];
-                                bound_wires[hand as usize].to_mut().bind(at);
+                                wires[hand as usize].bind_into(at, wires_scratch);
+                                let (left_wires, right_wires) = if hand == Hand::Left {
+                                    (&*wires_scratch, &wires[Hand::Right as usize])
+                                } else {
+                                    (&wires[Hand::Left as usize], &*wires_scratch)
+                                };
 
-                                sparse_bound_quad_clone.contents().iter().fold(
-                                    FE::ZERO,
-                                    |acc, element| {
-                                        acc + element.coefficient
-                                            * bound_wires[Hand::Left as usize]
-                                                [element.left_wire_index]
-                                            * bound_wires[Hand::Right as usize]
-                                                [element.right_wire_index]
-                                    },
-                                )
+                                combined_quad_scratch.iter().fold(FE::ZERO, |acc, element| {
+                                    acc + element.coefficient
+                                        * left_wires[element.left_wire_index]
+                                        * right_wires[element.right_wire_index]
+                                })
                             };
 
                             // Evaluate the polynomial at P0 and P2, subtracting the pad
@@ -351,7 +390,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
 
                     // Bind the current wires and the quad to the challenge
                     if let ProtocolRole::Prover { wires, .. } = &mut protocol_role {
-                        wires[layer_index + 1][hand as usize].bind(challenge[0]);
+                        wires.layer_mut(layer_index)[hand as usize].bind(challenge[0]);
                     }
                     quad.bind_hand(hand, challenge[0]);
 
@@ -401,33 +440,25 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
             let proof_layer = match &mut protocol_role {
                 ProtocolRole::Prover {
                     witness,
-                    proof,
+                    sumcheck_proof: proof,
                     wires,
                     ..
                 } => {
-                    for left_wire in wires[layer_index + 1][Hand::Left as usize].iter().skip(1) {
-                        assert_eq!(
-                            left_wire,
-                            &FE::ZERO,
-                            "left wires: {:#?}",
-                            wires[Hand::Left as usize],
-                        );
-                    }
-                    for right_wire in wires[layer_index + 1][Hand::Right as usize].iter().skip(1) {
-                        assert_eq!(
-                            right_wire,
-                            &FE::ZERO,
-                            "right wires: {:#?}",
-                            wires[Hand::Right as usize],
-                        );
+                    for (left_wire, right_wire) in wires.layer(layer_index)[Hand::Left as usize]
+                        .iter()
+                        .zip(&wires.layer(layer_index)[Hand::Right as usize])
+                        .skip(1)
+                    {
+                        assert_eq!(left_wire, &FE::ZERO);
+                        assert_eq!(right_wire, &FE::ZERO);
                     }
 
                     let (vl_pad, vr_pad, _) = witness.wire_witnesses(layer_index);
 
                     proof.layers[layer_index].vl =
-                        wires[layer_index + 1][Hand::Left as usize].element(0) - vl_pad;
+                        wires.layer(layer_index)[Hand::Left as usize].element(0) - vl_pad;
                     proof.layers[layer_index].vr =
-                        wires[layer_index + 1][Hand::Right as usize].element(0) - vr_pad;
+                        wires.layer(layer_index)[Hand::Right as usize].element(0) - vr_pad;
 
                     &proof.layers[layer_index]
                 }
@@ -513,7 +544,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
         Ok((
             constraints,
             match protocol_role {
-                ProtocolRole::Prover { proof, .. } => Some(proof),
+                ProtocolRole::Prover { sumcheck_proof, .. } => Some(sumcheck_proof),
                 ProtocolRole::Verifier { .. } => None,
             },
         ))

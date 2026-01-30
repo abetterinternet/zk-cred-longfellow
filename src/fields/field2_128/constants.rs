@@ -407,6 +407,7 @@ pub(crate) fn twiddle_array_at(x: u32, y: u32) -> Field2_128 {
 mod tests {
     use super::*;
     use crate::fields::{CodecFieldElement, FieldElement, field2_128::Field2_128};
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     /// Compute the twiddle array W^hat from the subfield basis and the subspace vanishing
     /// polynomials. See [`twiddle_array`] for more discussion.
@@ -435,7 +436,7 @@ mod tests {
         twiddles
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn twiddle_array_equivalence() {
         // Print out the computed twiddle array as a literal so it can be copy-pasted into function
         // twiddle_array
@@ -516,7 +517,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn subfield_basis_lu_decomposition_equivalence() {
         let decomposition = compute_subfield_basis_lu_decomposition();
         // Print out the LU decomposition as a literal so it can be copy-pasted into function

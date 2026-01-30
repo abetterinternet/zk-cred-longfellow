@@ -29,6 +29,9 @@ jobs:
       run: cargo test
     - name: Test benchmarks
       run: cargo test --benches
+    - name: "Check for #[test] macro"
+      run: |
+        bash -c "! grep -r '#\[test\]' src"
 
   wasm-node:
     runs-on: ubuntu-latest

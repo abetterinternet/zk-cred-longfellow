@@ -1,5 +1,8 @@
 use anyhow::{Context, anyhow};
-use axum::Router;
+use axum::{
+    Router,
+    http::{HeaderName, HeaderValue},
+};
 use cargo_metadata::{Message, TargetKind, camino::Utf8PathBuf};
 use clap::Parser;
 use mime::Mime;
@@ -11,7 +14,11 @@ use std::{
     str::FromStr,
 };
 use tokio::net::TcpListener;
-use tower_http::services::{ServeDir, ServeFile};
+use tower::ServiceBuilder;
+use tower_http::{
+    services::{ServeDir, ServeFile},
+    set_header::SetResponseHeaderLayer,
+};
 
 /// Custom commands
 #[derive(Parser)]
@@ -167,7 +174,12 @@ fn make_router(
     assets_dir.push("xtask");
     assets_dir.push("assets");
 
-    let wasm_file_service = ServeFile::new_with_mime(binary_path, &wasm_mime);
+    let wasm_file_service = ServiceBuilder::new()
+        .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("cache-control"),
+            HeaderValue::from_static("no-cache"),
+        ))
+        .service(ServeFile::new_with_mime(binary_path, &wasm_mime));
     let assets_service = ServeDir::new(assets_dir);
 
     let router = Router::new()

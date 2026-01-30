@@ -39,11 +39,13 @@ impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
         );
 
         // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+        // Or, with one less multiplication:
+        //  = A[2 * i] + x * (A[2 * i + 1] - A[2 * i])
         // The back half of B[i] will always be zero so we can skip computing those elements
         let new_len = self.len().div_ceil(2);
         for index in 0..new_len {
-            self[index] = (FE::ONE - binding) * self.element(2 * index)
-                + binding * self.element(2 * index + 1);
+            self[index] = self.element(2 * index)
+                + binding * (self.element(2 * index + 1) - self.element(2 * index));
         }
 
         self.truncate(new_len);
@@ -81,8 +83,17 @@ fn bindeq_inner<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
         let a = bindeq_inner(&input[1..]);
         // usize::div rounds towards zero
         for index in 0..output_len / 2 {
-            bound[2 * index] = (FE::ONE - input[0]) * a[index];
-            bound[2 * index + 1] = input[0] * a[index];
+            // B[2 * i]     = (1 - X[0]) * A[i]
+            // B[2 * i + 1] = X[0] * A[i]
+            //
+            // equivalently, with a single multiplication:
+            //
+            // t = X[0] * A[i]
+            // B[2 * i] = A[i] - t
+            // B[2 * i + 1] = t
+            let t = input[0] * a[index];
+            bound[2 * index] = a[index] - t;
+            bound[2 * index + 1] = t;
         }
     }
 

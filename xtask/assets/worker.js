@@ -310,7 +310,7 @@ function clock_time_get(clockId, _precision, ptrTimestamp) {
         // This returns a Unix timestamp.
         getMemoryDataView().setBigUint64(
             ptrTimestamp,
-            BigInt(Math.round(Date.now() * 1000)),
+            BigInt(Math.round(Date.now() * 1000000)),
             true
         );
         return errno.success;
@@ -318,7 +318,7 @@ function clock_time_get(clockId, _precision, ptrTimestamp) {
         // $monotonic
         getMemoryDataView().setBigUint64(
             ptrTimestamp,
-            BigInt(Math.round(performance.now() * 1000)),
+            BigInt(Math.round(performance.now() * 1000000)),
             true
         );
         return errno.success;

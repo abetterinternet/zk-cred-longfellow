@@ -103,12 +103,17 @@ impl WitnessLayout {
 ///   - one-time-pad for polynomials at each layer (2 * 2 * logw elements per circuit layer)
 ///   - one-time-pad for vl, vr and vl * vr for each layer of the circuit (three elements per
 ///     circuit layer)
+#[derive(Clone, Debug)]
 pub struct Witness<FieldElement> {
     values: Vec<FieldElement>,
     layout: WitnessLayout,
 }
 
 impl<FE: FieldElement> Witness<FE> {
+    pub fn layout(&self) -> &WitnessLayout {
+        &self.layout
+    }
+
     /// Number of field elements in the witness.
     pub fn len(&self) -> usize {
         self.values.len()

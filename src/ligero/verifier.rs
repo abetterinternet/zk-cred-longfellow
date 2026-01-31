@@ -197,7 +197,7 @@ mod tests {
         constraints::proof_constraints::quadratic_constraints,
         fields::{field2_128::Field2_128, fieldp128::FieldP128},
         ligero::tableau::TableauLayout,
-        sumcheck::initialize_transcript,
+        sumcheck::{initialize_transcript, prover::SumcheckProtocol},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::{Transcript, TranscriptMode},
         witness::WitnessLayout,
@@ -222,13 +222,13 @@ mod tests {
             &public_inputs[0..circuit.num_public_inputs()],
         )
         .unwrap();
-        let linear_constraints = LinearConstraints::from_proof(
-            &circuit,
-            &public_inputs[0..circuit.num_public_inputs()],
-            &mut transcript,
-            &test_vector.sumcheck_proof(&circuit),
-        )
-        .unwrap();
+        let linear_constraints = SumcheckProtocol::new(&circuit)
+            .linear_constraints(
+                &public_inputs[0..circuit.num_public_inputs()],
+                &mut transcript,
+                &test_vector.sumcheck_proof(&circuit),
+            )
+            .unwrap();
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let tableau_layout = TableauLayout::new(

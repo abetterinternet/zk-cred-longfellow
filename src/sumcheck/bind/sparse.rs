@@ -396,6 +396,14 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
         &self.contents
     }
 
+    pub fn contents_mut(&mut self) -> &mut Vec<SparseQuadElement<FE>> {
+        &mut self.contents
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.contents.truncate(len);
+    }
+
     /// Bind this array to `binding` in the dimension indicated by `hand`, in-place. That is, if
     /// `hand == Hand::Left`, bind `self[g, 2i, r]` and `self[g, 2i+1, r]` into `self[g, i, r]` for
     /// all g, r. If `hand == Hand::Right`, bind `self[g, l, 2i]` and `self[g, l, 2i+i]` into
@@ -404,12 +412,36 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
     /// This can only be used once the `gate_index` dimension has been bound down to a single
     /// element. That is, `gate_index == 0` for all elements in the array.
     pub fn bind_hand(&mut self, hand: Hand, binding: FE) {
-        // Walk the elements of the array and work out what bound elements they contribute to. See
-        // the module level comment for discussion of this strategy.
-        //
         // We bind in place. If we are visiting element 2i or 2i+1 of the array in the dimension
         // indicated by hand, then we've already visited anything that might contribute to elements
         // j < i of the bound array and thus it's safe to overwrite anything between j and 2i.
+        let new_len = self.bind_hand_inner(hand, binding, None);
+
+        // Truncate the sparse array, which effectively zeroes out all elements of the original
+        // array we didn't overwrite.
+        self.contents.truncate(new_len);
+    }
+
+    /// Variant of [`Self::bind_hand`] that writes the bound array into the provided `Vec` instead
+    /// of in-place.
+    pub fn bind_hand_into(
+        &mut self,
+        hand: Hand,
+        binding: FE,
+        into: &mut Vec<SparseQuadElement<FE>>,
+    ) {
+        into.truncate(0);
+        self.bind_hand_inner(hand, binding, Some(into));
+    }
+
+    fn bind_hand_inner(
+        &mut self,
+        hand: Hand,
+        binding: FE,
+        mut into: Option<&mut Vec<SparseQuadElement<FE>>>,
+    ) -> usize {
+        // Walk the elements of the array and work out what bound elements they contribute to. See
+        // the module level comment for discussion of this strategy.
         let mut write = 0;
         let mut read = 0;
         while read < self.contents.len() {
@@ -449,7 +481,7 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
             // Don't bother writing elements with zero coefficient
             let coefficient = (FE::ONE - binding) * coeff_2i + binding * coeff_2i_plus_1;
             if coefficient != FE::ZERO {
-                self.contents[write] = SparseQuadElement::new(
+                let value = SparseQuadElement::new(
                     0,
                     hand,
                     // 2i-th or 2i+1-th element contributes to the i-th bound element
@@ -457,13 +489,17 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
                     curr.hand_wire(hand.opposite()),
                     coefficient,
                 );
+
+                if let Some(into) = into.as_mut() {
+                    into.push(value);
+                } else {
+                    self.contents[write] = value;
+                }
                 write += 1;
             }
         }
 
-        // Truncate the sparse array, which effectively zeroes out all elements of the original
-        // array we didn't overwrite.
-        self.contents.truncate(write);
+        write
     }
 
     /// Treating self as the combined quad for a sumcheck layer, compute the bound quad:

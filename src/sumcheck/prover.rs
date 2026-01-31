@@ -106,7 +106,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
 
         // Pre-copy the wire values from the evaluation into left and right-hand arrays that
         // Self::run_protocol will mutate by successive binding. Having these arrays inside the
-        // ProtocolRole::Prover variant makes handling them more gracefulin Self::run_protocol.
+        // ProtocolRole::Prover variant makes handling them more graceful in Self::run_protocol.
         let mut wires = Vec::with_capacity(self.circuit.num_layers());
         for layer in &evaluation.wires {
             wires.push([layer.clone(), layer.clone()]);
@@ -131,7 +131,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
     /// Construct linear constraints from the provided proof of execution for the circuit and public
     /// inputs.
     ///
-    /// Corresponds to `constraints_circuit` in [1]. That definitiont akes arguments `sym_pad` and
+    /// Corresponds to `constraints_circuit` in [1]. That definition takes arguments `sym_pad` and
     /// `sym_private_inputs`, but since the whole point is that we don't know what those values are,
     /// it doesn't make sense to represent them as arguments.
     ///

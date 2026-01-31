@@ -181,15 +181,51 @@ class OutputPipe {
             [buffer]
         );
 
-        return size;
+        return [errno.success, size];
+    }
+
+    // Returns information about preopened file descriptors.
+    //
+    // * Whether or not this is a preopened file descriptor.
+    // * Whether or not this preopened file descriptor is for a directory.
+    // * The name of the preopened directory, if applicable.
+    prestat() {
+        return [false, false, new Uint8Array()];
+    }
+}
+
+class VirtualDirectory {
+    constructor(isPreopened, name) {
+        this.isPreopened = isPreopened;
+        this.name = name;
+        this.nameBuffer = new TextEncoder().encode(name);
+    }
+
+    stat() {
+        throw Error("VirtualDirectory.stat() not implemented");
+    }
+
+    writev() {
+        return [errno.badf, 0];
+    }
+
+    // Returns information about preopened file descriptors.
+    //
+    // * Whether or not this is a preopened file descriptor.
+    // * Whether or not this preopened file descriptor is for a directory.
+    // * The name of the preopened directory, if applicable.
+    prestat() {
+        if (this.isPreopened) {
+            return [true, true, this.nameBuffer];
+        } else {
+            return [false, false, new Uint8Array()];
+        }
     }
 }
 
 class FdTable {
     constructor() {
         this.map = new Map();
-        this.map.set(1, new OutputPipe());
-        this.map.set(2, new OutputPipe());
     }
 
     get(fd) {
@@ -197,7 +233,11 @@ class FdTable {
     }
 }
 
-let fdTable = new FdTable();
+const fdTable = new FdTable();
+fdTable.map.set(1, new OutputPipe());
+fdTable.map.set(2, new OutputPipe());
+const rootDirectory = new VirtualDirectory(true, ".");
+fdTable.map.set(3, rootDirectory);
 
 class SerializedArgs {
     constructor(args) {
@@ -225,7 +265,7 @@ class SerializedArgs {
     }
 }
 
-let args = new SerializedArgs(["a.out", "--bench"]);
+const args = new SerializedArgs(["a.out", "--bench"]);
 
 // ;;; Return command-line argument data sizes.
 // (@interface func (export "args_sizes_get")
@@ -376,12 +416,12 @@ function fd_read() {
 // WASM function type: (func (param i32 i32 i32 i32) (result i32))
 function fd_write(fd, ptrIovecArray, lengthIovecArray, ptrSize) {
     let file = fdTable.get(fd);
-    if (fd === undefined) {
+    if (file === undefined) {
         return errno.badf;
     }
-    let size = file.writev(ptrIovecArray, lengthIovecArray);
+    let [status, size] = file.writev(ptrIovecArray, lengthIovecArray);
     getMemoryDataView().setUint32(ptrSize, size, true);
-    return errno.success;
+    return status;
 }
 
 // ;;; Return the attributes of an open file.
@@ -406,7 +446,7 @@ function fd_filestat_get() {
 // )
 //
 // WASM function type: (func (param i32 i32 i32) (result i32))
-function path_create_directory() {
+function path_create_directory(fd, ptrPath, lengthPath) {
     throw new Error("path_create_directory not implemented");
 }
 
@@ -564,7 +604,7 @@ function fd_close() {
 // WASM function type: (func (param i32 i32) (result i32))
 function fd_fdstat_get(fd, ptrStat) {
     let file = fdTable.get(fd);
-    if (fd === undefined) {
+    if (file === undefined) {
         return errno.badf;
     }
     file.stat().write(ptrStat);
@@ -578,9 +618,36 @@ function fd_fdstat_get(fd, ptrStat) {
 //   (result $error (expected $prestat (error $errno)))
 // )
 //
+// (typename $prestat
+//   (union (@witx tag $preopentype)
+//     $prestat_dir
+//   )
+// )
+//
+// ;;; The contents of a `prestat` when type is `preopentype::dir`.
+// (typename $prestat_dir
+//   (record
+//     ;;; The length of the directory name for use with `fd_prestat_dir_name`.
+//     (field $pr_name_len $size)
+//   )
+// )
+//
 // WASM function type: (func (param i32 i32) (result i32))
-function fd_prestat_get() {
-    throw new Error("fd_prestat_get not implemented");
+function fd_prestat_get(fd, ptrPrestat) {
+    let file = fdTable.get(fd);
+    if (file === undefined) {
+        return errno.badf;
+    }
+    let [isPreopened, isPreopenedDir, name] = file.prestat();
+    if (!isPreopened) {
+        return errno.badf;
+    }
+    if (!isPreopenedDir) {
+        return errno.badf;
+    }
+    getMemoryDataView().setUint8(ptrPrestat, 0); // union tag
+    getMemoryDataView().setUint32(ptrPrestat + 4, name.byteLength, true);
+    return errno.success;
 }
 
 // ;;; Return a description of the given preopened file descriptor.
@@ -593,8 +660,20 @@ function fd_prestat_get() {
 // )
 //
 // WASM function type: (func (param i32 i32 i32) (result i32))
-function fd_prestat_dir_name() {
-    throw new Error("fd_prestat_dir_name not implemented");
+function fd_prestat_dir_name(fd, ptrPath, lengthPath) {
+    let file = fdTable.get(fd);
+    if (file === undefined) {
+        return errno.badf;
+    }
+    let [isPreopened, isPreopenedDir, name] = file.prestat();
+    if (!isPreopened) {
+        return errno.badf;
+    }
+    if (!isPreopenedDir) {
+        return errno.badf;
+    }
+    getMemoryByteArray().subarray(ptrPath, ptrPath + lengthPath).set(name);
+    return errno.success;
 }
 
 // ;;; Terminate the process normally. An exit code of 0 indicates successful

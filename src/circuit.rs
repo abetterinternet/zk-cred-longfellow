@@ -295,7 +295,7 @@ impl<FE: CodecFieldElement> Circuit<FE> {
         layer_index: usize,
         beta: FE,
     ) -> Result<SparseSumcheckArray<FE>, anyhow::Error> {
-        let mut sparse_quad = Vec::with_capacity(self.layers[layer_index].quads.len());
+        let mut sparse_quad = Vec::with_capacity(self.layers[layer_index].combined_quad_len());
 
         for quad in &self.layers[layer_index].quads {
             let quad_value: FE = self.constant(quad.const_table_index())?;
@@ -572,6 +572,11 @@ impl CircuitLayer {
     /// Number of wires entering the layer, hence the number of inputs.
     pub fn num_wires(&self) -> usize {
         self.num_wires.into()
+    }
+
+    /// Compute the size in field elements of the layer's combined quad.
+    pub fn combined_quad_len(&self) -> usize {
+        self.quads.len()
     }
 }
 

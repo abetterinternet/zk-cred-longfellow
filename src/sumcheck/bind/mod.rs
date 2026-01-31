@@ -19,12 +19,18 @@ pub trait DenseSumcheckArray<FieldElement>: Sized {
     /// Retrieve the element at the index, or zero if no element is defined for the index.
     fn element(&self, index: usize) -> FieldElement;
 
-    /// Bind a array of field elements to a single field element, in-place.
+    /// Bind an array of field elements to a single field element, in-place.
     ///
     /// This corresponds to `bind()` from [6.1][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
     fn bind(&mut self, binding: FieldElement);
+
+    /// Bind an array of field elements to a single field element, writing the bound array to
+    /// `into`.
+    fn bind_into(&mut self, binding: FieldElement, into: &mut Vec<FieldElement>);
+
+    fn bind_inner(&mut self, binding: FieldElement, into: Option<&mut Vec<FieldElement>>) -> usize;
 }
 
 impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
@@ -33,20 +39,38 @@ impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
     }
 
     fn bind(&mut self, binding: FE) {
+        let new_len = self.bind_inner(binding, None);
+        // Truncate the bound array, effectively zeroing out the positions we didn't write to.
+        self.truncate(new_len);
+    }
+
+    fn bind_into(&mut self, binding: FE, into: &mut Vec<FE>) {
+        into.truncate(0);
+        self.bind_inner(binding, Some(into));
+    }
+
+    fn bind_inner(&mut self, binding: FE, mut into: Option<&mut Vec<FE>>) -> usize {
         assert!(
             self.len() > 1,
             "binding over a vector that's already reduced to a single element"
         );
 
         // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+        // Or, with one less multiplication:
+        //  = A[2 * i] + x * (A[2 * i + 1] - A[2 * i])
         // The back half of B[i] will always be zero so we can skip computing those elements
         let new_len = self.len().div_ceil(2);
         for index in 0..new_len {
-            self[index] = (FE::ONE - binding) * self.element(2 * index)
-                + binding * self.element(2 * index + 1);
-        }
+            let value = self.element(2 * index)
+                + binding * (self.element(2 * index + 1) - self.element(2 * index));
 
-        self.truncate(new_len);
+            if let Some(into) = into.as_mut() {
+                into.push(value);
+            } else {
+                self[index] = value;
+            }
+        }
+        new_len
     }
 }
 
@@ -81,8 +105,17 @@ fn bindeq_inner<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
         let a = bindeq_inner(&input[1..]);
         // usize::div rounds towards zero
         for index in 0..output_len / 2 {
-            bound[2 * index] = (FE::ONE - input[0]) * a[index];
-            bound[2 * index + 1] = input[0] * a[index];
+            // B[2 * i]     = (1 - X[0]) * A[i]
+            // B[2 * i + 1] = X[0] * A[i]
+            //
+            // equivalently, with a single multiplication:
+            //
+            // t = X[0] * A[i]
+            // B[2 * i] = A[i] - t
+            // B[2 * i + 1] = t
+            let t = input[0] * a[index];
+            bound[2 * index] = a[index] - t;
+            bound[2 * index + 1] = t;
         }
     }
 

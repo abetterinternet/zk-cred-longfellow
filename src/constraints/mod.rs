@@ -3,4 +3,4 @@
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.6
 
 pub mod proof_constraints;
-mod symbolic;
+pub mod symbolic;

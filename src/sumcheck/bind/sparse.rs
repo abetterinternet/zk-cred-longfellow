@@ -184,7 +184,7 @@ pub enum Hand {
 
 impl Hand {
     /// Return the hand opposite to `self`.
-    fn opposite(&self) -> Self {
+    pub(crate) fn opposite(&self) -> Self {
         match self {
             Hand::Left => Hand::Right,
             Hand::Right => Hand::Left,
@@ -232,7 +232,7 @@ impl<'a, FE: FieldElement> SparseQuadElement<FE> {
     }
 
     /// Returns the wire index on the given hand.
-    fn hand_wire(&self, hand: Hand) -> usize {
+    pub(crate) fn hand_wire(&self, hand: Hand) -> usize {
         match hand {
             Hand::Left => self.left_wire_index,
             Hand::Right => self.right_wire_index,
@@ -446,8 +446,12 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
                 (FE::ZERO, curr.coefficient)
             };
 
+            // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+            // Or, with one less multiplication:
+            //   = A[2 * i] + x * (A[2 * i + 1] - A[2 * i])
+            let coefficient = coeff_2i + binding * (coeff_2i_plus_1 - coeff_2i);
+
             // Don't bother writing elements with zero coefficient
-            let coefficient = (FE::ONE - binding) * coeff_2i + binding * coeff_2i_plus_1;
             if coefficient != FE::ZERO {
                 self.contents[write] = SparseQuadElement::new(
                     0,
@@ -528,6 +532,31 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
         }
 
         self.contents.truncate(write);
+    }
+
+    /// Compute the intermediate array `A = SUM_{r} QUAD[l, r] * VR[r]`, used to speed up polynomial
+    /// evaluations in the sumcheck prover. Elements of `A` are written to `into`, which gets
+    /// resized without affecting the underlying heap allocation.
+    ///
+    /// See the comment in `sumcheck::prover::SumcheckProtocol::run_protocol` for detailed
+    /// discussion of how `A` is used.
+    ///
+    /// The definition of `A` is in terms of indices `l` and `r` and `VR`. In our implementation,
+    /// `wires[0]` and `wires[1]` take turns being the current and opposite wires.
+    pub fn compute_a(&self, hand: Hand, wires: &[Vec<FE>; 2], into: &mut Vec<FE>) {
+        // Truncate to drop any values currently in `into`, then resize up to the desired size and
+        // to initialize contents to zeroes.
+        into.truncate(0);
+        into.resize(wires[hand as usize].len(), FE::ZERO);
+
+        for element in &self.contents {
+            let (index, opposite_index) = match hand {
+                Hand::Left => (element.left_wire_index, element.right_wire_index),
+                Hand::Right => (element.right_wire_index, element.left_wire_index),
+            };
+            let opposite_wire = wires[hand.opposite() as usize][opposite_index];
+            into[index] += element.coefficient * opposite_wire;
+        }
     }
 }
 

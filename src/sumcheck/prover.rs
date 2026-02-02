@@ -10,15 +10,13 @@ use crate::{
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
         Polynomial,
-        bind::{DenseSumcheckArray, sparse::Hand},
+        bind::{DenseSumcheckArray, bindeq, sparse::Hand},
     },
     transcript::Transcript,
     witness::{Witness, WitnessLayout},
 };
 use anyhow::anyhow;
 use std::{borrow::Cow, io::Write};
-
-use super::bind::bindeq;
 
 /// Mode of operation for the sumcheck prover.
 #[derive(Clone, Debug)]
@@ -37,6 +35,10 @@ enum ProtocolRole<'a, FieldElement> {
         /// wire copies in this enum variant makes the handling of the prover role less awkward in
         /// `SumcheckProtocol::run_protocol`.
         wires: Vec<[Vec<FieldElement>; 2]>,
+        /// An array as long as the longest wire array in the evaluation. Scratch space to compute
+        /// intermediate arrays for polynomial evaluation. See [`SparseSumcheckArray::compute_a`]
+        /// for discussion.
+        wires_scratch: Vec<FieldElement>,
     },
     /// The Longfellow verifier has only public inputs and a sumcheck proof from the Longfellow
     /// prover and wants to compute the linear constraints.
@@ -108,8 +110,12 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
         // Self::run_protocol will mutate by successive binding. Having these arrays inside the
         // ProtocolRole::Prover variant makes handling them more graceful in Self::run_protocol.
         let mut wires = Vec::with_capacity(self.circuit.num_layers());
+        let mut longest_wires = 0;
         for layer in &evaluation.wires {
             wires.push([layer.clone(), layer.clone()]);
+            if layer.len() > longest_wires {
+                longest_wires = layer.len();
+            }
         }
 
         let (linear_constraints, proof) = self.run_protocol(
@@ -119,6 +125,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
                 witness,
                 proof,
                 wires,
+                wires_scratch: Vec::with_capacity(longest_wires),
             },
         )?;
 
@@ -277,6 +284,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
                             witness,
                             proof,
                             wires,
+                            wires_scratch,
                             ..
                         } => {
                             // (VL, VR) = wires
@@ -289,39 +297,66 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
                             // element, which become the layer claims vl and vr.
                             let wires = &wires[layer_index + 1];
 
-                            // Implements the polynomial from the specification:
+                            // `evaluate_polynomial` implements the polynomial from the
+                            // specification:
+                            //
                             // Let p(x) = SUM_{l, r} bind(QUAD, x)[l, r] * bind(VL, x)[l] * VR[r]
+                            //
+                            // What this means is we're evaluating the function at all possible left
+                            // and right wire indices. In sumcheck terms, we're evaluation the
+                            // function at each of the vertices of a 2*logw-dimensional unit
+                            // hypercube, or evaluating the function at all possible 2*logw length
+                            // bitstrings.
+                            //
+                            // But since QUAD is sparse, the majority of terms will be zero. So we
+                            // lazily evaluate only those elements of bind(QUAD, x) that will be
+                            // non-zero given which elements of QUAD exist.
+                            //
+                            // But observing that the wires arrays are much, much smaller than even
+                            // the sparse quad, we can further speed this up by rearranging the
+                            // expression:
+                            //
+                            // Let p(x) = SUM_{l} bind(VL, x)[l] * bind(A, x)[l]
+                            //
+                            // where A = SUM_{r} QUAD[l, r] * VR[r]
+                            //
+                            // that is, we initialize A[i] = 0 for all i and then:
+                            //
+                            // for q in QUAD:
+                            //   A[q.left_wire_index] += q.coefficient * VR[q.right_wire_index]
+                            //
+                            // Computing A requires a single pass over the sparse quad, with a
+                            // single field addition and multiplication per element. We do need a
+                            // scratch array to compute it into since multiple elements of the quad
+                            // can have the same left wire index and thus contribute to the same
+                            // element of A.
+                            //
+                            // Now, A and VL are both dense arrays. We can iterate over elements of
+                            // bind(A, x) without allocating, and then only evaluate those indices l
+                            // of bind(VL, x) for which bind(A, x)[l] != 0. This means we avoid any
+                            // allocations or copies of wire arrays.
+                            //
+                            // Additionally, we will compute p(0) and p(SUMCHECK_P2), and we can
+                            // re-use A across both evaluations.
+                            //
+                            // The upshot is that instead of binding the quad, we bind the much
+                            // smaller wire arrays and avoid a great many expensive multiplications.
+                            //
+                            // Final wrinkle: the specification instructs us to swap the left and
+                            // right wire arrays at each iteration and always bind to the left. We
+                            // instead bind the wire array corresponding to the current hand.
+
+                            quad.compute_a(hand, wires, wires_scratch);
+
                             let evaluate_polynomial = |at: FE| {
-                                // Bind a *copy* of the quad
-                                let mut sparse_bound_quad_clone = quad.clone();
-                                // Binding to alternating hands is equivalent to transposing the
-                                // array at each iteration and binding to the outermost dimension.
-                                sparse_bound_quad_clone.bind_hand(hand, at);
-
-                                // SUM_{l, r} is interpreted to mean evaluating the expression at
-                                // all possible left and right wire indices.
-                                // In sumcheck terms, we're evaluating the function at each of the
-                                // vertices of a 2*logw-dimensional unit hypercube, or evaluating
-                                // the function at all possible 2*logw length bitstrings.
-                                // But since we use a sparse array, we can skip all the bitstrings
-                                // where the coefficient is known to be zero.
-                                // The specification instructs us to swap the left and right wire
-                                // arrays at each iteration and always bind to the left. We instead
-                                // bind the wire array corresponding to the current hand.
-                                // Use Cow to avoid copying whichever wires array we're not binding.
-                                let mut bound_wires = [Cow::from(&wires[0]), Cow::from(&wires[1])];
-                                bound_wires[hand as usize].to_mut().bind(at);
-
-                                sparse_bound_quad_clone.contents().iter().fold(
-                                    FE::ZERO,
-                                    |acc, element| {
-                                        acc + element.coefficient
-                                            * bound_wires[Hand::Left as usize]
-                                                [element.left_wire_index]
-                                            * bound_wires[Hand::Right as usize]
-                                                [element.right_wire_index]
-                                    },
-                                )
+                                wires_scratch
+                                    .bind_iter(at)
+                                    .enumerate()
+                                    .filter(|(_, fe)| bool::from(!fe.is_zero()))
+                                    .fold(FE::ZERO, |acc, (index, element)| {
+                                        acc + element
+                                            * wires[hand as usize].bound_element_at(at, index)
+                                    })
                             };
 
                             // Evaluate the polynomial at P0 and P2, subtracting the pad
@@ -405,21 +440,13 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
                     wires,
                     ..
                 } => {
-                    for left_wire in wires[layer_index + 1][Hand::Left as usize].iter().skip(1) {
-                        assert_eq!(
-                            left_wire,
-                            &FE::ZERO,
-                            "left wires: {:#?}",
-                            wires[Hand::Left as usize],
-                        );
-                    }
-                    for right_wire in wires[layer_index + 1][Hand::Right as usize].iter().skip(1) {
-                        assert_eq!(
-                            right_wire,
-                            &FE::ZERO,
-                            "right wires: {:#?}",
-                            wires[Hand::Right as usize],
-                        );
+                    for (left_wire, right_wire) in wires[layer_index + 1][Hand::Left as usize]
+                        .iter()
+                        .zip(&wires[layer_index + 1][Hand::Right as usize])
+                        .skip(1)
+                    {
+                        assert_eq!(left_wire, &FE::ZERO);
+                        assert_eq!(right_wire, &FE::ZERO);
                     }
 
                     let (vl_pad, vr_pad, _) = witness.wire_witnesses(layer_index);

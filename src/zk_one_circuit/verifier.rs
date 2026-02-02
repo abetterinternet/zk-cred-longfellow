@@ -1,11 +1,9 @@
 use crate::{
     circuit::Circuit,
-    constraints::proof_constraints::{
-        LinearConstraints, QuadraticConstraint, quadratic_constraints,
-    },
+    constraints::proof_constraints::{QuadraticConstraint, quadratic_constraints},
     fields::ProofFieldElement,
     ligero::{LigeroParameters, tableau::TableauLayout, verifier::ligero_verify},
-    sumcheck::initialize_transcript,
+    sumcheck::{initialize_transcript, prover::SumcheckProtocol},
     transcript::{Transcript, TranscriptMode},
     witness::WitnessLayout,
     zk_one_circuit::prover::Proof,
@@ -59,8 +57,7 @@ impl<'a, FE: ProofFieldElement> Verifier<'a, FE> {
         initialize_transcript(&mut transcript, self.circuit, &inputs)?;
 
         // Run sumcheck verifier, and produce deferred linear constraints.
-        let linear_constraints = LinearConstraints::from_proof(
-            self.circuit,
+        let linear_constraints = SumcheckProtocol::new(self.circuit).linear_constraints(
             &inputs,
             &mut transcript,
             proof.sumcheck_proof(),

@@ -1,9 +1,7 @@
 use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::{
-        LinearConstraints, QuadraticConstraint, quadratic_constraints,
-    },
+    constraints::proof_constraints::{QuadraticConstraint, quadratic_constraints},
     fields::{CodecFieldElement, ProofFieldElement},
     ligero::{
         LigeroCommitment, LigeroParameters,
@@ -12,7 +10,7 @@ use crate::{
     },
     sumcheck::{
         initialize_transcript,
-        prover::{SumcheckProof, SumcheckProver},
+        prover::{ProverResult, SumcheckProof, SumcheckProtocol},
     },
     transcript::{Transcript, TranscriptMode},
     witness::{Witness, WitnessLayout},
@@ -23,7 +21,7 @@ use std::io::{Cursor, Write};
 
 /// Longfellow ZK prover.
 pub struct Prover<'a, FE> {
-    sumcheck_prover: SumcheckProver<'a, FE>,
+    sumcheck_prover: SumcheckProtocol<'a, FE>,
     witness_layout: WitnessLayout,
     quadratic_constraints: Vec<QuadraticConstraint>,
     ligero_parameters: LigeroParameters,
@@ -32,7 +30,7 @@ pub struct Prover<'a, FE> {
 impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
     /// Construct a new prover from a circuit and a choice of Ligero parameters.
     pub fn new(circuit: &'a Circuit<FE>, ligero_parameters: LigeroParameters) -> Self {
-        let sumcheck_prover = SumcheckProver::new(circuit);
+        let sumcheck_prover = SumcheckProtocol::new(circuit);
         let witness_layout = WitnessLayout::from_circuit(circuit);
         let quadratic_constraints = quadratic_constraints(circuit);
         Self {
@@ -77,21 +75,14 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
             circuit,
             evaluation.public_inputs(circuit.num_public_inputs()),
         )?;
-        let mut constraint_transcript = transcript.clone();
 
-        // Sumcheck, first time through: generate proof.
-        let sumcheck_proof = self
+        // Sumcheck: generate proof and linear constraints.
+        let ProverResult {
+            proof: sumcheck_proof,
+            linear_constraints,
+        } = self
             .sumcheck_prover
-            .prove(&evaluation, &mut transcript, &witness)?
-            .proof;
-
-        // Sumcheck, second time through: produce linear constraints.
-        let linear_constraints = LinearConstraints::from_proof(
-            circuit,
-            evaluation.public_inputs(circuit.num_public_inputs()),
-            &mut constraint_transcript,
-            &sumcheck_proof,
-        )?;
+            .prove(&evaluation, &mut transcript, &witness)?;
 
         // Generate Ligero proof.
         let ligero_proof = ligero_prove(

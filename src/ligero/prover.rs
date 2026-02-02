@@ -22,8 +22,8 @@ use std::io::{self, Write};
 const MAX_RUN_LENGTH: usize = 1 << 25;
 
 /// Prove that the commitment satisfies the provided constraints. The provided transcript should
-/// have been used in [`LinearConstraints::from_proof`] (or, equivalently,
-/// [`crate::sumcheck::prover::SumcheckProver::prove`]).
+/// have been used in [`crate::sumcheck::prover::SumcheckProtocol::prove`] (or, equivalently,
+/// [`crate::sumcheck::prover::SumcheckProtocol::linear_constraints`]).
 ///
 /// This is specified in [4.4][1].
 ///
@@ -398,7 +398,7 @@ mod tests {
         constraints::proof_constraints::quadratic_constraints,
         fields::{field2_128::Field2_128, fieldp128::FieldP128},
         ligero::LigeroCommitment,
-        sumcheck::initialize_transcript,
+        sumcheck::{initialize_transcript, prover::SumcheckProtocol},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::{Transcript, TranscriptMode},
         witness::{Witness, WitnessLayout},
@@ -445,13 +445,13 @@ mod tests {
         )
         .unwrap();
 
-        let linear_constraints = LinearConstraints::from_proof(
-            &circuit,
-            evaluation.public_inputs(circuit.num_public_inputs()),
-            &mut transcript,
-            &test_vector.sumcheck_proof(&circuit),
-        )
-        .unwrap();
+        let linear_constraints = SumcheckProtocol::new(&circuit)
+            .linear_constraints(
+                evaluation.public_inputs(circuit.num_public_inputs()),
+                &mut transcript,
+                &test_vector.sumcheck_proof(&circuit),
+            )
+            .unwrap();
 
         let ligero_proof = ligero_prove(
             &mut transcript,

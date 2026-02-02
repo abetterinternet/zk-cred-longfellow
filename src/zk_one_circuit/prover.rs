@@ -76,7 +76,7 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
             evaluation.public_inputs(circuit.num_public_inputs()),
         )?;
 
-        // Sumcheck, first time through: generate proof.
+        // Sumcheck: generate proof and linear constraints.
         let ProverResult {
             proof: sumcheck_proof,
             linear_constraints,

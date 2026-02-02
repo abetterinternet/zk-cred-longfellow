@@ -42,7 +42,7 @@ enum ProtocolRole<'a, FieldElement> {
     /// prover and wants to compute the linear constraints.
     Verifier {
         public_inputs: &'a [FieldElement],
-        sumcheck_proof: &'a SumcheckProof<FieldElement>,
+        proof: &'a SumcheckProof<FieldElement>,
     },
 }
 
@@ -140,13 +140,13 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
         &self,
         public_inputs: &[FE],
         transcript: &mut Transcript,
-        sumcheck_proof: &SumcheckProof<FE>,
+        proof: &SumcheckProof<FE>,
     ) -> Result<LinearConstraints<FE>, anyhow::Error> {
         let (constraints, proof) = self.run_protocol(
             transcript,
             ProtocolRole::Verifier {
                 public_inputs,
-                sumcheck_proof,
+                proof,
             },
         )?;
         debug_assert!(
@@ -337,8 +337,8 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
 
                             poly_evaluation
                         }
-                        ProtocolRole::Verifier { sumcheck_proof, .. } => {
-                            sumcheck_proof.layers[layer_index].polynomials[round][hand as usize]
+                        ProtocolRole::Verifier { proof, .. } => {
+                            proof.layers[layer_index].polynomials[round][hand as usize]
                         }
                     };
 
@@ -431,9 +431,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
 
                     &proof.layers[layer_index]
                 }
-                ProtocolRole::Verifier { sumcheck_proof, .. } => {
-                    &sumcheck_proof.layers[layer_index]
-                }
+                ProtocolRole::Verifier { proof, .. } => &proof.layers[layer_index],
             };
 
             let bound_element = quad.contents()[0].coefficient;

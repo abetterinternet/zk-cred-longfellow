@@ -174,13 +174,33 @@ fn make_router(
     assets_dir.push("xtask");
     assets_dir.push("assets");
 
+    // Set cross origin headers in order to get cross-origin isolation, which should improve our
+    // timer resolution.
+    let cross_origin_layers = (
+        SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("cross-origin-opener-policy"),
+            HeaderValue::from_static("same-origin"),
+        ),
+        SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("cross-origin-embedder-policy"),
+            HeaderValue::from_static("require-corp"),
+        ),
+        SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("cross-origin-resource-policy"),
+            HeaderValue::from_static("same-site"),
+        ),
+    );
+
     let wasm_file_service = ServiceBuilder::new()
         .layer(SetResponseHeaderLayer::overriding(
             HeaderName::from_static("cache-control"),
             HeaderValue::from_static("no-cache"),
         ))
+        .layer(cross_origin_layers.clone())
         .service(ServeFile::new_with_mime(binary_path, &wasm_mime));
-    let assets_service = ServeDir::new(assets_dir);
+    let assets_service = ServiceBuilder::new()
+        .layer(cross_origin_layers)
+        .service(ServeDir::new(assets_dir));
 
     let router = Router::new()
         .nest_service("/executable.wasm", wasm_file_service)

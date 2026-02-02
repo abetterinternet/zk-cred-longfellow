@@ -25,6 +25,13 @@ pub trait DenseSumcheckArray<FieldElement>: Sized {
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
     fn bind(&mut self, binding: FieldElement);
+
+    /// Compute only the `index`-th element of this array bound to `binding`.
+    fn bound_element_at(&self, binding: FieldElement, index: usize) -> FieldElement;
+
+    /// Bind an array of field elements to a single field element, writing the bound array to
+    /// `into`.
+    fn bind_into(&self, binding: FieldElement, into: &mut Vec<FieldElement>);
 }
 
 impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
@@ -38,17 +45,30 @@ impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
             "binding over a vector that's already reduced to a single element"
         );
 
-        // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
-        // Or, with one less multiplication:
-        //  = A[2 * i] + x * (A[2 * i + 1] - A[2 * i])
         // The back half of B[i] will always be zero so we can skip computing those elements
         let new_len = self.len().div_ceil(2);
         for index in 0..new_len {
-            self[index] = self.element(2 * index)
-                + binding * (self.element(2 * index + 1) - self.element(2 * index));
+            self[index] = self.bound_element_at(binding, index);
         }
 
         self.truncate(new_len);
+    }
+
+    fn bound_element_at(&self, binding: FE, index: usize) -> FE {
+        // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+        // Or, with one less multiplication:
+        //   = A[2 * i] + x * (A[2 * i + 1] - A[2 * i])
+        self.element(2 * index) + binding * (self.element(2 * index + 1) - self.element(2 * index))
+    }
+
+    fn bind_into(&self, binding: FE, into: &mut Vec<FE>) {
+        into.truncate(0);
+
+        // The back half of B[i] will always be zero so we can skip computing those elements
+        let new_len = self.len().div_ceil(2);
+        for index in 0..new_len {
+            into.push(self.bound_element_at(binding, index));
+        }
     }
 }
 

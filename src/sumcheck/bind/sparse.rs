@@ -184,7 +184,7 @@ pub enum Hand {
 
 impl Hand {
     /// Return the hand opposite to `self`.
-    fn opposite(&self) -> Self {
+    pub(crate) fn opposite(&self) -> Self {
         match self {
             Hand::Left => Hand::Right,
             Hand::Right => Hand::Left,
@@ -214,11 +214,6 @@ impl<'a, FE: FieldElement> SparseQuadElement<FE> {
         opposite_hand_wire: usize,
         coefficient: FE,
     ) -> Self {
-        debug_assert_ne!(
-            coefficient,
-            FE::ZERO,
-            "sparse array should not contain elements with zero coefficient",
-        );
         let (left_wire_index, right_wire_index) = match hand {
             Hand::Left => (hand_wire, opposite_hand_wire),
             Hand::Right => (opposite_hand_wire, hand_wire),
@@ -232,7 +227,7 @@ impl<'a, FE: FieldElement> SparseQuadElement<FE> {
     }
 
     /// Returns the wire index on the given hand.
-    fn hand_wire(&self, hand: Hand) -> usize {
+    pub(crate) fn hand_wire(&self, hand: Hand) -> usize {
         match hand {
             Hand::Left => self.left_wire_index,
             Hand::Right => self.right_wire_index,
@@ -404,59 +399,20 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
     /// This can only be used once the `gate_index` dimension has been bound down to a single
     /// element. That is, `gate_index == 0` for all elements in the array.
     pub fn bind_hand(&mut self, hand: Hand, binding: FE) {
-        // Walk the elements of the array and work out what bound elements they contribute to. See
-        // the module level comment for discussion of this strategy.
-        //
+        let mut write = 0;
+        let mut bound_iterator = BindHandGenerator {
+            read: 0,
+            hand,
+            binding,
+        };
+
         // We bind in place. If we are visiting element 2i or 2i+1 of the array in the dimension
         // indicated by hand, then we've already visited anything that might contribute to elements
         // j < i of the bound array and thus it's safe to overwrite anything between j and 2i.
-        let mut write = 0;
-        let mut read = 0;
-        while read < self.contents.len() {
-            let curr = self.contents[read];
-            let next = self.contents.get(read + 1);
-            assert_eq!(
-                curr.gate_index, 0,
-                "sparse array should have been bound down to 2D before binding a hand",
-            );
-
-            // If element 2i+1 is in the array, it will be immediately after element 2i. See the
-            // module level doccomment for an explanation of how we sort the sparse array to impose
-            // this invariant.
-            read += 1;
-            let (coeff_2i, coeff_2i_plus_1) = if curr.hand_wire(hand).is_multiple_of(2) {
-                // curr is 2i
-                (
-                    curr.coefficient,
-                    if let Some(next) = curr.is_next_wire(hand, next) {
-                        // next is 2i+1. Advance read index again.
-                        assert_eq!(
-                            next.gate_index, 0,
-                            "sparse array should have been bound down to 2D before binding a hand",
-                        );
-                        read += 1;
-                        next.coefficient
-                    } else {
-                        // sparse array does not contain 2i+1
-                        FE::ZERO
-                    },
-                )
-            } else {
-                // curr is 2i+1, sparse array does not contain 2i
-                (FE::ZERO, curr.coefficient)
-            };
-
+        while let Some(bound_element) = bound_iterator.next(self.contents()) {
             // Don't bother writing elements with zero coefficient
-            let coefficient = (FE::ONE - binding) * coeff_2i + binding * coeff_2i_plus_1;
-            if coefficient != FE::ZERO {
-                self.contents[write] = SparseQuadElement::new(
-                    0,
-                    hand,
-                    // 2i-th or 2i+1-th element contributes to the i-th bound element
-                    curr.hand_wire(hand) >> 1,
-                    curr.hand_wire(hand.opposite()),
-                    coefficient,
-                );
+            if bound_element.coefficient != FE::ZERO {
+                self.contents[write] = bound_element;
                 write += 1;
             }
         }
@@ -465,6 +421,38 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
         // array we didn't overwrite.
         self.contents.truncate(write);
     }
+
+    /// Similar to [`Self::bind_hand`], but returns an iterator over the values of the bound array
+    /// without
+    pub fn bind_hand_iter(
+        &self,
+        hand: Hand,
+        binding: FE,
+    ) -> impl Iterator<Item = SparseQuadElement<FE>> {
+        struct BindHandIterator<'a, FE> {
+            inner: BindHandGenerator<FE>,
+            unbound_array: &'a [SparseQuadElement<FE>],
+        }
+
+        impl<'a, FE: FieldElement> Iterator for BindHandIterator<'a, FE> {
+            type Item = SparseQuadElement<FE>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.inner.next(self.unbound_array)
+            }
+        }
+
+        BindHandIterator {
+            inner: BindHandGenerator {
+                read: 0,
+                hand,
+                binding,
+            },
+            unbound_array: self.contents(),
+        }
+    }
+
+    // fn bind_hand_iter(&mut self, hand: Hand, binding: FE) -> BoundIterator<FE> {}
 
     /// Treating self as the combined quad for a sumcheck layer, compute the bound quad:
     /// `Q = bindv(QZ, G[0]) + alpha * bindv(QZ, G[1])`.
@@ -528,6 +516,83 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
         }
 
         self.contents.truncate(write);
+    }
+}
+
+/// Lazily evaluate the results of `SparseSumcheckArray::bind_hand`.
+struct BindHandGenerator<FE> {
+    read: usize,
+    hand: Hand,
+    binding: FE,
+}
+
+impl<FE: FieldElement> BindHandGenerator<FE> {
+    /// Evaluate the next element of the bound array.
+    ///
+    /// This is a lot like `std::iter::Iterator::next`, but the difference is that the unbound array
+    /// being iterated over gets passed into every call. This means that the immutable borrow only
+    /// lasts as long as the call to this method, allowing the caller to then mutably borrow that
+    /// same slice and assign into it. This is necessary for `SparseSumcheckArray::bind_hand` to
+    /// bind in-place.
+    fn next(&mut self, unbound_array: &[SparseQuadElement<FE>]) -> Option<SparseQuadElement<FE>> {
+        // We've reached the end of the unbound array: nothing left to yield.
+        if self.read == unbound_array.len() {
+            return None;
+        }
+        assert!(
+            self.read < unbound_array.len(),
+            "read index exceeds unbound array length",
+        );
+
+        // Element i of the bound array is made up of elements 2i and 2i+1 of the unbound array.
+        // Either may be zero. See the module level comment for discussion of this strategy and
+        // adjacency of elements.
+        let curr = unbound_array[self.read];
+        assert_eq!(
+            curr.gate_index, 0,
+            "sparse array should have been bound down to 2D before binding a hand",
+        );
+        let next = unbound_array.get(self.read + 1);
+
+        // If element 2i+1 is in the array, it will be immediately after element 2i. See the
+        // module level doccomment for an explanation of how we sort the sparse array to impose
+        // this invariant.
+        self.read += 1;
+        let (coeff_2i, coeff_2i_plus_1) = if curr.hand_wire(self.hand).is_multiple_of(2) {
+            // curr is 2i
+            (
+                curr.coefficient,
+                if let Some(next) = curr.is_next_wire(self.hand, next) {
+                    // next is 2i+1. Advance read index again.
+                    assert_eq!(
+                        next.gate_index, 0,
+                        "sparse array should have been bound down to 2D before binding a hand",
+                    );
+                    self.read += 1;
+                    next.coefficient
+                } else {
+                    // sparse array does not contain 2i+1
+                    FE::ZERO
+                },
+            )
+        } else {
+            // curr is 2i+1, sparse array does not contain 2i
+            (FE::ZERO, curr.coefficient)
+        };
+
+        // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+        // Or, with one less multiplication:
+        //   = A[2 * i] + x * (A[2 * i + 1] - A[2 * i])
+        let coefficient = coeff_2i + self.binding * (coeff_2i_plus_1 - coeff_2i);
+
+        Some(SparseQuadElement::new(
+            0,
+            self.hand,
+            // 2i-th or 2i+1-th element contributes to the i-th bound element
+            curr.hand_wire(self.hand) >> 1,
+            curr.hand_wire(self.hand.opposite()),
+            coefficient,
+        ))
     }
 }
 

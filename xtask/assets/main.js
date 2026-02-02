@@ -1,21 +1,35 @@
+function clearChildren(node) {
+    while (node.firstChild) {
+        node.removeChild(node.firstChild);
+    }
+}
+
 function start() {
     let ptyDecoder = new TextDecoder();
     let ptyOutput = "";
 
     let outputPre = document.getElementById("output");
-    while (outputPre.firstChild) {
-        outputPre.removeChild(outputPre.firstChild);
-    }
+    clearChildren(outputPre);
     let outputText = document.createTextNode("");
     outputPre.appendChild(outputText);
+
+    let progressSpan = document.getElementById("progress");
+    clearChildren(progressSpan);
+    let progressText = document.createTextNode("");
+    progressSpan.appendChild(progressText);
 
     const worker = new Worker("worker.js");
     worker.addEventListener("message", (event) => {
         if (event.data.kind === "error") {
             console.error("worker error message", event.data.message);
+            progressText.textContent = "Error";
+            progressSpan.style.color = "red";
         } else if (event.data.kind === "pty_write") {
             ptyOutput += ptyDecoder.decode(event.data.buffer, {stream: true});
             outputText.textContent = ptyOutput;
+        } else if (event.data.kind === "done") {
+            progressText.textContent = "Complete";
+            progressSpan.style.color = "green";
         } else {
             console.error("unexpected event kind", event.data.kind);
         }
@@ -25,7 +39,10 @@ function start() {
     });
     worker.addEventListener("messageerror", (_event) => {
         console.error("worker message could not be deserialized");
-    })
+    });
+
+    progressText.textContent = "Running";
+    progressSpan.style.color = "orange";
 }
 
 document.addEventListener("DOMContentLoaded", (_event) => {

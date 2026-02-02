@@ -1043,6 +1043,8 @@ WebAssembly.instantiateStreaming(fetch("executable.wasm"), imports).then(
         exports = instance.exports;
 
         instance.exports["_start"].apply(null, []);
+
+        globalThis.postMessage({"kind": "done"});
     }
 ).catch(
     (error) => {

@@ -194,7 +194,7 @@ fn make_router(
     let wasm_file_service = ServiceBuilder::new()
         .layer(SetResponseHeaderLayer::overriding(
             HeaderName::from_static("cache-control"),
-            HeaderValue::from_static("no-cache"),
+            HeaderValue::from_static("no-store"),
         ))
         .layer(cross_origin_layers.clone())
         .service(ServeFile::new_with_mime(binary_path, &wasm_mime));

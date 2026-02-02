@@ -134,6 +134,14 @@ const rights = {
     "sock_accept": 1n << 29n,
 };
 
+// The $oflags WITX flags defined in WASI preview 1.
+const oflags = {
+    "creat": 1,
+    "directory": 2,
+    "excl": 4,
+    "trunc": 8,
+};
+
 class FdStat {
     constructor(fileType, flags, rightsBase, rightsInheriting) {
         this.fileType = fileType;
@@ -150,13 +158,53 @@ class FdStat {
     }
 }
 
-// A virtual file representing stdout or stderr.
-class OutputPipe {
+class FileDescriptor {
+    constructor(file, fdFlags) {
+        this.file = file;
+        this.fdFlags = fdFlags;
+        this.position = 0;
+    }
+
     stat() {
-        return new FdStat(filetype.regular_file, 0, rights.fd_write, 0n);
+        return new FdStat(
+            this.file.fileType(),
+            this.fdFlags,
+            rights.fd_read | rights.fd_write,
+            rights.fd_read | rights.fd_write
+        )
     }
 
     writev(ptrIovecArray, lengthIovecArray) {
+        let [status, size] = this.file.writev(this.position, ptrIovecArray, lengthIovecArray);
+        this.position += size;
+        return [status, size];
+    }
+
+    readv(ptrIovecArray, lengthIovecArray) {
+        let [status, size] = this.file.readv(this.position, ptrIovecArray, lengthIovecArray);
+        this.position += size;
+        return [status, size];
+    }
+}
+
+let nextInode = 0n;
+
+// A virtual file representing stdout or stderr.
+class OutputPipe {
+    constructor() {
+        this.inode = nextInode;
+        nextInode++;
+    }
+
+    fileType() {
+        return filetype.regular_file;
+    }
+
+    rights() {
+        return rights.fd_write;
+    }
+
+    writev(_position, ptrIovecArray, lengthIovecArray) {
         let bufferSize = 0;
         for (let i = 0; i < lengthIovecArray; i++) {
             let bufLen = getMemoryDataView().getUint32(ptrIovecArray + i * 8 + 4, true);
@@ -195,14 +243,26 @@ class OutputPipe {
 }
 
 class VirtualDirectory {
-    constructor(isPreopened, name) {
+    constructor(isPreopened, preopenedName) {
         this.isPreopened = isPreopened;
-        this.name = name;
-        this.nameBuffer = new TextEncoder().encode(name);
+        this.name = preopenedName;
+        if (typeof preopenedName === "string") {
+            this.nameBuffer = new TextEncoder().encode(preopenedName);
+        } else {
+            this.nameBuffer = null;
+        }
+        this.children = new Map();
+
+        this.inode = nextInode;
+        nextInode++;
+}
+
+    fileType() {
+        return filetype.directory;
     }
 
-    stat() {
-        throw Error("VirtualDirectory.stat() not implemented");
+    rights() {
+        return rights.fd_readdir | rights.path_create_directory;
     }
 
     writev() {
@@ -223,21 +283,106 @@ class VirtualDirectory {
     }
 }
 
+class VirtualFile {
+    constructor() {
+        this.truncate();
+
+        this.inode = nextInode;
+        nextInode++;
+    }
+
+    truncate() {
+        this.contents = new ArrayBuffer(0, { maxByteLength: 1 << 30 });
+    }
+
+    fileType() {
+        return filetype.regular_file;
+    }
+
+    rights() {
+        return rights.fd_read | rights.fd_write;
+    }
+
+    writev(position, ptrIovecArray, lengthIovecArray) {
+        let totalSize = 0;
+        for (let i = 0; i < lengthIovecArray; i++) {
+            let bufLen = getMemoryDataView().getUint32(ptrIovecArray + i * 8 + 4, true);
+            totalSize += bufLen;
+        }
+
+        let finalPosition = position + totalSize;
+        if (finalPosition > this.contents.byteLength) {
+            this.contents.resize(finalPosition);
+        }
+
+        let size = 0;
+        let contentsArray = new Uint8Array(this.contents);
+        for (let i = 0; i < lengthIovecArray; i++) {
+            let buf = getMemoryDataView().getUint32(ptrIovecArray + i * 8, true);
+            let bufLen = getMemoryDataView().getUint32(ptrIovecArray + i * 8 + 4, true);
+            contentsArray.set(getMemoryByteArray().subarray(buf, buf + bufLen), position);
+            position += bufLen;
+            size += bufLen;
+        }
+        return [errno.success, size];
+    }
+
+    readv(position, ptrIovecArray, lengthIovecArray) {
+        let size = 0;
+        let contentsArray = new Uint8Array(this.contents);
+        for (let i = 0; i < lengthIovecArray; i++) {
+            let buf = getMemoryDataView().getUint32(ptrIovecArray + i * 8, true);
+            let bufLen = getMemoryDataView().getUint32(ptrIovecArray + i * 8 + 4, true);
+            let count = Math.min(bufLen, contentsArray.length - position);
+            getMemoryByteArray().set(contentsArray.subarray(position, position + count), buf);
+            position += count;
+            size += count;
+            if (position === contentsArray.length) {
+                break;
+            }
+        }
+        return [errno.success, size];
+    }
+
+    prestat() {
+        return [false, false, new Uint8Array()];
+    }
+}
+
 class FdTable {
     constructor() {
         this.map = new Map();
+        this.nextFd = 0;
     }
 
     get(fd) {
         return this.map.get(fd);
     }
+
+    set(fd, file, fdFlags) {
+        if (!fdFlags) {
+            fdFlags = 0;
+        }
+        this.map.set(fd, new FileDescriptor(file, fdFlags));
+    }
+
+    add(file, fdFlags) {
+        if (!fdFlags) {
+            fdFlags = 0;
+        }
+        const fd = this.nextFd;
+        this.nextFd++;
+        this.map.set(fd, new FileDescriptor(file, fdFlags));
+        return fd;
+    }
 }
 
 const fdTable = new FdTable();
-fdTable.map.set(1, new OutputPipe());
-fdTable.map.set(2, new OutputPipe());
+fdTable.set(1, new OutputPipe());
+fdTable.set(2, new OutputPipe());
 const rootDirectory = new VirtualDirectory(true, ".");
-fdTable.map.set(3, rootDirectory);
+fdTable.set(3, rootDirectory);
+fdTable.nextFd = 4;
 
 class SerializedArgs {
     constructor(args) {
@@ -266,6 +411,33 @@ class SerializedArgs {
 }
 
 const args = new SerializedArgs(["a.out", "--bench"]);
+
+// Helper function to write a filestat structure.
+//
+// This is used in the implementation of fd_filestat_get and path_filestat_get.
+function writeFilestat(file, ptrFilestat) {
+    let fileSize = 0n;
+    if (file instanceof VirtualFile) {
+        fileSize = BigInt(file.contents.byteLength);
+    }
+
+    // Device ID
+    getMemoryDataView().setBigUint64(ptrFilestat, 0n, true);
+    // File inode
+    getMemoryDataView().setBigUint64(ptrFilestat + 8, file.inode, true);
+    // File type
+    getMemoryDataView().setUint8(ptrFilestat + 16, file.fileType());
+    // Number of hard links
+    getMemoryDataView().setBigUint64(ptrFilestat + 24, 0n, true);
+    // File size
+    getMemoryDataView().setBigUint64(ptrFilestat + 32, fileSize, true);
+    // Access time
+    getMemoryDataView().setBigUint64(ptrFilestat + 40, 0n, true);
+    // Modification time
+    getMemoryDataView().setBigUint64(ptrFilestat + 48, 0n, true);
+    // Status change time
+    getMemoryDataView().setBigUint64(ptrFilestat + 56, 0n, true);
+}
 
 // ;;; Return command-line argument data sizes.
 // (@interface func (export "args_sizes_get")
@@ -382,8 +554,14 @@ function clock_time_get(clockId, _precision, ptrTimestamp) {
 // )
 //
 // WASM function type: (func (param i32 i32 i32 i32) (result i32))
-function fd_read() {
-    throw new Error("fd_read not implemented");
+function fd_read(fd, ptrIovecArray, lengthIovecArray, ptrSize) {
+    let fileDescriptor = fdTable.get(fd);
+    if (fileDescriptor === undefined) {
+        return errno.badf;
+    }
+    let [status, size] = fileDescriptor.readv(ptrIovecArray, lengthIovecArray);
+    getMemoryDataView().setUint32(ptrSize, size, true);
+    return status;
 }
 
 // ;;; Write to a file descriptor.
@@ -415,11 +593,11 @@ function fd_read() {
 //
 // WASM function type: (func (param i32 i32 i32 i32) (result i32))
 function fd_write(fd, ptrIovecArray, lengthIovecArray, ptrSize) {
-    let file = fdTable.get(fd);
-    if (file === undefined) {
+    let fileDescriptor = fdTable.get(fd);
+    if (fileDescriptor === undefined) {
         return errno.badf;
     }
-    let [status, size] = file.writev(ptrIovecArray, lengthIovecArray);
+    let [status, size] = fileDescriptor.writev(ptrIovecArray, lengthIovecArray);
     getMemoryDataView().setUint32(ptrSize, size, true);
     return status;
 }
@@ -432,8 +610,15 @@ function fd_write(fd, ptrIovecArray, lengthIovecArray, ptrSize) {
 // )
 //
 // WASM function type: (func (param i32 i32) (result i32))
-function fd_filestat_get() {
-    throw new Error("fd_filestat_get not implemented");
+function fd_filestat_get(fd, ptrFilestat) {
+    let fileDescriptor = fdTable.get(fd);
+    if (fileDescriptor === undefined) {
+        return errno.badf;
+    }
+
+    writeFilestat(fileDescriptor.file, ptrFilestat);
+
+    return errno.success;
 }
 
 // ;;; Create a directory.
@@ -447,7 +632,29 @@ function fd_filestat_get() {
 //
 // WASM function type: (func (param i32 i32 i32) (result i32))
 function path_create_directory(fd, ptrPath, lengthPath) {
-    throw new Error("path_create_directory not implemented");
+    let fileDescriptor = fdTable.get(fd);
+    if (fileDescriptor === undefined) {
+        return errno.badf;
+    }
+
+    let slice = getMemoryByteArray().subarray(ptrPath, ptrPath + lengthPath);
+    let decoder = new TextDecoder();
+    let path = decoder.decode(slice);
+
+    let file = fileDescriptor.file;
+    for (let segment of path.split("/")) {
+        if (file.fileType() !== filetype.directory) {
+            return errno.badf;
+        }
+        if (file.children.has(segment)) {
+            file = file.children.get(segment);
+        } else {
+            let newDirectory = new VirtualDirectory(false, null);
+            file.children.set(segment, newDirectory);
+            file = newDirectory;
+        }
+    }
+    return errno.success;
 }
 
 // ;;; Return the attributes of a file or directory.
@@ -463,8 +670,32 @@ function path_create_directory(fd, ptrPath, lengthPath) {
 // )
 //
 // WASM function type: (func (param i32 i32 i32 i32 i32) (result i32))
-function path_filestat_get() {
-    throw new Error("path_filestat_get not implemented");
+function path_filestat_get(fd, _lookupFlags, ptrPath, lengthPath, ptrFilestat) {
+    let fileDescriptor = fdTable.get(fd);
+    if (fileDescriptor === undefined) {
+        return errno.badf;
+    }
+
+    let slice = getMemoryByteArray().subarray(ptrPath, ptrPath + lengthPath);
+    let decoder = new TextDecoder();
+    let path = decoder.decode(slice);
+
+    let file = fileDescriptor.file;
+    let segments = path.split("/");
+    for (let segment of segments) {
+        if (file.fileType() !== filetype.directory) {
+            return errno.badf;
+        }
+        if (file.children.has(segment)) {
+            file = file.children.get(segment);
+        } else {
+            return errno.noent;
+        }
+    }
+
+    writeFilestat(file, ptrFilestat);
+
+    return errno.success;
 }
 
 // ;;; Open a file or directory.
@@ -501,8 +732,77 @@ function path_filestat_get() {
 // )
 //
 // WASM function type: (func (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32))
-function path_open() {
-    throw new Error("path_open not implemented");
+function path_open(
+    fd,
+    _lookupFlags,
+    ptrPath,
+    lengthPath,
+    openFlags,
+    _rightsBase,
+    _rightsInheriting,
+    fdFlags,
+    ptrFdOut
+) {
+    let fileDescriptor = fdTable.get(fd);
+    if (fileDescriptor === undefined) {
+        return errno.badf;
+    }
+
+    if (fdFlags !== 0) {
+        console.error("unsupported fdflags:", fdFlags);
+        return errno.acces;
+    }
+
+    let slice = getMemoryByteArray().subarray(ptrPath, ptrPath + lengthPath);
+    let decoder = new TextDecoder();
+    let path = decoder.decode(slice);
+
+    let segments = path.split("/");
+    let file = fileDescriptor.file;
+    for (let i = 0; i < segments.length - 1; i++) {
+        if (file.fileType() !== filetype.directory) {
+            return errno.badf;
+        }
+        if (file.children.has(segments[i])) {
+            file = file.children.get(segments[i]);
+        } else {
+            return errno.noent;
+        }
+    }
+
+    if (file.fileType() !== filetype.directory) {
+        return errno.badf;
+    }
+
+    let lastSegment = segments[segments.length - 1];
+    let newFd;
+    if (file.children.has(lastSegment)) {
+        if ((openFlags & oflags.excl) !== 0) {
+            return errno.exist;
+        }
+        let existingFile = file.children.get(lastSegment);
+        if ((openFlags & oflags.directory) !== 0 && !(file instanceof VirtualDirectory)) {
+            return errno.notdir;
+        }
+        if ((openFlags & oflags.trunc) !== 0) {
+            if (!(existingFile instanceof VirtualFile)) {
+                console.error(`tried to truncate ${path} which is ${existingFile}`, existingFile);
+                return errno.acces;
+            }
+            existingFile.truncate();
+        }
+        newFd = fdTable.add(existingFile);
+    } else {
+        if ((openFlags & oflags.creat) === 0) {
+            return errno.noent;
+        }
+        let newFile = new VirtualFile();
+        file.children.set(lastSegment, newFile);
+        newFd = fdTable.add(newFile);
+    }
+
+    getMemoryDataView().setUint32(ptrFdOut, newFd, true);
+    return errno.success;
 }
 
 // ;;; Read directory entries from a directory.
@@ -572,8 +872,13 @@ function environ_sizes_get(ptrNumVars, ptrDataSize) {
 // )
 //
 // WASM function type: (func (param i32) (result i32))
-function fd_close() {
-    throw new Error("fd_close not implemented");
+function fd_close(fd) {
+    let fileDescriptor = fdTable.get(fd);
+    if (fileDescriptor === undefined) {
+        return errno.badf;
+    }
+    // Leave the file descriptor in the table anyway.
+    return errno.success;
 }
 
 // ;;; Get the attributes of a file descriptor.
@@ -603,11 +908,11 @@ function fd_close() {
 //
 // WASM function type: (func (param i32 i32) (result i32))
 function fd_fdstat_get(fd, ptrStat) {
-    let file = fdTable.get(fd);
-    if (file === undefined) {
+    let fileDescriptor = fdTable.get(fd);
+    if (fileDescriptor === undefined) {
         return errno.badf;
     }
-    file.stat().write(ptrStat);
+    fileDescriptor.stat().write(ptrStat);
     return errno.success;
 }
 
@@ -634,11 +939,11 @@ function fd_fdstat_get(fd, ptrStat) {
 //
 // WASM function type: (func (param i32 i32) (result i32))
 function fd_prestat_get(fd, ptrPrestat) {
-    let file = fdTable.get(fd);
-    if (file === undefined) {
+    let fileDescriptor = fdTable.get(fd);
+    if (fileDescriptor === undefined) {
         return errno.badf;
     }
-    let [isPreopened, isPreopenedDir, name] = file.prestat();
+    let [isPreopened, isPreopenedDir, name] = fileDescriptor.file.prestat();
     if (!isPreopened) {
         return errno.badf;
     }
@@ -661,11 +966,11 @@ function fd_prestat_get(fd, ptrPrestat) {
 //
 // WASM function type: (func (param i32 i32 i32) (result i32))
 function fd_prestat_dir_name(fd, ptrPath, lengthPath) {
-    let file = fdTable.get(fd);
-    if (file === undefined) {
+    let fileDescriptor = fdTable.get(fd);
+    if (fileDescriptor === undefined) {
         return errno.badf;
     }
-    let [isPreopened, isPreopenedDir, name] = file.prestat();
+    let [isPreopened, isPreopenedDir, name] = fileDescriptor.file.prestat();
     if (!isPreopened) {
         return errno.badf;
     }

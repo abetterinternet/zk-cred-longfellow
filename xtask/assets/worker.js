@@ -384,13 +384,6 @@ class FdTable {
 
 const fileSystem = new FileSystem();
 
-const fdTable = new FdTable();
-fdTable.set(1, new OutputPipe(fileSystem));
-fdTable.set(2, new OutputPipe(fileSystem));
-const rootDirectory = new VirtualDirectory(true, ".", fileSystem);
-fdTable.set(3, rootDirectory);
-fdTable.nextFd = 4;
-
 class SerializedArgs {
     constructor(args) {
         this.offsets = new Array(args.length);
@@ -417,7 +410,19 @@ class SerializedArgs {
     }
 }
 
-const args = new SerializedArgs(["a.out", "--bench"]);
+class Process {
+    constructor(args) {
+        this.serializedArgs = new SerializedArgs(args);
+        this.fdTable = new FdTable();
+    }
+}
+
+const process = new Process(["a.out", "--bench"]);
+process.fdTable.set(1, new OutputPipe(fileSystem));
+process.fdTable.set(2, new OutputPipe(fileSystem));
+const rootDirectory = new VirtualDirectory(true, ".", fileSystem);
+process.fdTable.set(3, rootDirectory);
+process.fdTable.nextFd = 4;
 
 // Helper function to write a filestat structure.
 //
@@ -457,8 +462,8 @@ function writeFilestat(file, ptrFilestat) {
 //
 // WASM function type: (func (param i32 i32) (result i32))
 function args_sizes_get(ptrNumArgs, ptrDataSize) {
-    getMemoryDataView().setUint32(ptrNumArgs, args.offsets.length, true);
-    getMemoryDataView().setUint32(ptrDataSize, args.buffer.byteLength, true);
+    getMemoryDataView().setUint32(ptrNumArgs, process.serializedArgs.offsets.length, true);
+    getMemoryDataView().setUint32(ptrDataSize, process.serializedArgs.buffer.byteLength, true);
     return errno.success;
 }
 
@@ -480,14 +485,14 @@ function args_sizes_get(ptrNumArgs, ptrDataSize) {
 //
 // WASM function type: (func (param i32 i32) (result i32))
 function args_get(ptrArgv, ptrArgvBuf) {
-    for (let i = 0; i < args.offsets.length; i++) {
+    for (let i = 0; i < process.serializedArgs.offsets.length; i++) {
         getMemoryDataView().setUint32(
             ptrArgv + i * 4,
-            ptrArgvBuf + args.offsets[i],
+            ptrArgvBuf + process.serializedArgs.offsets[i],
             true
         );
     }
-    getMemoryByteArray().set(new Uint8Array(args.buffer), ptrArgvBuf);
+    getMemoryByteArray().set(new Uint8Array(process.serializedArgs.buffer), ptrArgvBuf);
     return errno.success;
 }
 
@@ -562,7 +567,7 @@ function clock_time_get(clockId, _precision, ptrTimestamp) {
 //
 // WASM function type: (func (param i32 i32 i32 i32) (result i32))
 function fd_read(fd, ptrIovecArray, lengthIovecArray, ptrSize) {
-    let fileDescriptor = fdTable.get(fd);
+    let fileDescriptor = process.fdTable.get(fd);
     if (fileDescriptor === undefined) {
         return errno.badf;
     }
@@ -600,7 +605,7 @@ function fd_read(fd, ptrIovecArray, lengthIovecArray, ptrSize) {
 //
 // WASM function type: (func (param i32 i32 i32 i32) (result i32))
 function fd_write(fd, ptrIovecArray, lengthIovecArray, ptrSize) {
-    let fileDescriptor = fdTable.get(fd);
+    let fileDescriptor = process.fdTable.get(fd);
     if (fileDescriptor === undefined) {
         return errno.badf;
     }
@@ -618,7 +623,7 @@ function fd_write(fd, ptrIovecArray, lengthIovecArray, ptrSize) {
 //
 // WASM function type: (func (param i32 i32) (result i32))
 function fd_filestat_get(fd, ptrFilestat) {
-    let fileDescriptor = fdTable.get(fd);
+    let fileDescriptor = process.fdTable.get(fd);
     if (fileDescriptor === undefined) {
         return errno.badf;
     }
@@ -639,7 +644,7 @@ function fd_filestat_get(fd, ptrFilestat) {
 //
 // WASM function type: (func (param i32 i32 i32) (result i32))
 function path_create_directory(fd, ptrPath, lengthPath) {
-    let fileDescriptor = fdTable.get(fd);
+    let fileDescriptor = process.fdTable.get(fd);
     if (fileDescriptor === undefined) {
         return errno.badf;
     }
@@ -678,7 +683,7 @@ function path_create_directory(fd, ptrPath, lengthPath) {
 //
 // WASM function type: (func (param i32 i32 i32 i32 i32) (result i32))
 function path_filestat_get(fd, _lookupFlags, ptrPath, lengthPath, ptrFilestat) {
-    let fileDescriptor = fdTable.get(fd);
+    let fileDescriptor = process.fdTable.get(fd);
     if (fileDescriptor === undefined) {
         return errno.badf;
     }
@@ -750,7 +755,7 @@ function path_open(
     fdFlags,
     ptrFdOut
 ) {
-    let fileDescriptor = fdTable.get(fd);
+    let fileDescriptor = process.fdTable.get(fd);
     if (fileDescriptor === undefined) {
         return errno.badf;
     }
@@ -798,14 +803,14 @@ function path_open(
             }
             existingFile.truncate();
         }
-        newFd = fdTable.add(existingFile);
+        newFd = process.fdTable.add(existingFile);
     } else {
         if ((openFlags & oflags.creat) === 0) {
             return errno.noent;
         }
         let newFile = new VirtualFile(fileSystem);
         file.children.set(lastSegment, newFile);
-        newFd = fdTable.add(newFile);
+        newFd = process.fdTable.add(newFile);
     }
 
     getMemoryDataView().setUint32(ptrFdOut, newFd, true);
@@ -880,7 +885,7 @@ function environ_sizes_get(ptrNumVars, ptrDataSize) {
 //
 // WASM function type: (func (param i32) (result i32))
 function fd_close(fd) {
-    let fileDescriptor = fdTable.get(fd);
+    let fileDescriptor = process.fdTable.get(fd);
     if (fileDescriptor === undefined) {
         return errno.badf;
     }
@@ -915,7 +920,7 @@ function fd_close(fd) {
 //
 // WASM function type: (func (param i32 i32) (result i32))
 function fd_fdstat_get(fd, ptrStat) {
-    let fileDescriptor = fdTable.get(fd);
+    let fileDescriptor = process.fdTable.get(fd);
     if (fileDescriptor === undefined) {
         return errno.badf;
     }
@@ -946,7 +951,7 @@ function fd_fdstat_get(fd, ptrStat) {
 //
 // WASM function type: (func (param i32 i32) (result i32))
 function fd_prestat_get(fd, ptrPrestat) {
-    let fileDescriptor = fdTable.get(fd);
+    let fileDescriptor = process.fdTable.get(fd);
     if (fileDescriptor === undefined) {
         return errno.badf;
     }
@@ -973,7 +978,7 @@ function fd_prestat_get(fd, ptrPrestat) {
 //
 // WASM function type: (func (param i32 i32 i32) (result i32))
 function fd_prestat_dir_name(fd, ptrPath, lengthPath) {
-    let fileDescriptor = fdTable.get(fd);
+    let fileDescriptor = process.fdTable.get(fd);
     if (fileDescriptor === undefined) {
         return errno.badf;
     }

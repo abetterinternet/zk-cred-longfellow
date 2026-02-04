@@ -1069,20 +1069,36 @@ class WasiSystem {
 }
 
 let system = new WasiSystem();
-WebAssembly.instantiateStreaming(fetch("executable.wasm"), system.imports()).then(
-    ({ module, instance }) => {
-        system.exports = instance.exports;
+let busy = false;
 
-        instance.exports["_start"].apply(null, []);
-
-        globalThis.postMessage({"kind": "done"});
+async function run() {
+    if (busy) {
+        throw new Error("benchmark run is already in process");
     }
-).catch(
-    (error) => {
-        globalThis.postMessage({
-            "kind": "error",
-            "message": error.toString(),
-        });
+    busy = true;
+    let {module, instance} = await WebAssembly.instantiateStreaming(
+        fetch("executable.wasm"),
+        system.imports()
+    );
+    system.exports = instance.exports;
+    try {
+        instance.exports["_start"].apply(null, []);
+        busy = false;
+        globalThis.postMessage({"kind": "done"});
+    } catch (error) {
+        busy = false;
+        globalThis.postMessage({"kind": "error", "message": error.toString()});
         throw error;
     }
-);
+}
+
+globalThis.addEventListener("message", (event) => {
+    if (event.data.kind === "run") {
+        run();
+    } else {
+        console.error("unexpected event kind", event.data.kind);
+    }
+});
+globalThis.addEventListener("messageerror", (_event) => {
+    console.error("main thread message could not be deserialized");
+});

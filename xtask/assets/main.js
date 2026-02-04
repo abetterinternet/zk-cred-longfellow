@@ -41,6 +41,7 @@ function start() {
         console.error("worker message could not be deserialized");
     });
 
+    worker.postMessage({"kind": "run"});
     progressText.textContent = "Running";
     progressSpan.style.color = "orange";
 }

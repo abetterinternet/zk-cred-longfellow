@@ -1,4 +1,4 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group};
 use std::{hint::black_box, io::Cursor};
 use zk_cred_longfellow::{
     Codec,
@@ -105,4 +105,12 @@ fn mac(c: &mut Criterion) {
 }
 
 criterion_group!(benches, rfc_1, mac);
-criterion_main!(benches);
+
+fn main() {
+    let git_version = git_version::git_version!(fallback = "unknown");
+    println!("Git revision: {git_version}");
+    println!();
+
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}

@@ -1,6 +1,4 @@
-use criterion::{
-    BenchmarkGroup, BenchmarkId, Criterion, criterion_group, criterion_main, measurement::WallTime,
-};
+use criterion::{BenchmarkGroup, BenchmarkId, Criterion, criterion_group, measurement::WallTime};
 use std::hint::black_box;
 use zk_cred_longfellow::fields::{NttFieldElement, fieldp128::FieldP128, fieldp256_2::FieldP256_2};
 
@@ -28,4 +26,12 @@ fn benchmark_ntt_fields(c: &mut Criterion) {
 }
 
 criterion_group!(benches, benchmark_ntt_fields);
-criterion_main!(benches);
+
+fn main() {
+    let git_version = git_version::git_version!(fallback = "unknown");
+    println!("Git revision: {git_version}");
+    println!();
+
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}

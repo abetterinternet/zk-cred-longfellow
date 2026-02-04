@@ -1,4 +1,4 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group};
 use serde_json::Value;
 use std::{hint::black_box, time::Duration};
 use zk_cred_longfellow::mdoc_zk::{
@@ -84,4 +84,12 @@ criterion_group! {
     config = Criterion::default().sample_size(10).measurement_time(Duration::from_secs(180));
     targets = prove, verify
 }
-criterion_main!(benches);
+
+fn main() {
+    let git_version = git_version::git_version!(fallback = "unknown");
+    println!("Git revision: {git_version}");
+    println!();
+
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}

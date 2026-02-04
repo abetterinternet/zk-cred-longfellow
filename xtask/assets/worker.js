@@ -187,13 +187,20 @@ class FileDescriptor {
     }
 }
 
-let nextInode = 0n;
+class FileSystem {
+    constructor() {
+        this.nextInode = 0n;
+    }
+
+    inode() {
+        return this.nextInode++;
+    }
+}
 
 // A virtual file representing stdout or stderr.
 class OutputPipe {
-    constructor() {
-        this.inode = nextInode;
-        nextInode++;
+    constructor(fileSystem) {
+        this.inode = fileSystem.inode();
     }
 
     fileType() {
@@ -243,7 +250,7 @@ class OutputPipe {
 }
 
 class VirtualDirectory {
-    constructor(isPreopened, preopenedName) {
+    constructor(isPreopened, preopenedName, fileSystem) {
         this.isPreopened = isPreopened;
         this.name = preopenedName;
         if (typeof preopenedName === "string") {
@@ -253,8 +260,7 @@ class VirtualDirectory {
         }
         this.children = new Map();
 
-        this.inode = nextInode;
-        nextInode++;
+        this.inode = fileSystem.inode();
 }
 
     fileType() {
@@ -284,11 +290,10 @@ class VirtualDirectory {
 }
 
 class VirtualFile {
-    constructor() {
+    constructor(fileSystem) {
         this.truncate();
 
-        this.inode = nextInode;
-        nextInode++;
+        this.inode = fileSystem.inode();
     }
 
     truncate() {
@@ -377,10 +382,12 @@ class FdTable {
     }
 }
 
+const fileSystem = new FileSystem();
+
 const fdTable = new FdTable();
-fdTable.set(1, new OutputPipe());
-fdTable.set(2, new OutputPipe());
-const rootDirectory = new VirtualDirectory(true, ".");
+fdTable.set(1, new OutputPipe(fileSystem));
+fdTable.set(2, new OutputPipe(fileSystem));
+const rootDirectory = new VirtualDirectory(true, ".", fileSystem);
 fdTable.set(3, rootDirectory);
 fdTable.nextFd = 4;
 
@@ -649,7 +656,7 @@ function path_create_directory(fd, ptrPath, lengthPath) {
         if (file.children.has(segment)) {
             file = file.children.get(segment);
         } else {
-            let newDirectory = new VirtualDirectory(false, null);
+            let newDirectory = new VirtualDirectory(false, null, fileSystem);
             file.children.set(segment, newDirectory);
             file = newDirectory;
         }
@@ -796,7 +803,7 @@ function path_open(
         if ((openFlags & oflags.creat) === 0) {
             return errno.noent;
         }
-        let newFile = new VirtualFile();
+        let newFile = new VirtualFile(fileSystem);
         file.children.set(lastSegment, newFile);
         newFd = fdTable.add(newFile);
     }

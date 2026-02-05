@@ -18,6 +18,11 @@ function start() {
     let progressText = document.createTextNode("");
     progressSpan.appendChild(progressText);
 
+    let copyButton = document.getElementById("copy");
+    copyButton.addEventListener("click", (_event) => {
+        navigator.clipboard.writeText(ptyOutput);
+    });
+
     const worker = new Worker("worker.js");
     worker.addEventListener("message", (event) => {
         if (event.data.kind === "error") {

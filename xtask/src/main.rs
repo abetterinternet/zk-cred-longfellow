@@ -1,7 +1,9 @@
 use anyhow::{Context, anyhow};
 use axum::{
-    Router,
+    Json, Router,
+    extract::State,
     http::{HeaderName, HeaderValue},
+    routing::get,
 };
 use cargo_metadata::{Message, TargetKind, camino::Utf8PathBuf};
 use clap::Parser;
@@ -46,6 +48,9 @@ enum Subcommand {
         #[clap(long)]
         #[arg(default_value_t = 4000)]
         port: u16,
+
+        /// Arguments for the bench binary
+        args: Vec<String>,
     },
 }
 
@@ -64,12 +69,14 @@ async fn main() -> Result<(), anyhow::Error> {
             rustflags,
             address,
             port,
+            args,
         } => {
             run_benchmarks(
                 &bench,
                 &profile,
                 rustflags.as_deref(),
                 (address, port).into(),
+                args,
             )
             .await?;
         }
@@ -83,11 +90,12 @@ async fn run_benchmarks(
     profile: &str,
     rustflags: Option<&str>,
     socket_addr: SocketAddr,
+    args: Vec<String>,
 ) -> Result<(), anyhow::Error> {
     let (manifest_path, binary_path) = build_benchmark(bench, profile, rustflags)?;
 
     let listener = TcpListener::bind(socket_addr).await?;
-    let router = make_router(manifest_path, binary_path)?;
+    let router = make_router(manifest_path, binary_path, args)?;
 
     let authority = match socket_addr.ip() {
         IpAddr::V4(ipv4_addr) => format!("{ipv4_addr}:{}", socket_addr.port()),
@@ -165,6 +173,7 @@ fn build_benchmark(
 fn make_router(
     manifest_path: Utf8PathBuf,
     binary_path: Utf8PathBuf,
+    args: Vec<String>,
 ) -> Result<Router, anyhow::Error> {
     let wasm_mime = Mime::from_str("application/wasm").unwrap();
     let mut assets_dir = manifest_path
@@ -191,20 +200,30 @@ fn make_router(
         ),
     );
 
+    let cache_control_no_store_layer = SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("cache-control"),
+        HeaderValue::from_static("no-store"),
+    );
+
     let wasm_file_service = ServiceBuilder::new()
-        .layer(SetResponseHeaderLayer::overriding(
-            HeaderName::from_static("cache-control"),
-            HeaderValue::from_static("no-store"),
-        ))
+        .layer(cache_control_no_store_layer.clone())
         .layer(cross_origin_layers.clone())
         .service(ServeFile::new_with_mime(binary_path, &wasm_mime));
     let assets_service = ServiceBuilder::new()
         .layer(cross_origin_layers)
         .service(ServeDir::new(assets_dir));
+    let args_service = ServiceBuilder::new()
+        .layer(cache_control_no_store_layer)
+        .service(get(args_handler).with_state(args));
 
     let router = Router::new()
         .nest_service("/executable.wasm", wasm_file_service)
+        .nest_service("/args", args_service)
         .fallback_service(assets_service);
 
     Ok(router)
+}
+
+async fn args_handler(State(args): State<Vec<String>>) -> Json<Vec<String>> {
+    Json(args)
 }

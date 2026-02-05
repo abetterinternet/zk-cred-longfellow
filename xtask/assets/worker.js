@@ -259,6 +259,7 @@ class VirtualDirectory {
             this.nameBuffer = null;
         }
         this.children = new Map();
+        this.children.set(".", this);
 
         this.inode = fileSystem.inode();
 }
@@ -458,6 +459,10 @@ class WasiSystem {
         return this.#byteArray;
     }
 
+    setArgs(args) {
+        this.process.serializedArgs = new SerializedArgs(["a.out", "--bench"].concat(args));
+    }
+
     // Produces an imports object providing WASI functions.
     imports() {
         return {
@@ -472,7 +477,7 @@ class WasiSystem {
                 "path_create_directory": (fd, ptrPath, lengthPath) => this.path_create_directory(fd, ptrPath, lengthPath),
                 "path_filestat_get": (fd, lookupFlags, ptrPath, lengthPath, ptrFilestat) => this.path_filestat_get(fd, lookupFlags, ptrPath, lengthPath, ptrFilestat),
                 "path_open": (fd, lookupFlags, ptrPath, lengthPath, openFlags, rightsBase, rightsInheriting, fdFlags, ptrFdOut) => this.path_open(fd, lookupFlags, ptrPath, lengthPath, openFlags, rightsBase, rightsInheriting, fdFlags, ptrFdOut),
-                "fd_readdir": () => this.fd_readdir(),
+                "fd_readdir": (fd, ptrBuf, lengthBuf, cookie, ptrSize) => this.fd_readdir(fd, ptrBuf, lengthBuf, cookie, ptrSize),
                 "environ_get": (ptrEnviron, ptrEnvironBuf) => this.environ_get(ptrEnviron, ptrEnvironBuf),
                 "environ_sizes_get": (ptrNumVars, ptrDataSize) => this.environ_sizes_get(ptrNumVars, ptrDataSize),
                 "fd_close": (fd) => this.fd_close(fd),
@@ -723,6 +728,7 @@ class WasiSystem {
             } else {
                 let newDirectory = new VirtualDirectory(false, null, this.fileSystem);
                 file.children.set(segment, newDirectory);
+                newDirectory.children.set("..", file);
                 file = newDirectory;
             }
         }
@@ -901,9 +907,84 @@ class WasiSystem {
     //   (result $error (expected $size (error $errno)))
     // )
     //
+    // ;;; A directory entry.
+    // (typename $dirent
+    //   (record
+    //     ;;; The offset of the next directory entry stored in this directory.
+    //     (field $d_next $dircookie)
+    //     ;;; The serial number of the file referred to by this directory entry.
+    //     (field $d_ino $inode)
+    //     ;;; The length of the name of the directory entry.
+    //     (field $d_namlen $dirnamlen)
+    //     ;;; The type of the file referred to by this directory entry.
+    //     (field $d_type $filetype)
+    //   )
+    // )
+    //
+    // ;;; A reference to the offset of a directory entry.
+    // ;;;
+    // ;;; The value 0 signifies the start of the directory.
+    // (typename $dircookie u64)
+    //
+    // ;;; File serial number that is unique within its file system.
+    // (typename $inode u64)
+    //
+    // ;;; The type for the `dirent::d_namlen` field of `dirent` struct.
+    // (typename $dirnamlen u32)
+    //
     // WASM function type: (func (param i32 i32 i32 i64 i32) (result i32))
-    fd_readdir() {
-        throw new Error("fd_readdir not implemented");
+    fd_readdir(fd, ptrBuf, lengthBuf, cookie, ptrSize) {
+        let fileDescriptor = this.process.fdTable.get(fd);
+        if (fileDescriptor === undefined) {
+            return errno.badf;
+        }
+        const file = fileDescriptor.file;
+        if (!(file instanceof VirtualDirectory)) {
+            return errno.notdir;
+        }
+        if (lengthBuf < 24) {
+            return errno.inval;
+        }
+
+        // The iteration order of Map.entries() is stable, since Map remembers
+        // insertion order. Thus, we can iterate over file.children.entries(),
+        // and successive fd_readdir calls will be coherent. We use drop() to
+        // skip entries based on the cookie we are passed.
+        let iterator = file.children.entries().drop(Number(cookie));
+        let i = cookie;
+        let offset = 0;
+        let done;
+        let encoder = new TextEncoder();
+        while (offset + 24 <= lengthBuf) {
+            let iteratorValue, key, value;
+            ({ done, value: iteratorValue } = iterator.next());
+            if (done) {
+                break;
+            } else {
+                [key, value] = iteratorValue;
+            }
+
+            // d_next
+            this.dataView.setBigUint64(ptrBuf + offset, ++i, true);
+            // d_ino
+            this.dataView.setBigUint64(ptrBuf + offset + 8, value.inode, true);
+            // d_namlen
+            let name = encoder.encode(key);
+            this.dataView.setUint32(ptrBuf + offset + 16, name.byteLength, true);
+            // d_type
+            this.dataView.setUint8(ptrBuf + offset + 20, value.fileType());
+            offset += 24;
+
+            let toWrite = Math.min(lengthBuf - offset, name.byteLength);
+            this.byteArray.set(name.subarray(0, toWrite), ptrBuf + offset);
+            offset += toWrite;
+        }
+        if (done) {
+            this.dataView.setUint32(ptrSize, offset, true);
+        } else {
+            this.dataView.setUint32(ptrSize, lengthBuf, true);
+        }
+        return errno.success;
     }
 
     // ;;; Read environment variable data.
@@ -1071,7 +1152,7 @@ class WasiSystem {
 let system = new WasiSystem();
 let busy = false;
 
-async function run() {
+async function run(args) {
     if (busy) {
         throw new Error("benchmark run is already in process");
     }
@@ -1081,6 +1162,7 @@ async function run() {
         system.imports()
     );
     system.exports = instance.exports;
+    system.setArgs(args);
     try {
         instance.exports["_start"].apply(null, []);
         busy = false;
@@ -1094,7 +1176,7 @@ async function run() {
 
 globalThis.addEventListener("message", (event) => {
     if (event.data.kind === "run") {
-        run();
+        run(event.data.args);
     } else {
         console.error("unexpected event kind", event.data.kind);
     }

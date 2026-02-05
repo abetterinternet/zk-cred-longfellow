@@ -4,7 +4,7 @@ function clearChildren(node) {
     }
 }
 
-function start() {
+async function start() {
     let ptyDecoder = new TextDecoder();
     let ptyOutput = "";
 
@@ -46,7 +46,13 @@ function start() {
         console.error("worker message could not be deserialized");
     });
 
-    worker.postMessage({"kind": "run"});
+    const argsResponse = await fetch("/args");
+    if (!argsResponse.ok) {
+        throw new Error(`Response status from /args: ${argsResponse.status}`);
+    }
+    const args = await argsResponse.json();
+
+    worker.postMessage({"kind": "run", "args": args});
     progressText.textContent = "Running";
     progressSpan.style.color = "orange";
 }

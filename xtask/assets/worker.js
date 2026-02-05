@@ -458,6 +458,10 @@ class WasiSystem {
         return this.#byteArray;
     }
 
+    setArgs(args) {
+        this.process.serializedArgs = new SerializedArgs(["a.out", "--bench"].concat(args));
+    }
+
     // Produces an imports object providing WASI functions.
     imports() {
         return {
@@ -1071,7 +1075,7 @@ class WasiSystem {
 let system = new WasiSystem();
 let busy = false;
 
-async function run() {
+async function run(args) {
     if (busy) {
         throw new Error("benchmark run is already in process");
     }
@@ -1081,6 +1085,7 @@ async function run() {
         system.imports()
     );
     system.exports = instance.exports;
+    system.setArgs(args);
     try {
         instance.exports["_start"].apply(null, []);
         busy = false;
@@ -1094,7 +1099,7 @@ async function run() {
 
 globalThis.addEventListener("message", (event) => {
     if (event.data.kind === "run") {
-        run();
+        run(event.data.args);
     } else {
         console.error("unexpected event kind", event.data.kind);
     }

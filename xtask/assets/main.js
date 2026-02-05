@@ -23,18 +23,29 @@ async function start() {
         navigator.clipboard.writeText(ptyOutput);
     });
 
+    let notificationsButton = document.getElementById("notifications");
+    notificationsButton.addEventListener("click", (_event) => {
+        Notification.requestPermission();
+    });
+
     const worker = new Worker("worker.js");
     worker.addEventListener("message", (event) => {
         if (event.data.kind === "error") {
             console.error("worker error message", event.data.message);
             progressText.textContent = "Error";
             progressSpan.style.color = "red";
+            if (Notification.permission === "granted") {
+                new Notification("Benchmark failed");
+            }
         } else if (event.data.kind === "pty_write") {
             ptyOutput += ptyDecoder.decode(event.data.buffer, {stream: true});
             outputText.textContent = ptyOutput;
         } else if (event.data.kind === "done") {
             progressText.textContent = "Complete";
             progressSpan.style.color = "green";
+            if (Notification.permission === "granted") {
+                new Notification("Benchmark complete");
+            }
         } else {
             console.error("unexpected event kind", event.data.kind);
         }

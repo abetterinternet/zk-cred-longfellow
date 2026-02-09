@@ -72,38 +72,62 @@ fn reduce(product: U256) -> u128 {
         ^ (first_reduction.high << 7)
 }
 
-const MASK_0: u128 = 0x21084210842108421084210842108421;
-const MASK_1: u128 = 0x42108421084210842108421084210842;
-const MASK_2: u128 = 0x84210842108421084210842108421084;
-const MASK_3: u128 = 0x08421084210842108421084210842108;
-const MASK_4: u128 = 0x10842108421084210842108421084210;
+const MASK_0: u64 = 0x1111_1111_1111_1111;
+const MASK_1: u64 = 0x2222_2222_2222_2222;
+const MASK_2: u64 = 0x4444_4444_4444_4444;
+const MASK_3: u64 = 0x8888_8888_8888_8888;
 
-/// Carryless multiplication of two 64-bit arguments.
-fn clmul64(x: u64, y: u64) -> u128 {
+/// Carryless multiplication of two 64-bit arguments, producing the bottom 64 bits of the product.
+fn clmul64_lo(x: u64, y: u64) -> u64 {
     // This uses the technique outlined in
     // https://timtaubert.de/blog/2017/06/verified-binary-multiplication-for-ghash/. Integer
     // multiplications on masked arguments are used to build up a carryless multiplication. All bits
-    // except every fifth are masked off, so that the carries that accumulate during one integer
-    // multiply won't interfere with the LSB of the next group of five bits in the integer product.
+    // except every fourth are masked off, so that the carries that accumulate during one integer
+    // multiply won't interfere with the LSB of the next group of four bits in the integer product.
+    // The topmost group may have up to 16 addends contributing to one output bit, but there is no
+    // next output bit for it to overflow into, and the rest all have 15 or fewer addends.
 
-    let x0 = (x & (MASK_0 as u64)) as u128;
-    let x1 = (x & (MASK_1 as u64)) as u128;
-    let x2 = (x & (MASK_2 as u64)) as u128;
-    let x3 = (x & (MASK_3 as u64)) as u128;
-    let x4 = (x & (MASK_4 as u64)) as u128;
-    let y0 = (y & (MASK_0 as u64)) as u128;
-    let y1 = (y & (MASK_1 as u64)) as u128;
-    let y2 = (y & (MASK_2 as u64)) as u128;
-    let y3 = (y & (MASK_3 as u64)) as u128;
-    let y4 = (y & (MASK_4 as u64)) as u128;
+    let x0 = x & MASK_0;
+    let x1 = x & MASK_1;
+    let x2 = x & MASK_2;
+    let x3 = x & MASK_3;
+    let y0 = y & MASK_0;
+    let y1 = y & MASK_1;
+    let y2 = y & MASK_2;
+    let y3 = y & MASK_3;
 
-    let z0 = ((x0 * y0) ^ (x1 * y4) ^ (x2 * y3) ^ (x3 * y2) ^ (x4 * y1)) & MASK_0;
-    let z1 = ((x0 * y1) ^ (x1 * y0) ^ (x2 * y4) ^ (x3 * y3) ^ (x4 * y2)) & MASK_1;
-    let z2 = ((x0 * y2) ^ (x1 * y1) ^ (x2 * y0) ^ (x3 * y4) ^ (x4 * y3)) & MASK_2;
-    let z3 = ((x0 * y3) ^ (x1 * y2) ^ (x2 * y1) ^ (x3 * y0) ^ (x4 * y4)) & MASK_3;
-    let z4 = ((x0 * y4) ^ (x1 * y3) ^ (x2 * y2) ^ (x3 * y1) ^ (x4 * y0)) & MASK_4;
+    let z0 = ((x0.wrapping_mul(y0))
+        ^ (x1.wrapping_mul(y3))
+        ^ (x2.wrapping_mul(y2))
+        ^ (x3.wrapping_mul(y1)))
+        & MASK_0;
+    let z1 = ((x0.wrapping_mul(y1))
+        ^ (x1.wrapping_mul(y0))
+        ^ (x2.wrapping_mul(y3))
+        ^ (x3.wrapping_mul(y2)))
+        & MASK_1;
+    let z2 = ((x0.wrapping_mul(y2))
+        ^ (x1.wrapping_mul(y1))
+        ^ (x2.wrapping_mul(y0))
+        ^ (x3.wrapping_mul(y3)))
+        & MASK_2;
+    let z3 = ((x0.wrapping_mul(y3))
+        ^ (x1.wrapping_mul(y2))
+        ^ (x2.wrapping_mul(y1))
+        ^ (x3.wrapping_mul(y0)))
+        & MASK_3;
 
-    z0 | z1 | z2 | z3 | z4
+    z0 | z1 | z2 | z3
+}
+
+/// Carryless multiplication of two 64-bit arguments, producing the full 127-bit product.
+fn clmul64(x: u64, y: u64) -> u128 {
+    // We get the bottom half of the result from calling clmul64_lo() directly.
+    let lo = clmul64_lo(x, y);
+    // We exploit symmetry to get the top half of the result by combining bit reverals and
+    // clmul64_lo().
+    let hi = clmul64_lo(x.reverse_bits(), y.reverse_bits()).reverse_bits();
+    (lo as u128) | ((hi as u128) << 63)
 }
 
 /// A 256-bit integer.

@@ -85,7 +85,8 @@ fn clmul64_lo(x: u64, y: u64) -> u64 {
     // except every fourth are masked off, so that the carries that accumulate during one integer
     // multiply won't interfere with the LSB of the next group of four bits in the integer product.
     // The topmost group may have up to 16 addends contributing to one output bit, but there is no
-    // next output bit for it to overflow into, and the rest all have 15 or fewer addends.
+    // next output bit for it to overflow into, and the rest all have 15 or fewer addends. See also
+    // https://www.bearssl.org/gitweb/?p=BearSSL;a=blob;f=src/hash/ghash_ctmul64.c;h=a46f16fee977f6102abea7f7bcdf169a013c3e8e;hb=5f045c759957fdff8c85716e6af99e10901fdac0.
 
     let x0 = x & MASK_0;
     let x1 = x & MASK_1;

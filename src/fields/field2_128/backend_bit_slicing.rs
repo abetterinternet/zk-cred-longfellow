@@ -1,3 +1,8 @@
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+use std::arch::wasm32::{
+    u8x16, u8x16_shl, u8x16_shr, u8x16_splat, u8x16_swizzle, u64x2, u64x2_extract_lane, v128_and,
+    v128_or,
+};
 use std::fmt::Debug;
 
 /// Multiplies two GF(2^128) elements, represented as `u128`s.
@@ -127,8 +132,39 @@ fn clmul64(x: u64, y: u64) -> u128 {
     let lo = clmul64_lo(x, y);
     // We exploit symmetry to get the top half of the result by combining bit reverals and
     // clmul64_lo().
-    let hi = clmul64_lo(x.reverse_bits(), y.reverse_bits()).reverse_bits();
+    let (x_reversed, y_reversed) = reverse_bits_x2(x, y);
+    let hi = clmul64_lo(x_reversed, y_reversed).reverse_bits();
     (lo as u128) | ((hi as u128) << 63)
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+fn reverse_bits_x2(x: u64, y: u64) -> (u64, u64) {
+    (x.reverse_bits(), y.reverse_bits())
+}
+
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+fn reverse_bits_x2(x: u64, y: u64) -> (u64, u64) {
+    let mut packed = u64x2(x, y);
+    packed = u8x16_swizzle(
+        packed,
+        u8x16(7, 6, 5, 4, 3, 2, 1, 0, 15, 14, 13, 12, 11, 10, 9, 8),
+    );
+    packed = v128_or(
+        u8x16_shl(v128_and(packed, u8x16_splat(0x55)), 1),
+        v128_and(u8x16_shr(packed, 1), u8x16_splat(0x55)),
+    );
+    packed = v128_or(
+        u8x16_shl(v128_and(packed, u8x16_splat(0x33)), 2),
+        v128_and(u8x16_shr(packed, 2), u8x16_splat(0x33)),
+    );
+    packed = v128_or(
+        u8x16_shl(v128_and(packed, u8x16_splat(0x0F)), 4),
+        v128_and(u8x16_shr(packed, 4), u8x16_splat(0x0F)),
+    );
+    (
+        u64x2_extract_lane::<0>(packed),
+        u64x2_extract_lane::<1>(packed),
+    )
 }
 
 /// A 256-bit integer.

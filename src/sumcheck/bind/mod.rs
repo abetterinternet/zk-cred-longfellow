@@ -25,6 +25,12 @@ pub trait DenseSumcheckArray<FieldElement>: Sized {
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
     fn bind(&mut self, binding: FieldElement);
+
+    /// Compute only the `index`-th element of this array bound to `binding`.
+    fn bound_element_at(&self, binding: FieldElement, index: usize) -> FieldElement;
+
+    /// An iterator over the values of this array bound to the provided field element.
+    fn bind_iter(&self, binding: FieldElement) -> impl Iterator<Item = FieldElement>;
 }
 
 impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
@@ -38,17 +44,33 @@ impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
             "binding over a vector that's already reduced to a single element"
         );
 
-        // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
-        // Or, with one less multiplication:
-        //  = A[2 * i] + x * (A[2 * i + 1] - A[2 * i])
         // The back half of B[i] will always be zero so we can skip computing those elements
         let new_len = self.len().div_ceil(2);
         for index in 0..new_len {
-            self[index] = self.element(2 * index)
-                + binding * (self.element(2 * index + 1) - self.element(2 * index));
+            self[index] = self.bound_element_at(binding, index);
         }
 
         self.truncate(new_len);
+    }
+
+    fn bound_element_at(&self, x: FE, i: usize) -> FE {
+        // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+        // Or, with one less multiplication:
+        //   = A[2 * i] + x * (A[2 * i + 1] - A[2 * i])
+        self.element(2 * i) + x * (self.element(2 * i + 1) - self.element(2 * i))
+    }
+
+    fn bind_iter(&self, binding: FE) -> impl Iterator<Item = FE> {
+        assert!(
+            self.len() > 1,
+            "binding over a vector that's already reduced to a single element"
+        );
+
+        // The back half of B[i] will always be zero so we can skip computing those elements.
+        (0..self.len().div_ceil(2)).map(
+            // We must move `binding` into the closure, despite FE being Copy
+            move |index| self.bound_element_at(binding, index),
+        )
     }
 }
 
@@ -121,11 +143,17 @@ pub(crate) mod tests {
         test_vector: BindTestVector<Dense1DArrayBindTestCase<FE>>,
     ) {
         for mut test_case in test_vector.test_cases {
+            let collected: Vec<_> = test_case.input.bind_iter(test_case.binding).collect();
+            assert_eq!(
+                collected, test_case.output,
+                "test case {} failed",
+                test_case.description,
+            );
             test_case.input.bind(test_case.binding);
             assert_eq!(
                 test_case.input, test_case.output,
                 "test case {} failed",
-                test_case.description
+                test_case.description,
             );
         }
     }

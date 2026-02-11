@@ -41,7 +41,8 @@ pub trait FieldElement:
 {
     /// The additive identity of the field.
     const ZERO: Self;
-    /// The multiplicative of the field.
+
+    /// The multiplicative identity of the field.
     const ONE: Self;
 
     /// Project an integer into the field.
@@ -77,6 +78,12 @@ pub trait FieldElement:
         }
 
         out
+    }
+
+    /// True if the field has large characteristic, false otherwise.
+    fn large_characteristic() -> bool {
+        // Default to true and make GF(2^128) opt out.
+        true
     }
 }
 

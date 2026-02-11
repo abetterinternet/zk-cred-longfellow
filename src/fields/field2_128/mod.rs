@@ -130,6 +130,10 @@ impl FieldElement for Field2_128 {
         // FieldP256::mul_inv() for an explanation of this technique.
         addition_chains::gf_2_128_m2::exp(*self)
     }
+
+    fn large_characteristic() -> bool {
+        false
+    }
 }
 
 impl CodecFieldElement for Field2_128 {

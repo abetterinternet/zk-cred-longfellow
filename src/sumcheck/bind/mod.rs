@@ -3,11 +3,27 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
 
-use crate::fields::FieldElement;
+use crate::fields::{FieldElement, ProofFieldElement};
 
 pub mod sparse;
 #[cfg(test)]
 pub mod test_vector;
+
+/// Represents bindings in various methods on `DenseSumcheckArray`.
+///
+/// This is used because when binding to zero, or sumcheck P2 in fields with large characteristic,
+/// we want to use specialized implementations that use no field arithmetic or no multiplications,
+/// respectively.
+///
+/// We could instead pass the binding as a `FieldElement` and compare it against
+/// `FieldElement::ZERO` or `FieldElement::SUMCHECK_P2`, but matching enum variants is faster than
+/// comparing field elements.
+#[derive(Copy, Clone, Debug)]
+pub enum Binding<FieldElement> {
+    Zero,
+    SumcheckP2,
+    Other(FieldElement),
+}
 
 /// An dense array of field elements conforming to the sumcheck array convention of [6.1][1]:
 ///
@@ -19,26 +35,27 @@ pub trait DenseSumcheckArray<FieldElement>: Sized {
     /// Retrieve the element at the index, or zero if no element is defined for the index.
     fn element(&self, index: usize) -> FieldElement;
 
-    /// Bind a array of field elements to a single field element, in-place.
+    /// Bind an array of field elements to a single field element, in-place.
     ///
     /// This corresponds to `bind()` from [6.1][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
-    fn bind(&mut self, binding: FieldElement);
+    fn bind(&mut self, binding: Binding<FieldElement>);
 
     /// Compute only the `index`-th element of this array bound to `binding`.
-    fn bound_element_at(&self, binding: FieldElement, index: usize) -> FieldElement;
+    fn bound_element_at(&self, binding: Binding<FieldElement>, index: usize) -> FieldElement;
 
-    /// An iterator over the values of this array bound to the provided field element.
-    fn bind_iter(&self, binding: FieldElement) -> impl Iterator<Item = FieldElement>;
+    /// Iterator over the values of the array bound to zero, optimized to avoid field arithmetic
+    /// when the binding is `FieldElement::ZERO` or `FieldElement::SUMCHECK_P2`.
+    fn bind_iter(&self, binding: Binding<FieldElement>) -> impl Iterator<Item = FieldElement>;
 }
 
-impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
+impl<FE: ProofFieldElement> DenseSumcheckArray<FE> for Vec<FE> {
     fn element(&self, index: usize) -> FE {
         *self.get(index).unwrap_or(&FE::ZERO)
     }
 
-    fn bind(&mut self, binding: FE) {
+    fn bind(&mut self, binding: Binding<FE>) {
         assert!(
             self.len() > 1,
             "binding over a vector that's already reduced to a single element"
@@ -53,24 +70,43 @@ impl<FE: FieldElement> DenseSumcheckArray<FE> for Vec<FE> {
         self.truncate(new_len);
     }
 
-    fn bound_element_at(&self, x: FE, i: usize) -> FE {
+    fn bound_element_at(&self, x: Binding<FE>, i: usize) -> FE {
         // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
         // Or, with one less multiplication:
         //   = A[2 * i] + x * (A[2 * i + 1] - A[2 * i])
-        self.element(2 * i) + x * (self.element(2 * i + 1) - self.element(2 * i))
+        let slow_path =
+            |x| self.element(2 * i) + x * (self.element(2 * i + 1) - self.element(2 * i));
+
+        match x {
+            // With x = 0, B[i] = A[2 * i]
+            Binding::Zero => self.element(2 * i),
+            // For fields with large characteristic, we can interpolate:
+            // bind(A, 2)[i] = bind(A, 1)[i] + (bind(A, 1)[i] - bind(A, 0)[i])
+            //
+            // bind(A, x)[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+            // bind(A, 0)[i] = A[2 * i] and bind(A, 1)[i] = A[2 * i + 1]
+            // Thus bind(A, 2)[i] = A[2 * i + 1] + A[2 * i + 1] - A[2 * i]
+            //
+            // This lets us compute the binding with two additions and no multiplications.
+            Binding::SumcheckP2 => {
+                if FE::large_characteristic() {
+                    self.element(2 * i + 1) + self.element(2 * i + 1) - self.element(2 * i)
+                } else {
+                    slow_path(FE::SUMCHECK_P2)
+                }
+            }
+            Binding::Other(x) => slow_path(x),
+        }
     }
 
-    fn bind_iter(&self, binding: FE) -> impl Iterator<Item = FE> {
+    fn bind_iter(&self, binding: Binding<FE>) -> impl Iterator<Item = FE> {
         assert!(
             self.len() > 1,
-            "binding over a vector that's already reduced to a single element"
+            "binding over a vector that's already reduced to a single element",
         );
 
         // The back half of B[i] will always be zero so we can skip computing those elements.
-        (0..self.len().div_ceil(2)).map(
-            // We must move `binding` into the closure, despite FE being Copy
-            move |index| self.bound_element_at(binding, index),
-        )
+        (0..self.len().div_ceil(2)).map(move |index| self.bound_element_at(binding, index))
     }
 }
 
@@ -126,7 +162,7 @@ fn bindeq_inner<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
 pub(crate) mod tests {
     use crate::{
         field_element_tests,
-        fields::{CodecFieldElement, FieldElement},
+        fields::{FieldElement, ProofFieldElement},
         sumcheck::bind::{
             DenseSumcheckArray, bindeq_inner,
             sparse::{Hand, SparseSumcheckArray},
@@ -139,17 +175,13 @@ pub(crate) mod tests {
     use std::iter::Iterator;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    fn dense_1d_array_bind_test_vector<FE: CodecFieldElement>(
+    fn dense_1d_array_bind_test_vector<FE: ProofFieldElement>(
         test_vector: BindTestVector<Dense1DArrayBindTestCase<FE>>,
     ) {
         for mut test_case in test_vector.test_cases {
-            let collected: Vec<_> = test_case.input.bind_iter(test_case.binding).collect();
-            assert_eq!(
-                collected, test_case.output,
-                "test case {} failed",
-                test_case.description,
-            );
-            test_case.input.bind(test_case.binding);
+            test_case
+                .input
+                .bind(crate::sumcheck::bind::Binding::Other(test_case.binding));
             assert_eq!(
                 test_case.input, test_case.output,
                 "test case {} failed",

@@ -2,6 +2,7 @@
 use crate::{
     Codec,
     fields::{field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256},
+    sumcheck::bind::DenseSumcheckArray,
 };
 use anyhow::{Context, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -78,12 +79,6 @@ pub trait FieldElement:
         }
 
         out
-    }
-
-    /// True if the field has large characteristic, false otherwise.
-    fn large_characteristic() -> bool {
-        // Default to true and make GF(2^128) opt out.
-        true
     }
 }
 
@@ -272,6 +267,19 @@ pub trait ProofFieldElement: CodecFieldElement {
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.1
     /// [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-2.2.2
     fn extend(nodes: &[Self], context: &Self::ExtendContext) -> Vec<Self>;
+
+    fn bind_sumcheck_p2(array: &Vec<Self>, index: usize) -> Self {
+        // By default, assume the field has large characteristic and take the fast path, where we
+        // interpolate:
+        // bind(A, 2)[i] = bind(A, 1)[i] + (bind(A, 1)[i] - bind(A, 0)[i])
+        //
+        // bind(A, x)[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
+        // bind(A, 0)[i] = A[2 * i] and bind(A, 1)[i] = A[2 * i + 1]
+        // Thus bind(A, 2)[i] = A[2 * i + 1] + A[2 * i + 1] - A[2 * i]
+        //
+        // This lets us compute the binding with two additions and no multiplications.
+        array.element(2 * index + 1) + array.element(2 * index + 1) - array.element(2 * index)
+    }
 }
 
 pub fn field_element_iter<FE: CodecFieldElement>() -> impl Iterator<Item = FE> {

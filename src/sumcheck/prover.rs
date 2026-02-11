@@ -10,7 +10,7 @@ use crate::{
     fields::{CodecFieldElement, ProofFieldElement},
     sumcheck::{
         Polynomial,
-        bind::{Binding, DenseSumcheckArray, bindeq, sparse::Hand},
+        bind::{BindingArgument, DenseSumcheckArray, SumcheckP2, Zero, bindeq, sparse::Hand},
     },
     transcript::Transcript,
     witness::{Witness, WitnessLayout},
@@ -348,23 +348,41 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
 
                             quad.compute_a(hand, wires, wires_scratch);
 
-                            let evaluate_polynomial = |at| {
+                            fn evaluate_polynomial<
+                                FE: ProofFieldElement,
+                                Argument: BindingArgument<ArrayElement = FE>,
+                            >(
+                                argument: Argument,
+                                hand: Hand,
+                                wires_scratch: &mut Vec<FE>,
+                                wires: &[Vec<FE>; 2],
+                            ) -> FE {
                                 wires_scratch
-                                    .bind_iter(at)
+                                    .bind_iter(argument)
                                     .enumerate()
                                     .filter(|(_, fe)| bool::from(!fe.is_zero()))
                                     .fold(FE::ZERO, |acc, (index, element)| {
                                         acc + element
-                                            * wires[hand as usize].bound_element_at(at, index)
+                                            * wires[hand as usize].bound_element_at(argument, index)
                                     })
-                            };
+                            }
 
                             // Evaluate the polynomial at P0 and P2, subtracting the pad
                             let polynomial_pad =
                                 witness.polynomial_witnesses(layer_index, round, hand as usize);
                             let poly_evaluation = Polynomial {
-                                p0: evaluate_polynomial(Binding::Zero) - polynomial_pad.p0,
-                                p2: evaluate_polynomial(Binding::SumcheckP2) - polynomial_pad.p2,
+                                p0: evaluate_polynomial(
+                                    Zero::default(),
+                                    hand,
+                                    wires_scratch,
+                                    wires,
+                                ) - polynomial_pad.p0,
+                                p2: evaluate_polynomial(
+                                    SumcheckP2::default(),
+                                    hand,
+                                    wires_scratch,
+                                    wires,
+                                ) - polynomial_pad.p2,
                             };
 
                             proof.layers[layer_index].polynomials[round][hand as usize] =
@@ -386,7 +404,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
 
                     // Bind the current wires and the quad to the challenge
                     if let ProtocolRole::Prover { wires, .. } = &mut protocol_role {
-                        wires[layer_index + 1][hand as usize].bind(Binding::Other(challenge[0]));
+                        wires[layer_index + 1][hand as usize].bind(challenge[0]);
                     }
                     quad.bind_hand(hand, challenge[0]);
 

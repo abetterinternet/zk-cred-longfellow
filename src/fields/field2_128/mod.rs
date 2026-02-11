@@ -8,6 +8,7 @@ use crate::{
         CodecFieldElement, FieldElement, FieldId, ProofFieldElement, addition_chains,
         field2_128::extend::{ExtendContext, interpolate},
     },
+    sumcheck::bind::BindingArgument,
 };
 use anyhow::{Context, anyhow};
 use constants::{subfield_basis, subfield_basis_lu_decomposition};
@@ -130,10 +131,6 @@ impl FieldElement for Field2_128 {
         // FieldP256::mul_inv() for an explanation of this technique.
         addition_chains::gf_2_128_m2::exp(*self)
     }
-
-    fn large_characteristic() -> bool {
-        false
-    }
 }
 
 impl CodecFieldElement for Field2_128 {
@@ -231,6 +228,11 @@ impl ProofFieldElement for Field2_128 {
     fn extend(nodes: &[Self], context: &Self::ExtendContext) -> Vec<Self> {
         assert_eq!(nodes.len(), context.nodes_len);
         interpolate(nodes, context.evaluations)
+    }
+
+    fn bind_sumcheck_p2(array: &Vec<Self>, index: usize) -> Self {
+        // In small characteristic fields, we must take the slow path
+        Self::SUMCHECK_P2.bound_element_at(array, index)
     }
 }
 

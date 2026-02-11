@@ -98,24 +98,22 @@ pub fn bindeq<FE: FieldElement>(bindings_0: &[FE], bindings_1: &[FE], scale: FE)
 fn bindeq_inner<FE: FieldElement>(input: &[FE]) -> Vec<FE> {
     let output_len = 1 << input.len();
     let mut bound = vec![FE::ZERO; output_len];
+    bound[0] = FE::ONE;
 
-    if input.is_empty() {
-        bound[0] = FE::ONE;
-    } else {
-        let a = bindeq_inner(&input[1..]);
-        // usize::div rounds towards zero
-        for index in 0..output_len / 2 {
-            // B[2 * i]     = (1 - X[0]) * A[i]
-            // B[2 * i + 1] = X[0] * A[i]
+    for (i, x) in input.iter().rev().enumerate() {
+        // Compute bind(EQ_2^i) in-place from bind(EQ_2^(i-1)).
+        for j in (0..1 << i).rev() {
+            // B[2 * j]     = (1 - X[0]) * A[j]
+            // B[2 * j + 1] = X[0] * A[j]
             //
             // equivalently, with a single multiplication:
             //
-            // t = X[0] * A[i]
-            // B[2 * i] = A[i] - t
-            // B[2 * i + 1] = t
-            let t = input[0] * a[index];
-            bound[2 * index] = a[index] - t;
-            bound[2 * index + 1] = t;
+            // t = X[0] * A[j]
+            // B[2 * j] = A[j] - t
+            // B[2 * j + 1] = t
+            let t = *x * bound[j];
+            bound[2 * j] = bound[j] - t;
+            bound[2 * j + 1] = t;
         }
     }
 

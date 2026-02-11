@@ -6,9 +6,7 @@ use std::fmt::Debug;
 /// with integer multiplication to implement carryless multiplication.
 pub(super) fn galois_multiply(x: u128, y: u128) -> u128 {
     // Produce a 255-bit carryless multiplication product.
-    let product = clmul128(x, y);
-
-    reduce(product)
+    clmul128(x, y)
 }
 
 /// Squares a GF(2^128) element, represented as a `u128`.
@@ -26,7 +24,8 @@ pub(super) fn galois_square(x: u128) -> u128 {
         low: galois_square_u64_widening(x as u64),
     };
 
-    reduce(product)
+    let temp = reduce(0, product.high);
+    reduce(product.low, temp)
 }
 
 /// Helper for squaring GF(2^128) elements.
@@ -43,33 +42,23 @@ fn galois_square_u64_widening(x: u64) -> u128 {
     (x | (x << 1)) & 0x5555_5555_5555_5555_5555_5555_5555_5555
 }
 
-/// Reduce an intermediate 256-bit product by the field's quotient polynomial.
-fn reduce(product: U256) -> u128 {
-    // Reduce the result by x^128 + x^7 + x^2 + x + 1.
+/// Reduce intermediate results by the field's quotient polynomial.
+///
+/// The arguments are interpreted as two overlapping chunks of an oversized polynomial, with the
+/// second shifted up halfway. Given a and b, this returns (a + b * x^64) mod Q(x).
+fn reduce(mut a: u128, b: u128) -> u128 {
+    // The bottom half of b can just be shifted and XOR'd with the top half of a.
+    a ^= b << 64;
+    // The upper half of b is the part of the intermediate results that need to be reduced.
+    let top_half = b >> 64;
+    // The inputs effectively contain (top_half * x^128), so we need to subtract (top_half * Q(X)).
     //
-    // First we multiply the upper u128 of the product, all of which has a factor of x^128 in it, by
-    // the rest of the reduction polynomial, x^7 + x^2 + x + 1, and then XOR this 134-bit product
-    // with the lower u128 of the original product. We perform the multiplication by a constant with
-    // shifts and XORs.
-    let first_reduction = U256 {
-        high: (product.high >> (128 - 1))
-            ^ (product.high >> (128 - 2))
-            ^ (product.high >> (128 - 7)),
-        low: product.low
-            ^ product.high
-            ^ (product.high << 1)
-            ^ (product.high << 2)
-            ^ (product.high << 7),
-    };
-
-    // We repeat this to perform a second reduction step, multiplying 6 bits from the upper u128 of
-    // the previous step by the same 8 bit constant. This product is 13 bits, so no further
-    // reduction step is needed.
-    first_reduction.low
-        ^ first_reduction.high
-        ^ (first_reduction.high << 1)
-        ^ (first_reduction.high << 2)
-        ^ (first_reduction.high << 7)
+    // top_half * x^128 - top-half * (x^128 + x^7 + x^2 + x + 1)
+    // -top_half * (x^7 + x^2 + x + 1)
+    // top_half * (x^7 + x^2 + x + 1)
+    //
+    // Thus, we need to XOR in four copies of top_half to complete the reduction.
+    a ^ (top_half << 7) ^ (top_half << 2) ^ (top_half << 1) ^ top_half
 }
 
 /// Carryless multiplication of two 64-bit arguments.
@@ -137,7 +126,9 @@ impl Debug for U256 {
 }
 
 /// Carryless multiplication of two 128-bit arguments.
-fn clmul128(x: u128, y: u128) -> U256 {
+///
+/// This includes reduction by the quotient polynomial.
+fn clmul128(x: u128, y: u128) -> u128 {
     // This uses Karatsuba multiplication.
     let r1 = clmul64(x as u64, y as u64);
     let r4 = clmul64((x >> 64) as u64, (y >> 64) as u64);
@@ -145,19 +136,15 @@ fn clmul128(x: u128, y: u128) -> U256 {
     let q_prime = (y as u64) ^ ((y >> 64) as u64);
     let s = clmul64(p_prime, q_prime);
     let t = s ^ r1 ^ r4;
-    U256 {
-        low: r1 ^ (t << 64),
-        high: (t >> 64) ^ r4,
-    }
+    let temp = reduce(t, r4);
+    reduce(r1, temp)
 }
 
 #[cfg(test)]
 mod tests {
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    use crate::fields::field2_128::backend_bit_slicing::{
-        U256, clmul64, clmul128, galois_multiply,
-    };
+    use crate::fields::field2_128::backend_bit_slicing::{clmul64, galois_multiply};
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_clmul64() {
@@ -174,56 +161,6 @@ mod tests {
         assert_eq!(
             clmul64(0xffffffffffffffff, 0x5555555555555555),
             0x33333333333333333333333333333333
-        );
-    }
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn test_clmul128() {
-        assert_eq!(clmul128(1, 1).low, 1);
-        assert_eq!(clmul128(1, 2).low, 2);
-        assert_eq!(clmul128(2, 1).low, 2);
-        assert_eq!(clmul128(1, 3).low, 3);
-        assert_eq!(clmul128(3, 1).low, 3);
-        assert_eq!(clmul128(3, 3).low, 5);
-        assert_eq!(
-            clmul128(
-                0x8000_0000_0000_0000_0000_0000_0000_0000,
-                0x8000_0000_0000_0000_0000_0000_0000_0000
-            ),
-            U256 {
-                high: 0x4000_0000_0000_0000_0000_0000_0000_0000,
-                low: 0,
-            }
-        );
-        assert_eq!(
-            clmul128(
-                0x0001_0001_0001_0001_0001_0001_0001_0001,
-                0x0000_0000_0000_0000_0000_0000_0000_0101
-            ),
-            U256 {
-                high: 0,
-                low: 0x0101_0101_0101_0101_0101_0101_0101_0101,
-            }
-        );
-        assert_eq!(
-            clmul128(
-                0x0001_0000_0000_0000_0000_0000_0000_0001,
-                0x0001_0000_0000_0000_0000_0000_0000_0001
-            ),
-            U256 {
-                high: 0x0000_0001_0000_0000_0000_0000_0000_0000,
-                low: 0x0000_0000_0000_0000_0000_0000_0000_0001,
-            }
-        );
-        assert_eq!(
-            clmul128(
-                0xffffffffffffffffffffffffffffffff,
-                0x55555555555555555555555555555555,
-            ),
-            U256 {
-                high: 0x33333333333333333333333333333333,
-                low: 0x33333333333333333333333333333333,
-            }
         );
     }
 

@@ -5,7 +5,7 @@ use crate::{
         ProofFieldElement, field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
     },
     sumcheck::bind::{
-        DenseSumcheckArray,
+        Binding, DenseSumcheckArray,
         sparse::{Hand, SparseSumcheckArray},
     },
 };
@@ -188,7 +188,7 @@ fn generate_1d_dense_array_bind_test_vector_with_seed<FE: ProofFieldElement>(
         let mut output = rng.sample_n(input_len, 0.0);
         let input = output.clone();
         let binding: FE = rng.sample(0.0);
-        output.bind(super::Binding::Other(binding));
+        output.bind(Binding::Other(binding));
         test_cases.push(Dense1DArrayBindTestCase {
             description: description.to_string(),
             input,

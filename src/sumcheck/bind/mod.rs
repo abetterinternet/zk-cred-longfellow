@@ -164,7 +164,7 @@ pub(crate) mod tests {
         field_element_tests,
         fields::{FieldElement, ProofFieldElement},
         sumcheck::bind::{
-            DenseSumcheckArray, bindeq_inner,
+            Binding, DenseSumcheckArray, bindeq_inner,
             sparse::{Hand, SparseSumcheckArray},
             test_vector::{
                 BindTestVector, Dense1DArrayBindTestCase, load_dense_1d_array_bind_2_128,
@@ -179,9 +179,7 @@ pub(crate) mod tests {
         test_vector: BindTestVector<Dense1DArrayBindTestCase<FE>>,
     ) {
         for mut test_case in test_vector.test_cases {
-            test_case
-                .input
-                .bind(crate::sumcheck::bind::Binding::Other(test_case.binding));
+            test_case.input.bind(Binding::Other(test_case.binding));
             assert_eq!(
                 test_case.input, test_case.output,
                 "test case {} failed",

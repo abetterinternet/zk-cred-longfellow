@@ -106,7 +106,10 @@ impl<FE: ProofFieldElement> DenseSumcheckArray<FE> for Vec<FE> {
         );
 
         // The back half of B[i] will always be zero so we can skip computing those elements.
-        (0..self.len().div_ceil(2)).map(move |index| self.bound_element_at(binding, index))
+        (0..self.len().div_ceil(2)).map(
+            // We must move `binding` into the closure, despite Binding<FE> being Copy
+            move |index| self.bound_element_at(binding, index),
+        )
     }
 }
 
@@ -179,6 +182,15 @@ pub(crate) mod tests {
         test_vector: BindTestVector<Dense1DArrayBindTestCase<FE>>,
     ) {
         for mut test_case in test_vector.test_cases {
+            let collected: Vec<_> = test_case
+                .input
+                .bind_iter(Binding::Other(test_case.binding))
+                .collect();
+            assert_eq!(
+                collected, test_case.output,
+                "test case {} failed",
+                test_case.description,
+            );
             test_case.input.bind(Binding::Other(test_case.binding));
             assert_eq!(
                 test_case.input, test_case.output,

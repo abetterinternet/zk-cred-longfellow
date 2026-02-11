@@ -2,10 +2,10 @@
 use crate::{
     field_element_tests,
     fields::{
-        CodecFieldElement, field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
+        ProofFieldElement, field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
     },
     sumcheck::bind::{
-        DenseSumcheckArray,
+        Binding, DenseSumcheckArray,
         sparse::{Hand, SparseSumcheckArray},
     },
 };
@@ -133,7 +133,7 @@ impl TestVectorRng {
         }
     }
 
-    fn sample<FE: CodecFieldElement>(&mut self, sparseness: f64) -> FE {
+    fn sample<FE: ProofFieldElement>(&mut self, sparseness: f64) -> FE {
         if self.rng.random_bool(sparseness) {
             return FE::ZERO;
         }
@@ -145,7 +145,7 @@ impl TestVectorRng {
         })
     }
 
-    fn sample_n<FE: CodecFieldElement>(&mut self, n: usize, sparseness: f64) -> Vec<FE> {
+    fn sample_n<FE: ProofFieldElement>(&mut self, n: usize, sparseness: f64) -> Vec<FE> {
         std::iter::repeat_with(|| self.sample(sparseness))
             .take(n)
             .collect()
@@ -174,7 +174,7 @@ fn write_test_vector<TestCase: Serialize, FieldElement>(
     }
 }
 
-fn generate_1d_dense_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
+fn generate_1d_dense_array_bind_test_vector_with_seed<FE: ProofFieldElement>(
     seed: u64,
 ) -> BindTestVector<Dense1DArrayBindTestCase<FE>> {
     let mut rng = TestVectorRng::new(seed);
@@ -188,7 +188,7 @@ fn generate_1d_dense_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
         let mut output = rng.sample_n(input_len, 0.0);
         let input = output.clone();
         let binding: FE = rng.sample(0.0);
-        output.bind(binding);
+        output.bind(Binding::Other(binding));
         test_cases.push(Dense1DArrayBindTestCase {
             description: description.to_string(),
             input,
@@ -200,7 +200,7 @@ fn generate_1d_dense_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
     BindTestVector { seed, test_cases }
 }
 
-fn generate_1d_dense_array_bind_test_vector<FE: CodecFieldElement>() {
+fn generate_1d_dense_array_bind_test_vector<FE: ProofFieldElement>() {
     let seed = random();
     println!("seed: {seed}");
     write_test_vector::<_, FE>(
@@ -211,7 +211,7 @@ fn generate_1d_dense_array_bind_test_vector<FE: CodecFieldElement>() {
 
 field_element_tests!(generate_1d_dense_array_bind_test_vector);
 
-fn check_1d_dense_array_bind_test_vector_consistency<FE: CodecFieldElement>(
+fn check_1d_dense_array_bind_test_vector_consistency<FE: ProofFieldElement>(
     checked_in_vector: BindTestVector<Dense1DArrayBindTestCase<FE>>,
 ) {
     let generated_vector =
@@ -235,7 +235,7 @@ fn check_1d_dense_array_bind_test_vector_consistency_2_128() {
     check_1d_dense_array_bind_test_vector_consistency(load_dense_1d_array_bind_2_128());
 }
 
-fn generate_2d_sparse_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
+fn generate_2d_sparse_array_bind_test_vector_with_seed<FE: ProofFieldElement>(
     seed: u64,
 ) -> BindTestVector<Sparse2DArrayBindHandTestCase<FE>> {
     let mut rng = TestVectorRng::new(seed);
@@ -293,7 +293,7 @@ fn generate_2d_sparse_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
     BindTestVector { seed, test_cases }
 }
 
-fn generate_2d_sparse_array_bind_test_vector<FE: CodecFieldElement>() {
+fn generate_2d_sparse_array_bind_test_vector<FE: ProofFieldElement>() {
     let seed = random();
     println!("seed: {seed}");
     write_test_vector::<_, FE>(
@@ -304,7 +304,7 @@ fn generate_2d_sparse_array_bind_test_vector<FE: CodecFieldElement>() {
 
 field_element_tests!(generate_2d_sparse_array_bind_test_vector);
 
-fn check_2d_sparse_array_bind_test_vector_consistency<FE: CodecFieldElement>(
+fn check_2d_sparse_array_bind_test_vector_consistency<FE: ProofFieldElement>(
     checked_in_vector: BindTestVector<Sparse2DArrayBindHandTestCase<FE>>,
 ) {
     let generated_vector =
@@ -328,7 +328,7 @@ fn check_2d_sparse_array_bind_test_vector_consistency_2_128() {
     check_2d_sparse_array_bind_test_vector_consistency(load_sparse_2d_array_bind_hand_2_128());
 }
 
-fn generate_3d_sparse_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
+fn generate_3d_sparse_array_bind_test_vector_with_seed<FE: ProofFieldElement>(
     seed: u64,
 ) -> BindTestVector<Sparse3DArrayBindGateTestCase<FE>> {
     let mut rng = TestVectorRng::new(seed);
@@ -384,7 +384,7 @@ fn generate_3d_sparse_array_bind_test_vector_with_seed<FE: CodecFieldElement>(
     BindTestVector { seed, test_cases }
 }
 
-fn generate_3d_sparse_array_bind_gate_vector<FE: CodecFieldElement>() {
+fn generate_3d_sparse_array_bind_gate_vector<FE: ProofFieldElement>() {
     let seed = random();
     println!("seed: {seed}");
     write_test_vector::<_, FE>(
@@ -395,7 +395,7 @@ fn generate_3d_sparse_array_bind_gate_vector<FE: CodecFieldElement>() {
 
 field_element_tests!(generate_3d_sparse_array_bind_gate_vector);
 
-fn check_3d_sparse_array_bind_test_vector_consistency<FE: CodecFieldElement>(
+fn check_3d_sparse_array_bind_test_vector_consistency<FE: ProofFieldElement>(
     checked_in_vector: BindTestVector<Sparse3DArrayBindGateTestCase<FE>>,
 ) {
     let generated_vector =

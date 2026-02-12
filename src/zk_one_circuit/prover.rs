@@ -1,12 +1,11 @@
 use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::{QuadraticConstraint, quadratic_constraints},
     fields::{CodecFieldElement, ProofFieldElement},
     ligero::{
-        LigeroCommitment, LigeroParameters,
-        prover::{LigeroProof, ligero_prove},
-        tableau::Tableau,
+        LigeroParameters,
+        merkle::Root,
+        prover::{LigeroProof, LigeroProver},
     },
     sumcheck::{
         initialize_transcript,
@@ -23,8 +22,7 @@ use std::io::{Cursor, Write};
 pub struct Prover<'a, FE> {
     sumcheck_prover: SumcheckProtocol<'a, FE>,
     witness_layout: WitnessLayout,
-    quadratic_constraints: Vec<QuadraticConstraint>,
-    ligero_parameters: LigeroParameters,
+    ligero_prover: LigeroProver<FE>,
 }
 
 impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
@@ -32,12 +30,11 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
     pub fn new(circuit: &'a Circuit<FE>, ligero_parameters: LigeroParameters) -> Self {
         let sumcheck_prover = SumcheckProtocol::new(circuit);
         let witness_layout = WitnessLayout::from_circuit(circuit);
-        let quadratic_constraints = quadratic_constraints(circuit);
+        let ligero_prover = LigeroProver::new(circuit, ligero_parameters);
         Self {
             sumcheck_prover,
             witness_layout,
-            quadratic_constraints,
-            ligero_parameters,
+            ligero_prover,
         }
     }
 
@@ -59,17 +56,11 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
         );
 
         // Construct Ligero commitment.
-        let tableau = Tableau::build(
-            &self.ligero_parameters,
-            &witness,
-            &self.quadratic_constraints,
-        );
-        let merkle_tree = tableau.commit()?;
-        let commitment = LigeroCommitment::from(merkle_tree.root());
+        let commitment_state = self.ligero_prover.commit(&witness)?;
 
         // Start of Fiat-Shamir transcript.
         let mut transcript = Transcript::new(session_id, TranscriptMode::V3Compatibility).unwrap();
-        transcript.write_byte_array(commitment.as_bytes())?;
+        transcript.write_byte_array(commitment_state.commitment().as_bytes())?;
         initialize_transcript(
             &mut transcript,
             circuit,
@@ -85,18 +76,14 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
             .prove(&evaluation, &mut transcript, &witness)?;
 
         // Generate Ligero proof.
-        let ligero_proof = ligero_prove(
-            &mut transcript,
-            &tableau,
-            &merkle_tree,
-            &linear_constraints,
-            &self.quadratic_constraints,
-        )?;
+        let ligero_proof =
+            self.ligero_prover
+                .prove(&mut transcript, &commitment_state, &linear_constraints)?;
 
         Ok(Proof {
             oracle: session_id.to_vec(),
             sumcheck_proof,
-            ligero_commitment: commitment,
+            ligero_commitment: *commitment_state.commitment(),
             ligero_proof,
         })
     }
@@ -107,7 +94,7 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
 pub struct Proof<FE> {
     oracle: Vec<u8>,
     sumcheck_proof: SumcheckProof<FE>,
-    ligero_commitment: LigeroCommitment,
+    ligero_commitment: Root,
     ligero_proof: LigeroProof<FE>,
 }
 
@@ -123,7 +110,7 @@ impl<FE> Proof<FE> {
     }
 
     /// Returns the Ligero commitment.
-    pub fn ligero_commitment(&self) -> LigeroCommitment {
+    pub fn ligero_commitment(&self) -> Root {
         self.ligero_commitment
     }
 
@@ -146,9 +133,9 @@ impl<'a, F: CodecFieldElement + ProofFieldElement> ParameterizedCodec<Verifier<'
         bytes: &mut Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
         let oracle = u8::decode_fixed_array(bytes, 32)?.to_vec();
-        let ligero_commitment = LigeroCommitment::decode(bytes)?;
+        let ligero_commitment = Root::decode(bytes)?;
         let sumcheck_proof = SumcheckProof::<F>::decode_with_param(verifier.circuit, bytes)?;
-        let ligero_proof = LigeroProof::<F>::decode_with_param(&verifier.tableau_layout(), bytes)?;
+        let ligero_proof = LigeroProof::<F>::decode_with_param(verifier.tableau_layout(), bytes)?;
 
         Ok(Self {
             oracle,
@@ -178,7 +165,7 @@ impl<'a, F: CodecFieldElement + ProofFieldElement> ParameterizedCodec<Verifier<'
         self.sumcheck_proof
             .encode_with_param(verifier.circuit, bytes)?;
         self.ligero_proof
-            .encode_with_param(&verifier.tableau_layout(), bytes)?;
+            .encode_with_param(verifier.tableau_layout(), bytes)?;
 
         Ok(())
     }

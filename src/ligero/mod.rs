@@ -3,11 +3,9 @@
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4
 
 use crate::{
-    Codec, Sha256Digest, fields::CodecFieldElement, ligero::tableau::TableauLayout,
-    transcript::Transcript,
+    Codec, fields::CodecFieldElement, ligero::tableau::TableauLayout, transcript::Transcript,
 };
 use anyhow::anyhow;
-use merkle::Node;
 use serde::Deserialize;
 use std::io::{self, Write};
 
@@ -34,46 +32,6 @@ pub struct LigeroParameters {
     pub block_size: usize,
     /// The total size of a tableau row. Also `NCOL`.
     pub num_columns: usize,
-}
-
-/// A commitment to a witness vector, as specified in [1]. Concretely, this is the root of a Merkle
-/// tree of SHA-256 hashes.
-///
-/// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LigeroCommitment(Sha256Digest);
-
-impl From<Node> for LigeroCommitment {
-    fn from(value: Node) -> Self {
-        Self(Sha256Digest::from(value))
-    }
-}
-
-impl LigeroCommitment {
-    /// The commitment as a slice of bytes.
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0.0
-    }
-
-    pub fn into_bytes(&self) -> [u8; 32] {
-        self.0.0
-    }
-
-    /// A fake but well-formed commitment for tests.
-    #[cfg(test)]
-    pub fn test_commitment() -> Self {
-        Self::from(Node::from(Sha256Digest([1u8; 32])))
-    }
-}
-
-impl Codec for LigeroCommitment {
-    fn decode(bytes: &mut io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
-        Ok(Self(Sha256Digest::decode(bytes)?))
-    }
-
-    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
-        self.0.encode(bytes)
-    }
 }
 
 /// A 32-byte nonce used in hash commitments.

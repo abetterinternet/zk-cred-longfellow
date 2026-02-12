@@ -1,42 +1,31 @@
 use crate::{
     circuit::Circuit,
-    constraints::proof_constraints::{QuadraticConstraint, quadratic_constraints},
     fields::ProofFieldElement,
-    ligero::{LigeroParameters, tableau::TableauLayout, verifier::ligero_verify},
+    ligero::{LigeroParameters, tableau::TableauLayout, verifier::LigeroVerifier},
     sumcheck::{initialize_transcript, prover::SumcheckProtocol},
     transcript::{Transcript, TranscriptMode},
-    witness::WitnessLayout,
     zk_one_circuit::prover::Proof,
 };
 
 /// Longfellow ZK verifier.
 pub struct Verifier<'a, FE> {
     pub(super) circuit: &'a Circuit<FE>,
-    pub(super) witness_length: usize,
-    pub(super) quadratic_constraints: Vec<QuadraticConstraint>,
-    pub(super) ligero_parameters: LigeroParameters,
+    pub(super) ligero_verifier: LigeroVerifier<FE>,
 }
 
 impl<'a, FE: ProofFieldElement> Verifier<'a, FE> {
     /// Construct a new verifier from a circuit and a choice of Ligero parameters.
     pub fn new(circuit: &'a Circuit<FE>, ligero_parameters: LigeroParameters) -> Self {
-        let witness_layout = WitnessLayout::from_circuit(circuit);
-        let quadratic_constraints = quadratic_constraints(circuit);
+        let ligero_verifier = LigeroVerifier::new(circuit, ligero_parameters);
         Self {
             circuit,
-            witness_length: witness_layout.length(),
-            quadratic_constraints,
-            ligero_parameters,
+            ligero_verifier,
         }
     }
 
-    /// Construct the Ligero tableau layout.
-    pub fn tableau_layout(&self) -> TableauLayout<'_> {
-        TableauLayout::new(
-            &self.ligero_parameters,
-            self.witness_length,
-            self.quadratic_constraints.len(),
-        )
+    /// Return the Ligero tableau layout.
+    pub fn tableau_layout(&self) -> &TableauLayout {
+        self.ligero_verifier.tableau_layout()
     }
 
     /// Verify a Longfellow ZK proof.
@@ -64,13 +53,11 @@ impl<'a, FE: ProofFieldElement> Verifier<'a, FE> {
         )?;
 
         // Run Ligero verifier.
-        ligero_verify(
+        self.ligero_verifier.verify(
             proof.ligero_commitment(),
             proof.ligero_proof(),
             &mut transcript,
             &linear_constraints,
-            &self.quadratic_constraints,
-            &self.tableau_layout(),
         )?;
 
         Ok(())

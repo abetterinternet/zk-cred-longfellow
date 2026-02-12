@@ -395,9 +395,10 @@ mod tests {
         let evaluation: Evaluation<FieldP128> =
             circuit.evaluate(test_vector.valid_inputs()).unwrap();
 
-        let quadratic_constraints = quadratic_constraints(&circuit);
+        let witness_layout = WitnessLayout::from_circuit(&circuit);
+        let quadratic_constraints = quadratic_constraints(&circuit, &witness_layout);
         let witness = Witness::fill_witness(
-            WitnessLayout::from_circuit(&circuit),
+            witness_layout,
             evaluation.private_inputs(circuit.num_public_inputs()),
             || test_vector.pad(),
         );

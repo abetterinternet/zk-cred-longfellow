@@ -33,8 +33,8 @@ pub struct LigeroVerifier<FE: ProofFieldElement> {
 impl<FE: ProofFieldElement> LigeroVerifier<FE> {
     /// Construct a new verifier for a circuit and set of parameter choices.
     pub fn new(circuit: &Circuit<FE>, ligero_parameters: LigeroParameters) -> Self {
-        let quadratic_constraints = quadratic_constraints(circuit);
         let witness_layout = WitnessLayout::from_circuit(circuit);
+        let quadratic_constraints = quadratic_constraints(circuit, &witness_layout);
         let tableau_layout = TableauLayout::new(
             ligero_parameters,
             witness_layout.length(),

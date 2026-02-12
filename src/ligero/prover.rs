@@ -36,9 +36,8 @@ pub struct LigeroProver<FE: ProofFieldElement> {
 impl<FE: ProofFieldElement> LigeroProver<FE> {
     /// Construct a new prover for a circuit and set of parameter choices.
     pub fn new(circuit: &Circuit<FE>, ligero_parameters: LigeroParameters) -> Self {
-        let quadratic_constraints = quadratic_constraints(circuit);
-
         let witness_layout = WitnessLayout::from_circuit(circuit);
+        let quadratic_constraints = quadratic_constraints(circuit, &witness_layout);
         let tableau_layout = TableauLayout::new(
             ligero_parameters,
             witness_layout.length(),
@@ -583,7 +582,7 @@ mod tests {
         let (test_vector, circuit) = load_rfc();
 
         let witness_layout = WitnessLayout::from_circuit(&circuit);
-        let quadratic_constraints = quadratic_constraints(&circuit);
+        let quadratic_constraints = quadratic_constraints(&circuit, &witness_layout);
         let tableau_layout = TableauLayout::new(
             *test_vector.ligero_parameters(),
             witness_layout.length(),

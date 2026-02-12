@@ -1,12 +1,12 @@
 use crate::{
     ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::QuadraticConstraint,
+    constraints::proof_constraints::{QuadraticConstraint, quadratic_constraints},
     fields::{field2_128::Field2_128, fieldp256::FieldP256},
     ligero::{LigeroParameters, tableau::TableauLayout, verifier::ligero_verify},
     mdoc_zk::{
         ATTRIBUTE_CBOR_DATA_LENGTH, CircuitStatements, CircuitVersion, MdocZkProof, ProofContext,
-        prover::MdocZkProver,
+        prover::common_initialization,
     },
     sumcheck::{initialize_transcript, prover::SumcheckProtocol},
     transcript::{Transcript, TranscriptMode},
@@ -36,20 +36,18 @@ impl MdocZkVerifier {
         circuit_version: CircuitVersion,
         num_attributes: usize,
     ) -> Result<Self, anyhow::Error> {
-        // Circuit parsing and proof system initialization is identical for the prover and verifier,
-        // so we reuse `MdocZkProver::new()` rather than duplicate the code.
-        let MdocZkProver {
-            circuit_version,
-            num_attributes,
-            hash_circuit,
-            hash_ligero_parameters,
-            hash_witness_layout,
-            hash_quadratic_constraints,
+        let (
             signature_circuit,
             signature_ligero_parameters,
             signature_witness_layout,
-            signature_quadratic_constraints,
-        } = MdocZkProver::new(circuit, circuit_version, num_attributes)?;
+            hash_circuit,
+            hash_ligero_parameters,
+            hash_witness_layout,
+        ) = common_initialization(circuit, circuit_version, num_attributes)?;
+
+        let hash_quadratic_constraints = quadratic_constraints(&hash_circuit);
+        let signature_quadratic_constraints = quadratic_constraints(&signature_circuit);
+
         Ok(Self {
             circuit_version,
             num_attributes,

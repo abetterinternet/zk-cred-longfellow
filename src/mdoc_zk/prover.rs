@@ -1,9 +1,8 @@
 use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::{QuadraticConstraint, quadratic_constraints},
     fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
-    ligero::{LigeroCommitment, LigeroParameters, prover::ligero_prove, tableau::Tableau},
+    ligero::{LigeroCommitment, LigeroParameters, prover::LigeroProver},
     mdoc_zk::{
         CircuitInputs, CircuitVersion, MdocZkProof, ProofContext, hash_ligero_parameters,
         signature_ligero_parameters,
@@ -22,16 +21,57 @@ use wasm_bindgen::prelude::wasm_bindgen;
 /// Zero-knowledge prover for mdoc credential presentations.
 #[wasm_bindgen]
 pub struct MdocZkProver {
-    pub(super) circuit_version: CircuitVersion,
-    pub(super) num_attributes: usize,
-    pub(super) hash_circuit: Circuit<Field2_128>,
-    pub(super) hash_ligero_parameters: LigeroParameters,
-    pub(super) hash_witness_layout: WitnessLayout,
-    pub(super) hash_quadratic_constraints: Vec<QuadraticConstraint>,
-    pub(super) signature_circuit: Circuit<FieldP256>,
-    pub(super) signature_ligero_parameters: LigeroParameters,
-    pub(super) signature_witness_layout: WitnessLayout,
-    pub(super) signature_quadratic_constraints: Vec<QuadraticConstraint>,
+    circuit_version: CircuitVersion,
+    num_attributes: usize,
+    hash_circuit: Circuit<Field2_128>,
+    hash_ligero_prover: LigeroProver<Field2_128>,
+    hash_witness_layout: WitnessLayout,
+    signature_circuit: Circuit<FieldP256>,
+    signature_ligero_prover: LigeroProver<FieldP256>,
+    signature_witness_layout: WitnessLayout,
+}
+
+/// Common initialization used by both the prover and verifier constructors.
+#[allow(clippy::type_complexity)]
+pub(super) fn common_initialization(
+    circuit: &[u8],
+    circuit_version: CircuitVersion,
+    num_attributes: usize,
+) -> Result<
+    (
+        Circuit<FieldP256>,
+        LigeroParameters,
+        WitnessLayout,
+        Circuit<Field2_128>,
+        LigeroParameters,
+        WitnessLayout,
+    ),
+    anyhow::Error,
+> {
+    if !(1..=4).contains(&num_attributes) {
+        return Err(anyhow!("unsupported number of attributes"));
+    }
+
+    let mut cursor = Cursor::new(circuit);
+    let signature_circuit = Circuit::decode(&mut cursor)?;
+    let hash_circuit = Circuit::decode(&mut cursor)?;
+    if cursor.position() as usize != circuit.len() {
+        return Err(anyhow!("extra data left over after decoding circuits"));
+    }
+
+    let hash_ligero_parameters = hash_ligero_parameters(circuit_version, num_attributes);
+    let signature_ligero_parameters = signature_ligero_parameters(circuit_version);
+
+    let hash_witness_layout = WitnessLayout::from_circuit(&hash_circuit);
+    let signature_witness_layout = WitnessLayout::from_circuit(&signature_circuit);
+    Ok((
+        signature_circuit,
+        signature_ligero_parameters,
+        signature_witness_layout,
+        hash_circuit,
+        hash_ligero_parameters,
+        hash_witness_layout,
+    ))
 }
 
 impl MdocZkProver {
@@ -41,37 +81,28 @@ impl MdocZkProver {
         circuit_version: CircuitVersion,
         num_attributes: usize,
     ) -> Result<Self, anyhow::Error> {
-        if !(1..=4).contains(&num_attributes) {
-            return Err(anyhow!("unsupported number of attributes"));
-        }
+        let (
+            signature_circuit,
+            signature_ligero_parameters,
+            signature_witness_layout,
+            hash_circuit,
+            hash_ligero_parameters,
+            hash_witness_layout,
+        ) = common_initialization(circuit, circuit_version, num_attributes)?;
 
-        let mut cursor = Cursor::new(circuit);
-        let signature_circuit = Circuit::decode(&mut cursor)?;
-        let hash_circuit = Circuit::decode(&mut cursor)?;
-        if cursor.position() as usize != circuit.len() {
-            return Err(anyhow!("extra data left over after decoding circuits"));
-        }
-
-        let hash_ligero_parameters = hash_ligero_parameters(circuit_version, num_attributes);
-        let signature_ligero_parameters = signature_ligero_parameters(circuit_version);
-
-        let hash_witness_layout = WitnessLayout::from_circuit(&hash_circuit);
-        let signature_witness_layout = WitnessLayout::from_circuit(&signature_circuit);
-
-        let hash_quadratic_constraints = quadratic_constraints(&hash_circuit);
-        let signature_quadratic_constraints = quadratic_constraints(&signature_circuit);
+        let hash_ligero_prover = LigeroProver::new(&hash_circuit, hash_ligero_parameters);
+        let signature_ligero_prover =
+            LigeroProver::new(&signature_circuit, signature_ligero_parameters);
 
         Ok(Self {
             circuit_version,
             num_attributes,
             hash_circuit,
-            hash_ligero_parameters,
+            hash_ligero_prover,
             hash_witness_layout,
-            hash_quadratic_constraints,
             signature_circuit,
-            signature_ligero_parameters,
+            signature_ligero_prover,
             signature_witness_layout,
-            signature_quadratic_constraints,
         })
     }
 
@@ -124,22 +155,13 @@ impl MdocZkProver {
         );
 
         // Commit to the hash circuit witness.
-        let hash_tableau = Tableau::build(
-            &self.hash_ligero_parameters,
-            &hash_witness,
-            &self.hash_quadratic_constraints,
-        );
-        let hash_merkle_tree = hash_tableau.commit()?;
+        let (hash_tableau, hash_merkle_tree) = self.hash_ligero_prover.commit(&hash_witness)?;
         let hash_commitment = LigeroCommitment::from(hash_merkle_tree.root());
         transcript.write_byte_array(hash_commitment.as_bytes())?;
 
         // Commit to the signature circuit witness.
-        let signature_tableau = Tableau::build(
-            &self.signature_ligero_parameters,
-            &signature_witness,
-            &self.signature_quadratic_constraints,
-        );
-        let signature_merkle_tree = signature_tableau.commit()?;
+        let (signature_tableau, signature_merkle_tree) =
+            self.signature_ligero_prover.commit(&signature_witness)?;
         let signature_commitment = LigeroCommitment::from(signature_merkle_tree.root());
         transcript.write_byte_array(signature_commitment.as_bytes())?;
 
@@ -174,12 +196,11 @@ impl MdocZkProver {
             linear_constraints: hash_linear_constraints,
         } = hash_sumcheck_prover.prove(&hash_evaluation, &mut transcript, &hash_witness)?;
 
-        let hash_ligero_proof = ligero_prove(
+        let hash_ligero_proof = self.hash_ligero_prover.prove(
             &mut transcript,
             &hash_tableau,
             &hash_merkle_tree,
             &hash_linear_constraints,
-            &self.hash_quadratic_constraints,
         )?;
 
         // Run Sumcheck and Ligero on signature circuit.
@@ -197,12 +218,11 @@ impl MdocZkProver {
             &signature_witness,
         )?;
 
-        let signature_ligero_proof = ligero_prove(
+        let signature_ligero_proof = self.signature_ligero_prover.prove(
             &mut transcript,
             &signature_tableau,
             &signature_merkle_tree,
             &signature_linear_constraints,
-            &self.signature_quadratic_constraints,
         )?;
 
         // Serialize MAC tags and proofs.

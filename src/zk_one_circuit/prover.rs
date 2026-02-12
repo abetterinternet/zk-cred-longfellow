@@ -1,12 +1,10 @@
 use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::{QuadraticConstraint, quadratic_constraints},
     fields::{CodecFieldElement, ProofFieldElement},
     ligero::{
         LigeroCommitment, LigeroParameters,
-        prover::{LigeroProof, ligero_prove},
-        tableau::Tableau,
+        prover::{LigeroProof, LigeroProver},
     },
     sumcheck::{
         initialize_transcript,
@@ -23,8 +21,7 @@ use std::io::{Cursor, Write};
 pub struct Prover<'a, FE> {
     sumcheck_prover: SumcheckProtocol<'a, FE>,
     witness_layout: WitnessLayout,
-    quadratic_constraints: Vec<QuadraticConstraint>,
-    ligero_parameters: LigeroParameters,
+    ligero_prover: LigeroProver<FE>,
 }
 
 impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
@@ -32,12 +29,11 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
     pub fn new(circuit: &'a Circuit<FE>, ligero_parameters: LigeroParameters) -> Self {
         let sumcheck_prover = SumcheckProtocol::new(circuit);
         let witness_layout = WitnessLayout::from_circuit(circuit);
-        let quadratic_constraints = quadratic_constraints(circuit);
+        let ligero_prover = LigeroProver::new(circuit, ligero_parameters);
         Self {
             sumcheck_prover,
             witness_layout,
-            quadratic_constraints,
-            ligero_parameters,
+            ligero_prover,
         }
     }
 
@@ -59,12 +55,7 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
         );
 
         // Construct Ligero commitment.
-        let tableau = Tableau::build(
-            &self.ligero_parameters,
-            &witness,
-            &self.quadratic_constraints,
-        );
-        let merkle_tree = tableau.commit()?;
+        let (tableau, merkle_tree) = self.ligero_prover.commit(&witness)?;
         let commitment = LigeroCommitment::from(merkle_tree.root());
 
         // Start of Fiat-Shamir transcript.
@@ -85,12 +76,11 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
             .prove(&evaluation, &mut transcript, &witness)?;
 
         // Generate Ligero proof.
-        let ligero_proof = ligero_prove(
+        let ligero_proof = self.ligero_prover.prove(
             &mut transcript,
             &tableau,
             &merkle_tree,
             &linear_constraints,
-            &self.quadratic_constraints,
         )?;
 
         Ok(Proof {

@@ -20,14 +20,14 @@ use crate::{
 };
 use anyhow::{Context, anyhow};
 use sha2::{Digest, Sha256};
-use std::marker::PhantomData;
 
 /// Verifier for the Ligero ZK proof system.
 #[derive(Debug, Clone)]
-pub struct LigeroVerifier<FE> {
+pub struct LigeroVerifier<FE: ProofFieldElement> {
     quadratic_constraints: Vec<QuadraticConstraint>,
     tableau_layout: TableauLayout,
-    _phantom: PhantomData<FE>,
+    extend_context_block_ncol: FE::ExtendContext,
+    extend_context_dblock_ncol: FE::ExtendContext,
 }
 
 impl<FE: ProofFieldElement> LigeroVerifier<FE> {
@@ -40,10 +40,17 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
             witness_layout.length(),
             quadratic_constraints.len(),
         );
+
+        let extend_context_block_ncol =
+            FE::extend_precompute(tableau_layout.block_size(), tableau_layout.num_columns());
+        let extend_context_dblock_ncol =
+            FE::extend_precompute(tableau_layout.dblock(), tableau_layout.num_columns());
+
         Self {
             quadratic_constraints,
             tableau_layout,
-            _phantom: PhantomData,
+            extend_context_block_ncol,
+            extend_context_dblock_ncol,
         }
     }
 
@@ -108,12 +115,11 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
             }
         }
 
-        let context_block = FE::extend_precompute(
-            self.tableau_layout.block_size(),
-            self.tableau_layout.num_columns(),
-        );
         let proof_low_degree_test_row = self.tableau_layout.gather(
-            &FE::extend(&proof.low_degree_test_proof, &context_block),
+            &FE::extend(
+                &proof.low_degree_test_proof,
+                &self.extend_context_block_ncol,
+            ),
             &requested_column_indices,
         );
 
@@ -162,7 +168,10 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
                 .resize(self.tableau_layout.num_requested_columns(), FE::ZERO);
             inner_product_vector_extended.extend(products);
 
-            let extended = FE::extend(&inner_product_vector_extended, &context_block);
+            let extended = FE::extend(
+                &inner_product_vector_extended,
+                &self.extend_context_block_ncol,
+            );
             for ((want_dot_row_element, inner_product_element), tableau_element) in want_dot_row
                 .iter_mut()
                 .zip(
@@ -175,12 +184,8 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
             }
         }
 
-        let context_dblock = FE::extend_precompute(
-            self.tableau_layout.dblock(),
-            self.tableau_layout.num_columns(),
-        );
         let proof_dot_row = self.tableau_layout.gather(
-            &FE::extend(&proof.dot_proof, &context_dblock),
+            &FE::extend(&proof.dot_proof, &self.extend_context_dblock_ncol),
             &requested_column_indices,
         );
 
@@ -215,7 +220,7 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
         let proof_quadratic_test_row = self.tableau_layout.gather(
             &FE::extend(
                 &proof.quadratic_proof(&self.tableau_layout),
-                &context_dblock,
+                &self.extend_context_dblock_ncol,
             ),
             &requested_column_indices,
         );

@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Longfellow ZK verifier.
-pub struct Verifier<'a, FE> {
+pub struct Verifier<'a, FE: ProofFieldElement> {
     pub(super) circuit: &'a Circuit<FE>,
     pub(super) ligero_verifier: LigeroVerifier<FE>,
 }

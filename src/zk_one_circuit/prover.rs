@@ -19,7 +19,7 @@ use anyhow::anyhow;
 use std::io::{Cursor, Write};
 
 /// Longfellow ZK prover.
-pub struct Prover<'a, FE> {
+pub struct Prover<'a, FE: ProofFieldElement> {
     sumcheck_prover: SumcheckProtocol<'a, FE>,
     witness_layout: WitnessLayout,
     ligero_prover: LigeroProver<FE>,

@@ -164,12 +164,16 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         ligero_parameters: LigeroParameters,
         witness: &Witness<FE>,
         quadratic_constraints: &[QuadraticConstraint],
+        extend_context_block_ncol: &FE::ExtendContext,
+        extend_context_dblock_ncol: &FE::ExtendContext,
     ) -> Self {
         Self::build_with_field_element_generator(
             ligero_parameters,
             witness,
             quadratic_constraints,
             FE::sample,
+            extend_context_block_ncol,
+            extend_context_dblock_ncol,
         )
     }
 
@@ -179,6 +183,8 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         witness: &Witness<FE>,
         quadratic_constraints: &[QuadraticConstraint],
         field_element_generator: FieldElementGenerator,
+        extend_context_block_ncol: &FE::ExtendContext,
+        extend_context_dblock_ncol: &FE::ExtendContext,
     ) -> Self
     where
         FieldElementGenerator: FnMut() -> FE,
@@ -200,12 +206,11 @@ impl<FE: ProofFieldElement> Tableau<FE> {
 
         // Construct the tableau from the witness and the constraints.
         // Fill the low degree test row: extend(RANDOM[BLOCK], BLOCK, NCOL)
-        let context_block = FE::extend_precompute(layout.block_size(), layout.num_columns());
         let low_degree_test_row: Vec<_> = element_generator
             .by_ref()
             .take(layout.block_size())
             .collect();
-        tableau.push(FE::extend(&low_degree_test_row, &context_block));
+        tableau.push(FE::extend(&low_degree_test_row, extend_context_block_ncol));
 
         // Fill the linear test row ("IDOT"): random field elements where elements [nreq..nreq+wr)
         // sum to 0, extended to NCOL
@@ -248,8 +253,7 @@ impl<FE: ProofFieldElement> Tableau<FE> {
                 .take(layout.witnesses_per_row())
                 .fold(FE::ZERO, |acc, elem| acc + elem)
         );
-        let context_dblock = FE::extend_precompute(layout.dblock(), layout.num_columns());
-        tableau.push(FE::extend(&linear_test_row, &context_dblock));
+        tableau.push(FE::extend(&linear_test_row, extend_context_dblock_ncol));
 
         // Quadratic test row: NREQ random elements then zeroes for each witness, then more random
         // elements to fill to DBLOCK, then extended to NCOL
@@ -266,7 +270,10 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         })
         .take(layout.dblock())
         .collect();
-        tableau.push(FE::extend(quadratic_test_row.as_slice(), &context_dblock));
+        tableau.push(FE::extend(
+            quadratic_test_row.as_slice(),
+            extend_context_dblock_ncol,
+        ));
 
         // Padded witness rows: NREQ random elements, then witnesses_per_row elements of the witness
         // extended to NCOL
@@ -281,7 +288,7 @@ impl<FE: ProofFieldElement> Tableau<FE> {
                     ))
                     .collect::<Vec<_>>()
                     .as_slice(),
-                &context_block,
+                extend_context_block_ncol,
             ));
         }
 
@@ -312,7 +319,7 @@ impl<FE: ProofFieldElement> Tableau<FE> {
                 row.push(witness);
             }
 
-            tableau.push(FE::extend(row.as_slice(), &context_block));
+            tableau.push(FE::extend(row.as_slice(), extend_context_block_ncol));
         }
 
         // Make sure we allocated the tableau correctly up front.
@@ -400,11 +407,23 @@ mod tests {
         let mut merkle_tree_nonce = Nonce([0; 32]);
         merkle_tree_nonce.0[0] = test_vector.pad as u8;
 
+        let layout = TableauLayout::new(
+            *test_vector.ligero_parameters(),
+            witness.len(),
+            quadratic_constraints.len(),
+        );
+        let extend_context_block_ncol =
+            FieldP128::extend_precompute(layout.block_size(), layout.num_columns());
+        let extend_context_dblock_ncol =
+            FieldP128::extend_precompute(layout.dblock(), layout.num_columns());
+
         let tree = Tableau::build_with_field_element_generator(
             *test_vector.ligero_parameters(),
             &witness,
             &quadratic_constraints,
             || test_vector.pad(),
+            &extend_context_block_ncol,
+            &extend_context_dblock_ncol,
         )
         .commit_with_merkle_tree_nonce_generator(|| merkle_tree_nonce)
         .unwrap();

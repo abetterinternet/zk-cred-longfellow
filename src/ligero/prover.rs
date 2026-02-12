@@ -16,32 +16,47 @@ use crate::{
         write_hash_of_a, write_proof,
     },
     transcript::Transcript,
-    witness::Witness,
+    witness::{Witness, WitnessLayout},
 };
 use anyhow::{Context, anyhow};
-use std::{
-    io::{self, Write},
-    marker::PhantomData,
-};
+use std::io::{self, Write};
 
 const MAX_RUN_LENGTH: usize = 1 << 25;
 
 /// Prover for the Ligero ZK proof system.
 #[derive(Debug, Clone)]
-pub struct LigeroProver<FE> {
+pub struct LigeroProver<FE: ProofFieldElement> {
     parameters: LigeroParameters,
     quadratic_constraints: Vec<QuadraticConstraint>,
-    _phantom: PhantomData<FE>,
+    extend_context_block_ncol: FE::ExtendContext,
+    extend_context_dblock_ncol: FE::ExtendContext,
+    extend_context_block_dblock: FE::ExtendContext,
 }
 
 impl<FE: ProofFieldElement> LigeroProver<FE> {
     /// Construct a new prover for a circuit and set of parameter choices.
     pub fn new(circuit: &Circuit<FE>, ligero_parameters: LigeroParameters) -> Self {
         let quadratic_constraints = quadratic_constraints(circuit);
+
+        let witness_layout = WitnessLayout::from_circuit(circuit);
+        let tableau_layout = TableauLayout::new(
+            ligero_parameters,
+            witness_layout.length(),
+            quadratic_constraints.len(),
+        );
+        let extend_context_block_ncol =
+            FE::extend_precompute(tableau_layout.block_size(), tableau_layout.num_columns());
+        let extend_context_dblock_ncol =
+            FE::extend_precompute(tableau_layout.dblock(), tableau_layout.num_columns());
+        let extend_context_block_dblock =
+            FE::extend_precompute(tableau_layout.block_size(), tableau_layout.dblock());
+
         Self {
             parameters: ligero_parameters,
             quadratic_constraints,
-            _phantom: PhantomData,
+            extend_context_block_ncol,
+            extend_context_dblock_ncol,
+            extend_context_block_dblock,
         }
     }
 
@@ -50,7 +65,13 @@ impl<FE: ProofFieldElement> LigeroProver<FE> {
         &self,
         witness: &Witness<FE>,
     ) -> Result<LigeroCommitmentState<FE>, anyhow::Error> {
-        let tableau = Tableau::build(self.parameters, witness, &self.quadratic_constraints);
+        let tableau = Tableau::build(
+            self.parameters,
+            witness,
+            &self.quadratic_constraints,
+            &self.extend_context_block_ncol,
+            &self.extend_context_dblock_ncol,
+        );
         let merkle_tree = tableau.commit()?;
         let root = merkle_tree.root();
 
@@ -135,13 +156,12 @@ impl<FE: ProofFieldElement> LigeroProver<FE> {
                 tableau.layout().block_size()
             );
 
-            let ctx = FE::extend_precompute(
-                inner_product_vector_extended.len(),
-                tableau.layout().dblock(),
-            );
             for ((dot_proof_element, inner_product_element), tableau_element) in dot_proof
                 .iter_mut()
-                .zip(FE::extend(&inner_product_vector_extended, &ctx))
+                .zip(FE::extend(
+                    &inner_product_vector_extended,
+                    &self.extend_context_block_dblock,
+                ))
                 .zip(tableau_row.iter().take(tableau.layout().dblock()))
             {
                 *dot_proof_element += inner_product_element * tableau_element;
@@ -494,6 +514,8 @@ mod tests {
             &witness,
             &ligero_prover.quadratic_constraints,
             || test_vector.pad(),
+            &ligero_prover.extend_context_block_ncol,
+            &ligero_prover.extend_context_dblock_ncol,
         );
 
         // Fix the nonce to match what longfellow-zk will do: all zeroes, but set the first byte to

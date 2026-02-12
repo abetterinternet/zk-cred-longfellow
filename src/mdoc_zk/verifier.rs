@@ -9,7 +9,6 @@ use crate::{
     },
     sumcheck::{initialize_transcript, prover::SumcheckProtocol},
     transcript::{Transcript, TranscriptMode},
-    witness::WitnessLayout,
 };
 use anyhow::{Context, anyhow};
 use std::io::{Cursor, Write};
@@ -19,10 +18,8 @@ pub struct MdocZkVerifier {
     circuit_version: CircuitVersion,
     num_attributes: usize,
     hash_circuit: Circuit<Field2_128>,
-    hash_witness_layout: WitnessLayout,
     hash_ligero_verifier: LigeroVerifier<Field2_128>,
     signature_circuit: Circuit<FieldP256>,
-    signature_witness_layout: WitnessLayout,
     signature_ligero_verifier: LigeroVerifier<FieldP256>,
 }
 
@@ -33,14 +30,8 @@ impl MdocZkVerifier {
         circuit_version: CircuitVersion,
         num_attributes: usize,
     ) -> Result<Self, anyhow::Error> {
-        let (
-            signature_circuit,
-            signature_ligero_parameters,
-            signature_witness_layout,
-            hash_circuit,
-            hash_ligero_parameters,
-            hash_witness_layout,
-        ) = common_initialization(circuit, circuit_version, num_attributes)?;
+        let (signature_circuit, signature_ligero_parameters, hash_circuit, hash_ligero_parameters) =
+            common_initialization(circuit, circuit_version, num_attributes)?;
 
         let hash_ligero_verifier = LigeroVerifier::new(&hash_circuit, hash_ligero_parameters);
         let signature_ligero_verifier =
@@ -50,10 +41,8 @@ impl MdocZkVerifier {
             circuit_version,
             num_attributes,
             hash_circuit,
-            hash_witness_layout,
             hash_ligero_verifier,
             signature_circuit,
-            signature_witness_layout,
             signature_ligero_verifier,
         })
     }
@@ -91,17 +80,11 @@ impl MdocZkVerifier {
         }
 
         // Parse the proof.
-        let hash_tableau_layout = self
-            .hash_ligero_verifier
-            .tableau_layout(&self.hash_witness_layout);
-        let signature_tableau_layout = self
-            .signature_ligero_verifier
-            .tableau_layout(&self.signature_witness_layout);
         let context = ProofContext {
             hash_circuit: &self.hash_circuit,
             signature_circuit: &self.signature_circuit,
-            hash_layout: &hash_tableau_layout,
-            signature_layout: &signature_tableau_layout,
+            hash_layout: self.hash_ligero_verifier.tableau_layout(),
+            signature_layout: self.signature_ligero_verifier.tableau_layout(),
         };
         let proof = MdocZkProof::get_decoded_with_param(&context, proof)
             .context("could not parse proof")?;
@@ -148,7 +131,6 @@ impl MdocZkVerifier {
             &proof.hash_ligero_proof,
             &mut transcript,
             &hash_linear_constraints,
-            &hash_tableau_layout,
         )?;
 
         // Run Sumcheck and Ligero on signature circuit.
@@ -169,7 +151,6 @@ impl MdocZkVerifier {
             &proof.signature_ligero_proof,
             &mut transcript,
             &signature_linear_constraints,
-            &signature_tableau_layout,
         )?;
 
         Ok(())

@@ -49,8 +49,8 @@ impl<FE: ProofFieldElement> LigeroProver<FE> {
     pub fn commit(
         &self,
         witness: &Witness<FE>,
-    ) -> Result<(Tableau<'_, FE>, MerkleTree), anyhow::Error> {
-        let tableau = Tableau::build(&self.parameters, witness, &self.quadratic_constraints);
+    ) -> Result<(Tableau<FE>, MerkleTree), anyhow::Error> {
+        let tableau = Tableau::build(self.parameters, witness, &self.quadratic_constraints);
         let merkle_tree = tableau.commit()?;
         Ok((tableau, merkle_tree))
     }
@@ -298,7 +298,7 @@ pub struct LigeroProof<FieldElement> {
     pub tableau_columns: Vec<Vec<FieldElement>>,
     pub inclusion_proof: InclusionProof,
 }
-impl<'a, FE: CodecFieldElement> ParameterizedCodec<TableauLayout<'a>> for LigeroProof<FE> {
+impl<FE: CodecFieldElement> ParameterizedCodec<TableauLayout> for LigeroProof<FE> {
     /// Deserialization of a Ligero proof implied by `serialize_ligero_proof` in [7.4][1].
     ///
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
@@ -371,7 +371,7 @@ impl<'a, FE: CodecFieldElement> ParameterizedCodec<TableauLayout<'a>> for Ligero
     /// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-7.4
     fn encode_with_param<W: Write>(
         &self,
-        _: &TableauLayout<'a>,
+        _: &TableauLayout,
         bytes: &mut W,
     ) -> Result<(), anyhow::Error> {
         FE::encode_fixed_array(&self.low_degree_test_proof, bytes)?;
@@ -458,7 +458,7 @@ mod tests {
         let ligero_prover = LigeroProver::new(&circuit, *test_vector.ligero_parameters());
 
         let tableau = Tableau::build_with_field_element_generator(
-            test_vector.ligero_parameters(),
+            *test_vector.ligero_parameters(),
             &witness,
             &ligero_prover.quadratic_constraints,
             || test_vector.pad(),
@@ -526,7 +526,7 @@ mod tests {
         let witness_layout = WitnessLayout::from_circuit(&circuit);
         let quadratic_constraints = quadratic_constraints(&circuit);
         let tableau_layout = TableauLayout::new(
-            test_vector.ligero_parameters(),
+            *test_vector.ligero_parameters(),
             witness_layout.length(),
             quadratic_constraints.len(),
         );

@@ -18,15 +18,15 @@ use sha2::{Digest, Sha256};
 /// needs the layout to locate corresponding values in the blinds it generates or the columns
 /// revealed by the prover.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TableauLayout<'a> {
-    parameters: &'a LigeroParameters,
+pub struct TableauLayout {
+    parameters: LigeroParameters,
     num_witnesses: usize,
     num_quadratic_constraints: usize,
 }
 
-impl<'a> TableauLayout<'a> {
+impl TableauLayout {
     pub fn new(
-        parameters: &'a LigeroParameters,
+        parameters: LigeroParameters,
         num_witnesses: usize,
         num_quadratic_constraints: usize,
     ) -> Self {
@@ -144,19 +144,24 @@ impl<'a> TableauLayout<'a> {
     pub fn gather<FE: ProofFieldElement>(&self, source: &[FE], indices: &[usize]) -> Vec<FE> {
         self.gather_iter(source, indices).collect()
     }
+
+    /// Returns the Ligero parameters.
+    pub fn ligero_parameters(&self) -> &LigeroParameters {
+        &self.parameters
+    }
 }
 
 /// An actual tableau containing values.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Tableau<'a, FieldElement> {
-    layout: TableauLayout<'a>,
+pub struct Tableau<FieldElement> {
+    layout: TableauLayout,
     contents: Vec<Vec<FieldElement>>,
 }
 
-impl<'a, FE: ProofFieldElement> Tableau<'a, FE> {
+impl<FE: ProofFieldElement> Tableau<FE> {
     /// Build the tableau.
     pub fn build(
-        ligero_parameters: &'a LigeroParameters,
+        ligero_parameters: LigeroParameters,
         witness: &Witness<FE>,
         quadratic_constraints: &[QuadraticConstraint],
     ) -> Self {
@@ -170,7 +175,7 @@ impl<'a, FE: ProofFieldElement> Tableau<'a, FE> {
 
     /// Build the tableau using the provided function to generate random elements.
     pub fn build_with_field_element_generator<FieldElementGenerator>(
-        ligero_parameters: &'a LigeroParameters,
+        ligero_parameters: LigeroParameters,
         witness: &Witness<FE>,
         quadratic_constraints: &[QuadraticConstraint],
         field_element_generator: FieldElementGenerator,
@@ -320,7 +325,7 @@ impl<'a, FE: ProofFieldElement> Tableau<'a, FE> {
     }
 
     /// The layout of the tableau.
-    pub fn layout(&'_ self) -> &'_ TableauLayout<'_> {
+    pub fn layout(&self) -> &TableauLayout {
         &self.layout
     }
 
@@ -396,7 +401,7 @@ mod tests {
         merkle_tree_nonce.0[0] = test_vector.pad as u8;
 
         let tree = Tableau::build_with_field_element_generator(
-            test_vector.ligero_parameters(),
+            *test_vector.ligero_parameters(),
             &witness,
             &quadratic_constraints,
             || test_vector.pad(),

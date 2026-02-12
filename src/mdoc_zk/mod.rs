@@ -678,8 +678,8 @@ impl<'a> ParameterizedCodec<ProofContext<'a>> for MdocZkProof {
 pub struct ProofContext<'a> {
     hash_circuit: &'a Circuit<Field2_128>,
     signature_circuit: &'a Circuit<FieldP256>,
-    hash_layout: &'a TableauLayout<'a>,
-    signature_layout: &'a TableauLayout<'a>,
+    hash_layout: &'a TableauLayout,
+    signature_layout: &'a TableauLayout,
 }
 
 #[cfg(test)]

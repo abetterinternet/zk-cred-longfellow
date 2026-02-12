@@ -26,7 +26,7 @@ use std::marker::PhantomData;
 #[derive(Debug, Clone)]
 pub struct LigeroVerifier<FE> {
     quadratic_constraints: Vec<QuadraticConstraint>,
-    ligero_parameters: LigeroParameters,
+    tableau_layout: TableauLayout,
     _phantom: PhantomData<FE>,
 }
 
@@ -34,25 +34,27 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
     /// Construct a new verifier for a circuit and set of parameter choices.
     pub fn new(circuit: &Circuit<FE>, ligero_parameters: LigeroParameters) -> Self {
         let quadratic_constraints = quadratic_constraints(circuit);
+        let witness_layout = WitnessLayout::from_circuit(circuit);
+        let tableau_layout = TableauLayout::new(
+            ligero_parameters,
+            witness_layout.length(),
+            quadratic_constraints.len(),
+        );
         Self {
             quadratic_constraints,
-            ligero_parameters,
+            tableau_layout,
             _phantom: PhantomData,
         }
     }
 
-    /// Returns the layout of the Ligero tableau, given the witness layout.
-    pub fn tableau_layout(&self, witness_layout: &WitnessLayout) -> TableauLayout<'_> {
-        TableauLayout::new(
-            &self.ligero_parameters,
-            witness_layout.length(),
-            self.quadratic_constraints.len(),
-        )
+    /// Returns the tableau layout.
+    pub fn tableau_layout(&self) -> &TableauLayout {
+        &self.tableau_layout
     }
 
     /// Returns the Ligero parameters used by this verifier.
     pub fn ligero_parameters(&self) -> &LigeroParameters {
-        &self.ligero_parameters
+        self.tableau_layout.ligero_parameters()
     }
 
     /// Returns the quadratic constraints.
@@ -67,13 +69,12 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
         proof: &LigeroProof<FE>,
         transcript: &mut Transcript,
         linear_constraints: &LinearConstraints<FE>,
-        layout: &TableauLayout,
     ) -> Result<(), anyhow::Error> {
         write_hash_of_a(transcript)?;
 
         let challenges = LigeroChallenges::generate(
             transcript,
-            layout,
+            &self.tableau_layout,
             linear_constraints.len(),
             self.quadratic_constraints.len(),
         )?;
@@ -87,8 +88,8 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
         )?;
 
         let requested_column_indices = transcript.generate_naturals_without_replacement(
-            layout.num_columns() - layout.dblock(),
-            layout.num_requested_columns(),
+            self.tableau_layout.num_columns() - self.tableau_layout.dblock(),
+            self.tableau_layout.num_requested_columns(),
         );
 
         // Check that low degree test proof matches
@@ -98,7 +99,7 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
         for (proof_row, challenge) in proof
             .tableau_columns
             .iter()
-            .skip(layout.first_witness_row())
+            .skip(self.tableau_layout.first_witness_row())
             .zip(challenges.low_degree_test_blind)
         {
             for (ldt_element, proof_element) in want_low_degree_row.iter_mut().zip(proof_row.iter())
@@ -107,8 +108,11 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
             }
         }
 
-        let context_block = FE::extend_precompute(layout.block_size(), layout.num_columns());
-        let proof_low_degree_test_row = layout.gather(
+        let context_block = FE::extend_precompute(
+            self.tableau_layout.block_size(),
+            self.tableau_layout.num_columns(),
+        );
+        let proof_low_degree_test_row = self.tableau_layout.gather(
             &FE::extend(&proof.low_degree_test_proof, &context_block),
             &requested_column_indices,
         );
@@ -129,15 +133,15 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
             // Skip the nreq random values at the start of the row. The proof only sums over the
             // witnesses.
             // Not documented in the specification.
-            .skip(layout.num_requested_columns())
-            .take(layout.witnesses_per_row())
+            .skip(self.tableau_layout.num_requested_columns())
+            .take(self.tableau_layout.witnesses_per_row())
             .fold(FE::ZERO, |sum, term| sum + term);
         if want_dot_product != proof_dot_product {
             return Err(anyhow!("dot product mismatch"));
         }
 
         let inner_product_vector = inner_product_vector(
-            layout,
+            &self.tableau_layout,
             linear_constraints,
             &challenges.linear_constraint_alphas,
             &self.quadratic_constraints,
@@ -146,28 +150,36 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
 
         // Check that dot proof matches requested columns
         let mut want_dot_row = proof.tableau_columns[TableauLayout::dot_proof_row()].clone();
-        let mut inner_product_vector_extended = Vec::with_capacity(layout.block_size());
+        let mut inner_product_vector_extended =
+            Vec::with_capacity(self.tableau_layout.block_size());
         // inner_product_vector's length is divisible by witnesses_per_row
         for (products, tableau_row) in inner_product_vector
-            .chunks(layout.witnesses_per_row())
-            .zip(&proof.tableau_columns[layout.first_witness_row()..])
+            .chunks(self.tableau_layout.witnesses_per_row())
+            .zip(&proof.tableau_columns[self.tableau_layout.first_witness_row()..])
         {
             inner_product_vector_extended.truncate(0);
-            inner_product_vector_extended.resize(layout.num_requested_columns(), FE::ZERO);
+            inner_product_vector_extended
+                .resize(self.tableau_layout.num_requested_columns(), FE::ZERO);
             inner_product_vector_extended.extend(products);
 
             let extended = FE::extend(&inner_product_vector_extended, &context_block);
             for ((want_dot_row_element, inner_product_element), tableau_element) in want_dot_row
                 .iter_mut()
-                .zip(layout.gather_iter(&extended, &requested_column_indices))
+                .zip(
+                    self.tableau_layout
+                        .gather_iter(&extended, &requested_column_indices),
+                )
                 .zip(tableau_row)
             {
                 *want_dot_row_element += inner_product_element * tableau_element;
             }
         }
 
-        let context_dblock = FE::extend_precompute(layout.dblock(), layout.num_columns());
-        let proof_dot_row = layout.gather(
+        let context_dblock = FE::extend_precompute(
+            self.tableau_layout.dblock(),
+            self.tableau_layout.num_columns(),
+        );
+        let proof_dot_row = self.tableau_layout.gather(
             &FE::extend(&proof.dot_proof, &context_dblock),
             &requested_column_indices,
         );
@@ -180,9 +192,9 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
         let mut want_quadratic_test_row =
             proof.tableau_columns[TableauLayout::quadratic_test_row()].clone();
 
-        let first_x_row = layout.first_quadratic_constraint_row();
-        let first_y_row = first_x_row + layout.num_quadratic_triples();
-        let first_z_row = first_y_row + layout.num_quadratic_triples();
+        let first_x_row = self.tableau_layout.first_quadratic_constraint_row();
+        let first_y_row = first_x_row + self.tableau_layout.num_quadratic_triples();
+        let first_z_row = first_y_row + self.tableau_layout.num_quadratic_triples();
 
         for (index, uquad) in challenges.quadratic_proof_blind.into_iter().enumerate() {
             let x_row = &proof.tableau_columns[first_x_row + index];
@@ -200,8 +212,11 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
             }
         }
 
-        let proof_quadratic_test_row = layout.gather(
-            &FE::extend(&proof.quadratic_proof(layout), &context_dblock),
+        let proof_quadratic_test_row = self.tableau_layout.gather(
+            &FE::extend(
+                &proof.quadratic_proof(&self.tableau_layout),
+                &context_dblock,
+            ),
             &requested_column_indices,
         );
 
@@ -210,7 +225,7 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
         }
 
         // Check the Merkle tree inclusion proof
-        let mut included_nodes = Vec::with_capacity(layout.num_requested_columns());
+        let mut included_nodes = Vec::with_capacity(self.tableau_layout.num_requested_columns());
         // The columns in the proof appear in the same order as the requested column indices.
         for index in 0..requested_column_indices.len() {
             let mut sha256 = Sha256::new();
@@ -224,7 +239,7 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
 
         MerkleTree::verify(
             commitment,
-            layout.num_columns() - layout.dblock(),
+            self.tableau_layout.num_columns() - self.tableau_layout.dblock(),
             &included_nodes,
             &requested_column_indices,
             &proof.inclusion_proof,
@@ -244,7 +259,6 @@ mod tests {
         sumcheck::{initialize_transcript, prover::SumcheckProtocol},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::{Transcript, TranscriptMode},
-        witness::WitnessLayout,
     };
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -274,16 +288,12 @@ mod tests {
             )
             .unwrap();
 
-        let witness_layout = WitnessLayout::from_circuit(&circuit);
-        let tableau_layout = ligero_verifier.tableau_layout(&witness_layout);
-
         ligero_verifier
             .verify(
                 test_vector.ligero_commitment(),
-                &test_vector.ligero_proof(&tableau_layout),
+                &test_vector.ligero_proof(&ligero_verifier.tableau_layout),
                 &mut transcript,
                 &linear_constraints,
-                &tableau_layout,
             )
             .unwrap();
     }

@@ -139,7 +139,7 @@ impl<'a, F: CodecFieldElement + ProofFieldElement> ParameterizedCodec<Verifier<'
         let oracle = u8::decode_fixed_array(bytes, 32)?.to_vec();
         let ligero_commitment = Root::decode(bytes)?;
         let sumcheck_proof = SumcheckProof::<F>::decode_with_param(verifier.circuit, bytes)?;
-        let ligero_proof = LigeroProof::<F>::decode_with_param(&verifier.tableau_layout(), bytes)?;
+        let ligero_proof = LigeroProof::<F>::decode_with_param(verifier.tableau_layout(), bytes)?;
 
         Ok(Self {
             oracle,
@@ -169,7 +169,7 @@ impl<'a, F: CodecFieldElement + ProofFieldElement> ParameterizedCodec<Verifier<'
         self.sumcheck_proof
             .encode_with_param(verifier.circuit, bytes)?;
         self.ligero_proof
-            .encode_with_param(&verifier.tableau_layout(), bytes)?;
+            .encode_with_param(verifier.tableau_layout(), bytes)?;
 
         Ok(())
     }

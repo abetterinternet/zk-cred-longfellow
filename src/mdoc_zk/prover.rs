@@ -41,10 +41,8 @@ pub(super) fn common_initialization(
     (
         Circuit<FieldP256>,
         LigeroParameters,
-        WitnessLayout,
         Circuit<Field2_128>,
         LigeroParameters,
-        WitnessLayout,
     ),
     anyhow::Error,
 > {
@@ -62,15 +60,11 @@ pub(super) fn common_initialization(
     let hash_ligero_parameters = hash_ligero_parameters(circuit_version, num_attributes);
     let signature_ligero_parameters = signature_ligero_parameters(circuit_version);
 
-    let hash_witness_layout = WitnessLayout::from_circuit(&hash_circuit);
-    let signature_witness_layout = WitnessLayout::from_circuit(&signature_circuit);
     Ok((
         signature_circuit,
         signature_ligero_parameters,
-        signature_witness_layout,
         hash_circuit,
         hash_ligero_parameters,
-        hash_witness_layout,
     ))
 }
 
@@ -81,14 +75,11 @@ impl MdocZkProver {
         circuit_version: CircuitVersion,
         num_attributes: usize,
     ) -> Result<Self, anyhow::Error> {
-        let (
-            signature_circuit,
-            signature_ligero_parameters,
-            signature_witness_layout,
-            hash_circuit,
-            hash_ligero_parameters,
-            hash_witness_layout,
-        ) = common_initialization(circuit, circuit_version, num_attributes)?;
+        let (signature_circuit, signature_ligero_parameters, hash_circuit, hash_ligero_parameters) =
+            common_initialization(circuit, circuit_version, num_attributes)?;
+
+        let hash_witness_layout = WitnessLayout::from_circuit(&hash_circuit);
+        let signature_witness_layout = WitnessLayout::from_circuit(&signature_circuit);
 
         let hash_ligero_prover = LigeroProver::new(&hash_circuit, hash_ligero_parameters);
         let signature_ligero_prover =

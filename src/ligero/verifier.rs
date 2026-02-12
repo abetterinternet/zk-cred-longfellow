@@ -23,6 +23,7 @@ use sha2::{Digest, Sha256};
 use std::marker::PhantomData;
 
 /// Verifier for the Ligero ZK proof system.
+#[derive(Debug, Clone)]
 pub struct LigeroVerifier<FE> {
     quadratic_constraints: Vec<QuadraticConstraint>,
     ligero_parameters: LigeroParameters,

@@ -27,6 +27,7 @@ use std::{
 const MAX_RUN_LENGTH: usize = 1 << 25;
 
 /// Prover for the Ligero ZK proof system.
+#[derive(Debug, Clone)]
 pub struct LigeroProver<FE> {
     parameters: LigeroParameters,
     quadratic_constraints: Vec<QuadraticConstraint>,

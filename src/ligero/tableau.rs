@@ -371,7 +371,6 @@ mod tests {
         circuit::Evaluation,
         constraints::proof_constraints::quadratic_constraints,
         fields::fieldp128::FieldP128,
-        ligero::LigeroCommitment,
         test_vector::load_rfc,
         witness::{Witness, WitnessLayout},
     };
@@ -405,10 +404,7 @@ mod tests {
         .commit_with_merkle_tree_nonce_generator(|| merkle_tree_nonce)
         .unwrap();
 
-        assert_eq!(
-            LigeroCommitment::from(tree.root()),
-            test_vector.ligero_commitment(),
-        );
+        assert_eq!(tree.root(), test_vector.ligero_commitment());
         for nonce in tree.nonces() {
             assert_eq!(nonce, &merkle_tree_nonce);
         }

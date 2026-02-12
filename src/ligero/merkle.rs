@@ -2,13 +2,13 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.1
 
-use crate::{
-    Codec, Sha256Digest,
-    ligero::{LigeroCommitment, Nonce},
-};
+use crate::{Codec, Sha256Digest, ligero::Nonce};
 use anyhow::{Context, anyhow};
 use sha2::{Digest, Sha256};
-use std::{fmt::Debug, io::Write};
+use std::{
+    fmt::Debug,
+    io::{self, Write},
+};
 
 /// The value of a node of a [`MerkleTree`]. A tree could use various hashing algorithms, but we
 /// only support SHA-256, and so a `Digest` is always a 32 byte array, saving us a heap allocation.
@@ -52,8 +52,8 @@ impl From<Node> for Sha256Digest {
     }
 }
 
-impl From<LigeroCommitment> for Node {
-    fn from(value: LigeroCommitment) -> Self {
+impl From<Root> for Node {
+    fn from(value: Root) -> Self {
         Self(Sha256Digest(value.into_bytes()))
     }
 }
@@ -173,8 +173,8 @@ impl MerkleTree {
     }
 
     /// Get the digest at the root of the tree.
-    pub fn root(&self) -> Node {
-        self.digests[1]
+    pub fn root(&self) -> Root {
+        self.digests[1].into()
     }
 
     fn mark_tree(tree_size: usize, leaf_count: usize, requested_leaves: &[usize]) -> Vec<bool> {
@@ -218,7 +218,7 @@ impl MerkleTree {
     /// Verify that the `proof` proves that the `included_nodes` (each consisting of a digest and
     /// a leaf index) are included in the tree of size `leaf_count`, rooted at `root`.
     pub fn verify(
-        root: Node,
+        root: Root,
         leaf_count: usize,
         included_nodes: &[Node],
         included_node_indices: &[usize],
@@ -273,7 +273,7 @@ impl MerkleTree {
             }
         }
 
-        if partial_tree[1] != Some(root) {
+        if partial_tree[1] != Some(root.into()) {
             return Err(anyhow!("partial tree root does not match"));
         }
 
@@ -284,6 +284,46 @@ impl MerkleTree {
     /// the leaves.
     pub fn nonces(&self) -> &[Nonce] {
         &self.nonces
+    }
+}
+
+/// A commitment to a witness vector, as specified in [1]. Concretely, this is the root of a Merkle
+/// tree of SHA-256 hashes.
+///
+/// [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Root(Sha256Digest);
+
+impl From<Node> for Root {
+    fn from(value: Node) -> Self {
+        Self(Sha256Digest::from(value))
+    }
+}
+
+impl Root {
+    /// The commitment as a slice of bytes.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0.0
+    }
+
+    pub fn into_bytes(&self) -> [u8; 32] {
+        self.0.0
+    }
+
+    /// A fake but well-formed commitment for tests.
+    #[cfg(test)]
+    pub fn test_commitment() -> Self {
+        Self::from(Node::from(Sha256Digest([1u8; 32])))
+    }
+}
+
+impl Codec for Root {
+    fn decode(bytes: &mut io::Cursor<&[u8]>) -> Result<Self, anyhow::Error> {
+        Ok(Self(Sha256Digest::decode(bytes)?))
+    }
+
+    fn encode<W: Write>(&self, bytes: &mut W) -> Result<(), anyhow::Error> {
+        self.0.encode(bytes)
     }
 }
 
@@ -524,6 +564,7 @@ mod tests {
             root,
             Node::from_hex("f22f4501ffd3bdffcecc9e4cd6828a4479aeedd6aa484eb7c1f808ccf71c6e76")
                 .unwrap()
+                .into()
         );
 
         let proofs = [

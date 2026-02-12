@@ -2,7 +2,7 @@ use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
     fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
-    ligero::{LigeroCommitment, LigeroParameters, prover::LigeroProof, tableau::TableauLayout},
+    ligero::{LigeroParameters, merkle::Root, prover::LigeroProof, tableau::TableauLayout},
     mdoc_zk::{
         bit_plucker::BitPlucker,
         ec::{AffinePoint, fill_ecdsa_witness},
@@ -614,10 +614,10 @@ fn hash_ligero_parameters(
 #[derive(Debug, PartialEq, Eq)]
 pub struct MdocZkProof {
     mac_tags: [Field2_128; 6],
-    hash_commitment: LigeroCommitment,
+    hash_commitment: Root,
     hash_sumcheck_proof: SumcheckProof<Field2_128>,
     hash_ligero_proof: LigeroProof<Field2_128>,
-    signature_commitment: LigeroCommitment,
+    signature_commitment: Root,
     signature_sumcheck_proof: SumcheckProof<FieldP256>,
     signature_ligero_proof: LigeroProof<FieldP256>,
 }
@@ -631,12 +631,12 @@ impl<'a> ParameterizedCodec<ProofContext<'a>> for MdocZkProof {
         for tag in mac_tags.iter_mut() {
             *tag = Field2_128::decode(cursor)?;
         }
-        let hash_commitment = LigeroCommitment::decode(cursor)?;
+        let hash_commitment = Root::decode(cursor)?;
         let hash_sumcheck_proof =
             SumcheckProof::decode_with_param(encoding_parameter.hash_circuit, cursor)?;
         let hash_ligero_proof =
             LigeroProof::decode_with_param(encoding_parameter.hash_layout, cursor)?;
-        let signature_commitment = LigeroCommitment::decode(cursor)?;
+        let signature_commitment = Root::decode(cursor)?;
         let signature_sumcheck_proof =
             SumcheckProof::decode_with_param(encoding_parameter.signature_circuit, cursor)?;
         let signature_ligero_proof =

@@ -9,8 +9,8 @@ use crate::{
     },
     fields::ProofFieldElement,
     ligero::{
-        LigeroChallenges, LigeroCommitment, LigeroParameters,
-        merkle::{MerkleTree, Node},
+        LigeroChallenges, LigeroParameters,
+        merkle::{MerkleTree, Node, Root},
         prover::{LigeroProof, inner_product_vector},
         tableau::TableauLayout,
         write_hash_of_a, write_proof,
@@ -63,7 +63,7 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
     /// Verify a proof claiming that the commitment satisfies the provided constraints.
     pub fn verify(
         &self,
-        commitment: LigeroCommitment,
+        commitment: Root,
         proof: &LigeroProof<FE>,
         transcript: &mut Transcript,
         linear_constraints: &LinearConstraints<FE>,
@@ -223,7 +223,7 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
         }
 
         MerkleTree::verify(
-            Node::from(commitment),
+            commitment,
             layout.num_columns() - layout.dblock(),
             &included_nodes,
             &requested_column_indices,

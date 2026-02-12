@@ -3,7 +3,8 @@ use crate::{
     circuit::Circuit,
     fields::{CodecFieldElement, ProofFieldElement},
     ligero::{
-        LigeroCommitment, LigeroParameters,
+        LigeroParameters,
+        merkle::Root,
         prover::{LigeroProof, LigeroProver},
     },
     sumcheck::{
@@ -56,7 +57,7 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
 
         // Construct Ligero commitment.
         let (tableau, merkle_tree) = self.ligero_prover.commit(&witness)?;
-        let commitment = LigeroCommitment::from(merkle_tree.root());
+        let commitment = merkle_tree.root();
 
         // Start of Fiat-Shamir transcript.
         let mut transcript = Transcript::new(session_id, TranscriptMode::V3Compatibility).unwrap();
@@ -97,7 +98,7 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
 pub struct Proof<FE> {
     oracle: Vec<u8>,
     sumcheck_proof: SumcheckProof<FE>,
-    ligero_commitment: LigeroCommitment,
+    ligero_commitment: Root,
     ligero_proof: LigeroProof<FE>,
 }
 
@@ -113,7 +114,7 @@ impl<FE> Proof<FE> {
     }
 
     /// Returns the Ligero commitment.
-    pub fn ligero_commitment(&self) -> LigeroCommitment {
+    pub fn ligero_commitment(&self) -> Root {
         self.ligero_commitment
     }
 
@@ -136,7 +137,7 @@ impl<'a, F: CodecFieldElement + ProofFieldElement> ParameterizedCodec<Verifier<'
         bytes: &mut Cursor<&[u8]>,
     ) -> Result<Self, anyhow::Error> {
         let oracle = u8::decode_fixed_array(bytes, 32)?.to_vec();
-        let ligero_commitment = LigeroCommitment::decode(bytes)?;
+        let ligero_commitment = Root::decode(bytes)?;
         let sumcheck_proof = SumcheckProof::<F>::decode_with_param(verifier.circuit, bytes)?;
         let ligero_proof = LigeroProof::<F>::decode_with_param(&verifier.tableau_layout(), bytes)?;
 

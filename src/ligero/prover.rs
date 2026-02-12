@@ -439,7 +439,6 @@ mod tests {
         circuit::{Circuit, Evaluation},
         constraints::proof_constraints::quadratic_constraints,
         fields::{field2_128::Field2_128, fieldp128::FieldP128},
-        ligero::LigeroCommitment,
         sumcheck::{initialize_transcript, prover::SumcheckProtocol},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::{Transcript, TranscriptMode},
@@ -473,7 +472,7 @@ mod tests {
             .commit_with_merkle_tree_nonce_generator(|| merkle_tree_nonce)
             .unwrap();
 
-        let ligero_commitment = LigeroCommitment::from(merkle_tree.root());
+        let ligero_commitment = merkle_tree.root();
 
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
         let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();

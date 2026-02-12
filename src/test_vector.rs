@@ -6,7 +6,9 @@ use crate::{
     constraints::proof_constraints::QuadraticConstraint,
     fields::{CodecFieldElement, field2_128::Field2_128, fieldp128::FieldP128},
     ligero::{
-        LigeroCommitment, LigeroParameters, merkle::Node, prover::LigeroProof,
+        LigeroParameters,
+        merkle::{Node, Root},
+        prover::LigeroProof,
         tableau::TableauLayout,
     },
     sumcheck::prover::SumcheckProof,
@@ -141,8 +143,8 @@ impl<FE: CodecFieldElement> CircuitTestVector<FE> {
         FE::from_u128(self.pad.into())
     }
 
-    pub(crate) fn ligero_commitment(&self) -> LigeroCommitment {
-        LigeroCommitment::from(Node::from_hex(&self.ligero_commitment).unwrap())
+    pub(crate) fn ligero_commitment(&self) -> Root {
+        Root::from(Node::from_hex(&self.ligero_commitment).unwrap())
     }
 
     pub(crate) fn valid_inputs(&self) -> &[FE] {

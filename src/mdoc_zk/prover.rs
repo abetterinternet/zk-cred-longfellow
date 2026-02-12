@@ -2,7 +2,7 @@ use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
     fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
-    ligero::{LigeroCommitment, LigeroParameters, prover::LigeroProver},
+    ligero::{LigeroParameters, prover::LigeroProver},
     mdoc_zk::{
         CircuitInputs, CircuitVersion, MdocZkProof, ProofContext, hash_ligero_parameters,
         signature_ligero_parameters,
@@ -156,13 +156,13 @@ impl MdocZkProver {
 
         // Commit to the hash circuit witness.
         let (hash_tableau, hash_merkle_tree) = self.hash_ligero_prover.commit(&hash_witness)?;
-        let hash_commitment = LigeroCommitment::from(hash_merkle_tree.root());
+        let hash_commitment = hash_merkle_tree.root();
         transcript.write_byte_array(hash_commitment.as_bytes())?;
 
         // Commit to the signature circuit witness.
         let (signature_tableau, signature_merkle_tree) =
             self.signature_ligero_prover.commit(&signature_witness)?;
-        let signature_commitment = LigeroCommitment::from(signature_merkle_tree.root());
+        let signature_commitment = signature_merkle_tree.root();
         transcript.write_byte_array(signature_commitment.as_bytes())?;
 
         // Generate MAC verifier key share.

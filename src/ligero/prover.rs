@@ -27,6 +27,7 @@ const MAX_RUN_LENGTH: usize = 1 << 25;
 #[derive(Debug, Clone)]
 pub struct LigeroProver<FE: ProofFieldElement> {
     parameters: LigeroParameters,
+    witness_layout: WitnessLayout,
     quadratic_constraints: Vec<QuadraticConstraint>,
     extend_context_block_ncol: FE::ExtendContext,
     extend_context_dblock_ncol: FE::ExtendContext,
@@ -52,6 +53,7 @@ impl<FE: ProofFieldElement> LigeroProver<FE> {
 
         Self {
             parameters: ligero_parameters,
+            witness_layout,
             quadratic_constraints,
             extend_context_block_ncol,
             extend_context_dblock_ncol,
@@ -261,6 +263,11 @@ impl<FE: ProofFieldElement> LigeroProver<FE> {
             inclusion_proof,
             merkle_tree_nonces,
         })
+    }
+
+    /// Returns the layout of the Ligero witness.
+    pub fn witness_layout(&self) -> &WitnessLayout {
+        &self.witness_layout
     }
 }
 

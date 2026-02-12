@@ -146,15 +146,12 @@ impl MdocZkProver {
         );
 
         // Commit to the hash circuit witness.
-        let (hash_tableau, hash_merkle_tree) = self.hash_ligero_prover.commit(&hash_witness)?;
-        let hash_commitment = hash_merkle_tree.root();
-        transcript.write_byte_array(hash_commitment.as_bytes())?;
+        let hash_commitment_state = self.hash_ligero_prover.commit(&hash_witness)?;
+        transcript.write_byte_array(hash_commitment_state.commitment().as_bytes())?;
 
         // Commit to the signature circuit witness.
-        let (signature_tableau, signature_merkle_tree) =
-            self.signature_ligero_prover.commit(&signature_witness)?;
-        let signature_commitment = signature_merkle_tree.root();
-        transcript.write_byte_array(signature_commitment.as_bytes())?;
+        let signature_commitment_state = self.signature_ligero_prover.commit(&signature_witness)?;
+        transcript.write_byte_array(signature_commitment_state.commitment().as_bytes())?;
 
         // Generate MAC verifier key share.
         let mac_verifier_key_share = transcript.generate_challenge(1)?;
@@ -189,8 +186,7 @@ impl MdocZkProver {
 
         let hash_ligero_proof = self.hash_ligero_prover.prove(
             &mut transcript,
-            &hash_tableau,
-            &hash_merkle_tree,
+            &hash_commitment_state,
             &hash_linear_constraints,
         )?;
 
@@ -211,8 +207,7 @@ impl MdocZkProver {
 
         let signature_ligero_proof = self.signature_ligero_prover.prove(
             &mut transcript,
-            &signature_tableau,
-            &signature_merkle_tree,
+            &signature_commitment_state,
             &signature_linear_constraints,
         )?;
 
@@ -220,18 +215,18 @@ impl MdocZkProver {
         let mut proof_buffer = Vec::with_capacity(1 << 19);
         let proof = MdocZkProof {
             mac_tags,
-            hash_commitment,
+            hash_commitment: *hash_commitment_state.commitment(),
             hash_sumcheck_proof,
             hash_ligero_proof,
-            signature_commitment,
+            signature_commitment: *signature_commitment_state.commitment(),
             signature_sumcheck_proof,
             signature_ligero_proof,
         };
         let context = ProofContext {
             hash_circuit: &self.hash_circuit,
             signature_circuit: &self.signature_circuit,
-            hash_layout: hash_tableau.layout(),
-            signature_layout: signature_tableau.layout(),
+            hash_layout: hash_commitment_state.tableau().layout(),
+            signature_layout: signature_commitment_state.tableau().layout(),
         };
         proof.encode_with_param(&context, &mut proof_buffer)?;
 

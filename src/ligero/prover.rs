@@ -11,7 +11,7 @@ use crate::{
     fields::{CodecFieldElement, ProofFieldElement},
     ligero::{
         LigeroChallenges, LigeroParameters, Nonce,
-        merkle::{InclusionProof, MerkleTree},
+        merkle::{InclusionProof, MerkleTree, Root},
         tableau::{Tableau, TableauLayout},
         write_hash_of_a, write_proof,
     },
@@ -49,10 +49,16 @@ impl<FE: ProofFieldElement> LigeroProver<FE> {
     pub fn commit(
         &self,
         witness: &Witness<FE>,
-    ) -> Result<(Tableau<FE>, MerkleTree), anyhow::Error> {
+    ) -> Result<LigeroCommitmentState<FE>, anyhow::Error> {
         let tableau = Tableau::build(self.parameters, witness, &self.quadratic_constraints);
         let merkle_tree = tableau.commit()?;
-        Ok((tableau, merkle_tree))
+        let root = merkle_tree.root();
+
+        Ok(LigeroCommitmentState {
+            tableau,
+            merkle_tree,
+            root,
+        })
     }
 
     /// Prove that the commitment satisfies the provided constraints. The provided transcript should
@@ -65,10 +71,12 @@ impl<FE: ProofFieldElement> LigeroProver<FE> {
     pub fn prove(
         &self,
         transcript: &mut Transcript,
-        tableau: &Tableau<FE>,
-        merkle_tree: &MerkleTree,
+        commitment_state: &LigeroCommitmentState<FE>,
         linear_constraints: &LinearConstraints<FE>,
     ) -> Result<LigeroProof<FE>, anyhow::Error> {
+        let tableau = commitment_state.tableau();
+        let merkle_tree = commitment_state.merkle_tree();
+
         write_hash_of_a(transcript)?;
 
         let challenges = LigeroChallenges::generate(
@@ -432,6 +440,30 @@ impl<FE: CodecFieldElement> LigeroProof<FE> {
     }
 }
 
+/// Private state for the Ligero commitment scheme.
+pub struct LigeroCommitmentState<FE> {
+    tableau: Tableau<FE>,
+    merkle_tree: MerkleTree,
+    root: Root,
+}
+
+impl<FE> LigeroCommitmentState<FE> {
+    /// Returns the tableau.
+    pub fn tableau(&self) -> &Tableau<FE> {
+        &self.tableau
+    }
+
+    /// Returns the Merkle tree committing to the tableau.
+    pub fn merkle_tree(&self) -> &MerkleTree {
+        &self.merkle_tree
+    }
+
+    /// Returns the commitment, the root of the Merkle tree.
+    pub fn commitment(&self) -> &Root {
+        &self.root
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,6 +505,11 @@ mod tests {
             .unwrap();
 
         let ligero_commitment = merkle_tree.root();
+        let commitment_state = LigeroCommitmentState {
+            tableau,
+            merkle_tree,
+            root: ligero_commitment,
+        };
 
         // Matches session used in longfellow-zk/lib/zk/zk_test.cc
         let mut transcript = Transcript::new(b"test", TranscriptMode::V3Compatibility).unwrap();
@@ -495,11 +532,11 @@ mod tests {
             .unwrap();
 
         let ligero_proof = ligero_prover
-            .prove(&mut transcript, &tableau, &merkle_tree, &linear_constraints)
+            .prove(&mut transcript, &commitment_state, &linear_constraints)
             .unwrap();
 
         let encoded_ligero_proof = ligero_proof
-            .get_encoded_with_param(tableau.layout())
+            .get_encoded_with_param(commitment_state.tableau().layout())
             .unwrap();
 
         // It's not terribly useful to print 1000s of bytes of proof to stderr so we avoid the usual

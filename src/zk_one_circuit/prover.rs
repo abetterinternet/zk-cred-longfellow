@@ -56,12 +56,11 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
         );
 
         // Construct Ligero commitment.
-        let (tableau, merkle_tree) = self.ligero_prover.commit(&witness)?;
-        let commitment = merkle_tree.root();
+        let commitment_state = self.ligero_prover.commit(&witness)?;
 
         // Start of Fiat-Shamir transcript.
         let mut transcript = Transcript::new(session_id, TranscriptMode::V3Compatibility).unwrap();
-        transcript.write_byte_array(commitment.as_bytes())?;
+        transcript.write_byte_array(commitment_state.commitment().as_bytes())?;
         initialize_transcript(
             &mut transcript,
             circuit,
@@ -77,17 +76,14 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
             .prove(&evaluation, &mut transcript, &witness)?;
 
         // Generate Ligero proof.
-        let ligero_proof = self.ligero_prover.prove(
-            &mut transcript,
-            &tableau,
-            &merkle_tree,
-            &linear_constraints,
-        )?;
+        let ligero_proof =
+            self.ligero_prover
+                .prove(&mut transcript, &commitment_state, &linear_constraints)?;
 
         Ok(Proof {
             oracle: session_id.to_vec(),
             sumcheck_proof,
-            ligero_commitment: commitment,
+            ligero_commitment: *commitment_state.commitment(),
             ligero_proof,
         })
     }

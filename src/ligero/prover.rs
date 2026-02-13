@@ -84,8 +84,8 @@ impl<FE: ProofFieldElement> LigeroProver<FE> {
     }
 
     /// Prove that the commitment satisfies the provided constraints. The provided transcript should
-    /// have been used in [`crate::sumcheck::prover::SumcheckProtocol::prove`] (or, equivalently,
-    /// [`crate::sumcheck::prover::SumcheckProtocol::linear_constraints`]).
+    /// have been used in [`crate::sumcheck::SumcheckProtocol::prove`] (or, equivalently,
+    /// [`crate::sumcheck::SumcheckProtocol::linear_constraints`]).
     ///
     /// This is specified in [4.4][1].
     ///

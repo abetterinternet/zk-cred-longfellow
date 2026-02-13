@@ -137,11 +137,8 @@ impl TestVectorRng {
         if self.rng.random_bool(sparseness) {
             return FE::ZERO;
         }
-        FE::sample_from_source(|num_bytes| {
-            let mut bytes = vec![0; num_bytes];
-            self.rng.try_fill_bytes(&mut bytes).unwrap();
-
-            bytes
+        FE::sample_from_source(&mut vec![0; FE::num_bytes()], |bytes| {
+            self.rng.try_fill_bytes(bytes).unwrap();
         })
     }
 

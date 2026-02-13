@@ -240,9 +240,12 @@ impl Transcript {
 
         // TODO: the case where the "field element" is a polynomial?
 
-        Ok(std::iter::from_fn(|| Some(fsprf.sample_field_element()))
-            .take(length)
-            .collect())
+        let mut buffer = vec![0; FE::num_bytes()];
+        Ok(
+            std::iter::repeat_with(|| fsprf.sample_field_element(&mut buffer))
+                .take(length)
+                .collect(),
+        )
     }
 
     /// Generate a value smaller than `max`.
@@ -358,8 +361,12 @@ impl FiatShamirPseudoRandomFunction {
     }
 
     /// Sample a field element from this FSPRF.
-    pub fn sample_field_element<FE: CodecFieldElement>(&mut self) -> FE {
-        FE::sample_from_source(|num_bytes| self.take(num_bytes).collect::<Vec<_>>())
+    fn sample_field_element<FE: CodecFieldElement>(&mut self, buffer: &mut [u8]) -> FE {
+        FE::sample_from_source(buffer, |bytes| {
+            for (out, byte) in bytes.iter_mut().zip(&mut *self) {
+                *out = byte;
+            }
+        })
     }
 }
 

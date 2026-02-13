@@ -15,6 +15,7 @@ use crate::{
     witness::Witness,
 };
 use anyhow::anyhow;
+use rand::RngCore;
 use std::io::Cursor;
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -127,15 +128,18 @@ impl MdocZkProver {
         let mut transcript = Transcript::new(session_transcript, TranscriptMode::Normal)?;
 
         // Select one-time-pads, and produce Ligero witnesses.
+        let mut rng = rand::rng();
+        let mut buffer = vec![0; Field2_128::num_bytes()];
         let hash_witness = Witness::fill_witness(
             self.hash_ligero_prover.witness_layout().clone(),
             &inputs.hash_input()[self.hash_circuit.num_public_inputs()..],
-            Field2_128::sample,
+            || Field2_128::sample_from_source(&mut buffer, |bytes| rng.fill_bytes(bytes)),
         );
+        let mut buffer = vec![0; FieldP256::num_bytes()];
         let signature_witness = Witness::fill_witness(
             self.signature_ligero_prover.witness_layout().clone(),
             &inputs.signature_input()[self.signature_circuit.num_public_inputs()..],
-            FieldP256::sample,
+            || FieldP256::sample_from_source(&mut buffer, |bytes| rng.fill_bytes(bytes)),
         );
 
         // Commit to the hash circuit witness.

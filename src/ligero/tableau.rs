@@ -11,7 +11,7 @@ use crate::{
     },
     witness::Witness,
 };
-use rand::random;
+use rand::{RngCore, random};
 use sha2::{Digest, Sha256};
 
 /// Describes the layout of the tableau. The verifier does not actually have the entire tableau, but
@@ -167,11 +167,13 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         extend_context_block_ncol: &FE::ExtendContext,
         extend_context_dblock_ncol: &FE::ExtendContext,
     ) -> Self {
+        let mut buffer = vec![0; FE::num_bytes()];
+        let mut rng = rand::rng();
         Self::build_with_field_element_generator(
             ligero_parameters,
             witness,
             quadratic_constraints,
-            FE::sample,
+            || FE::sample_from_source(&mut buffer, |bytes| rng.fill_bytes(bytes)),
             extend_context_block_ncol,
             extend_context_dblock_ncol,
         )

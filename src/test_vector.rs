@@ -3,7 +3,6 @@
 use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::QuadraticConstraint,
     fields::{CodecFieldElement, field2_128::Field2_128, fieldp128::FieldP128},
     ligero::{
         LigeroParameters,
@@ -11,7 +10,8 @@ use crate::{
         prover::LigeroProof,
         tableau::TableauLayout,
     },
-    sumcheck::prover::SumcheckProof,
+    sumcheck::SumcheckProof,
+    sumcheck::constraints::QuadraticConstraint,
 };
 use serde::Deserialize;
 use std::io::Cursor;

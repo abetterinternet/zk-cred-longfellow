@@ -164,12 +164,15 @@ pub(crate) mod tests {
     use crate::{
         field_element_tests,
         fields::{FieldElement, ProofFieldElement},
-        sumcheck::bind::{
-            Binding, DenseSumcheckArray, bindeq_inner,
-            sparse::{Hand, SparseSumcheckArray},
-            test_vector::{
-                BindTestVector, Dense1DArrayBindTestCase, load_dense_1d_array_bind_2_128,
-                load_dense_1d_array_bind_p128, load_dense_1d_array_bind_p256,
+        sumcheck::{
+            Hand,
+            bind::{
+                Binding, DenseSumcheckArray, bindeq_inner,
+                sparse::SparseSumcheckArray,
+                test_vector::{
+                    BindTestVector, Dense1DArrayBindTestCase, load_dense_1d_array_bind_2_128,
+                    load_dense_1d_array_bind_p128, load_dense_1d_array_bind_p256,
+                },
             },
         },
     };

@@ -4,9 +4,6 @@
 
 use crate::{
     circuit::Circuit,
-    constraints::proof_constraints::{
-        LinearConstraints, QuadraticConstraint, quadratic_constraints,
-    },
     fields::ProofFieldElement,
     ligero::{
         LigeroChallenges, LigeroParameters,
@@ -15,6 +12,7 @@ use crate::{
         tableau::TableauLayout,
         write_hash_of_a, write_proof,
     },
+    sumcheck::constraints::{LinearConstraints, QuadraticConstraint, quadratic_constraints},
     transcript::Transcript,
     witness::WitnessLayout,
 };
@@ -261,7 +259,7 @@ mod tests {
     use crate::{
         circuit::Circuit,
         fields::{field2_128::Field2_128, fieldp128::FieldP128},
-        sumcheck::{initialize_transcript, prover::SumcheckProtocol},
+        sumcheck::{SumcheckProtocol, initialize_transcript},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::{Transcript, TranscriptMode},
     };

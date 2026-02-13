@@ -5,15 +5,15 @@
 use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::{
-        LinearConstraintLhsTerm, LinearConstraints, QuadraticConstraint, quadratic_constraints,
-    },
     fields::{CodecFieldElement, ProofFieldElement},
     ligero::{
         LigeroChallenges, LigeroParameters, Nonce,
         merkle::{InclusionProof, MerkleTree, Root},
         tableau::{Tableau, TableauLayout},
         write_hash_of_a, write_proof,
+    },
+    sumcheck::constraints::{
+        LinearConstraintLhsTerm, LinearConstraints, QuadraticConstraint, quadratic_constraints,
     },
     transcript::Transcript,
     witness::{Witness, WitnessLayout},
@@ -84,8 +84,8 @@ impl<FE: ProofFieldElement> LigeroProver<FE> {
     }
 
     /// Prove that the commitment satisfies the provided constraints. The provided transcript should
-    /// have been used in [`crate::sumcheck::prover::SumcheckProtocol::prove`] (or, equivalently,
-    /// [`crate::sumcheck::prover::SumcheckProtocol::linear_constraints`]).
+    /// have been used in [`crate::sumcheck::SumcheckProtocol::prove`] (or, equivalently,
+    /// [`crate::sumcheck::SumcheckProtocol::linear_constraints`]).
     ///
     /// This is specified in [4.4][1].
     ///
@@ -495,9 +495,8 @@ mod tests {
     use super::*;
     use crate::{
         circuit::{Circuit, Evaluation},
-        constraints::proof_constraints::quadratic_constraints,
         fields::{field2_128::Field2_128, fieldp128::FieldP128},
-        sumcheck::{initialize_transcript, prover::SumcheckProtocol},
+        sumcheck::{SumcheckProtocol, constraints::quadratic_constraints, initialize_transcript},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::{Transcript, TranscriptMode},
         witness::{Witness, WitnessLayout},

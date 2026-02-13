@@ -4,9 +4,9 @@ use crate::{
     fields::{
         ProofFieldElement, field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
     },
-    sumcheck::bind::{
-        Binding, DenseSumcheckArray,
-        sparse::{Hand, SparseSumcheckArray},
+    sumcheck::{
+        Hand,
+        bind::{Binding, DenseSumcheckArray, sparse::SparseSumcheckArray},
     },
 };
 use rand::{Rng, SeedableRng, TryRngCore, random};

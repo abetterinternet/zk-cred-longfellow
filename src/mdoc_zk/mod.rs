@@ -17,7 +17,7 @@ use crate::{
         },
         sha256::run_sha256_witnessed,
     },
-    sumcheck::prover::SumcheckProof,
+    sumcheck::SumcheckProof,
 };
 use anyhow::{Context, anyhow};
 use std::io::{Cursor, Write};

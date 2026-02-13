@@ -7,10 +7,7 @@ use crate::{
         CircuitInputs, CircuitVersion, MdocZkProof, ProofContext, hash_ligero_parameters,
         signature_ligero_parameters,
     },
-    sumcheck::{
-        initialize_transcript,
-        prover::{ProverResult, SumcheckProtocol},
-    },
+    sumcheck::{ProverResult, SumcheckProtocol, initialize_transcript},
     transcript::{Transcript, TranscriptMode},
     witness::Witness,
 };

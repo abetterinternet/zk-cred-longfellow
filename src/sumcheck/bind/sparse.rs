@@ -159,7 +159,10 @@
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6
 //! [2]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-6.1
 
-use crate::{fields::FieldElement, sumcheck::bind::bindeq};
+use crate::{
+    fields::FieldElement,
+    sumcheck::{Hand, bind::bindeq},
+};
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -172,24 +175,6 @@ use std::cmp::Ordering;
 #[educe(PartialEq)]
 pub struct SparseSumcheckArray<FE> {
     contents: Vec<SparseQuadElement<FE>>,
-}
-
-/// The handedness of an input wire. Also the dimensions over which the inner 2D array is bound.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-pub enum Hand {
-    #[default]
-    Left = 0,
-    Right,
-}
-
-impl Hand {
-    /// Return the hand opposite to `self`.
-    pub(crate) fn opposite(&self) -> Self {
-        match self {
-            Hand::Left => Hand::Right,
-            Hand::Right => Hand::Left,
-        }
-    }
 }
 
 // Ensure that this platform's usize is small enough to fit in u64

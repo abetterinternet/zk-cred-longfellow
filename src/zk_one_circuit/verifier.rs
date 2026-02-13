@@ -2,7 +2,7 @@ use crate::{
     circuit::Circuit,
     fields::ProofFieldElement,
     ligero::{LigeroParameters, tableau::TableauLayout, verifier::LigeroVerifier},
-    sumcheck::{initialize_transcript, prover::SumcheckProtocol},
+    sumcheck::{SumcheckProtocol, initialize_transcript},
     transcript::{Transcript, TranscriptMode},
     zk_one_circuit::prover::Proof,
 };

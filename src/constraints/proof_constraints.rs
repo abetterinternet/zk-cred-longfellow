@@ -41,9 +41,8 @@ pub struct QuadraticConstraint {
 /// terms of witness values, they can be determined from nothing but the circuit.
 pub fn quadratic_constraints<FE: CodecFieldElement>(
     circuit: &Circuit<FE>,
+    witness_layout: &WitnessLayout,
 ) -> Vec<QuadraticConstraint> {
-    let witness_layout = WitnessLayout::from_circuit(circuit);
-
     (0..circuit.num_layers())
         .map(|layer_index| {
             let (vl_witness, vr_witness, vl_vr_witness) =
@@ -118,7 +117,7 @@ mod tests {
             FieldP128::sample,
         );
 
-        let quadratic_constraints = quadratic_constraints(&circuit);
+        let quadratic_constraints = quadratic_constraints(&circuit, &witness_layout);
 
         assert_eq!(quadratic_constraints.len(), circuit.num_layers());
 
@@ -131,8 +130,9 @@ mod tests {
         test_vector: CircuitTestVector<FE>,
         circuit: Circuit<FE>,
     ) {
+        let witness_layout = WitnessLayout::from_circuit(&circuit);
         assert_eq!(
-            quadratic_constraints(&circuit),
+            quadratic_constraints(&circuit, &witness_layout),
             test_vector.constraints.quadratic
         );
     }

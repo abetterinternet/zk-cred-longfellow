@@ -12,16 +12,15 @@ use crate::{
         prover::{ProverResult, SumcheckProof, SumcheckProtocol},
     },
     transcript::{Transcript, TranscriptMode},
-    witness::{Witness, WitnessLayout},
+    witness::Witness,
     zk_one_circuit::verifier::Verifier,
 };
 use anyhow::anyhow;
 use std::io::{Cursor, Write};
 
 /// Longfellow ZK prover.
-pub struct Prover<'a, FE> {
+pub struct Prover<'a, FE: ProofFieldElement> {
     sumcheck_prover: SumcheckProtocol<'a, FE>,
-    witness_layout: WitnessLayout,
     ligero_prover: LigeroProver<FE>,
 }
 
@@ -29,11 +28,9 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
     /// Construct a new prover from a circuit and a choice of Ligero parameters.
     pub fn new(circuit: &'a Circuit<FE>, ligero_parameters: LigeroParameters) -> Self {
         let sumcheck_prover = SumcheckProtocol::new(circuit);
-        let witness_layout = WitnessLayout::from_circuit(circuit);
         let ligero_prover = LigeroProver::new(circuit, ligero_parameters);
         Self {
             sumcheck_prover,
-            witness_layout,
             ligero_prover,
         }
     }
@@ -50,7 +47,7 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
 
         // Select one-time-pad, and combine with circuit witness into the Ligero witness.
         let witness = Witness::fill_witness(
-            self.witness_layout.clone(),
+            self.ligero_prover.witness_layout().clone(),
             evaluation.private_inputs(circuit.num_public_inputs()),
             FE::sample,
         );

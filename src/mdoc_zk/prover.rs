@@ -12,7 +12,7 @@ use crate::{
         prover::{ProverResult, SumcheckProtocol},
     },
     transcript::{Transcript, TranscriptMode},
-    witness::{Witness, WitnessLayout},
+    witness::Witness,
 };
 use anyhow::anyhow;
 use std::io::Cursor;
@@ -25,10 +25,8 @@ pub struct MdocZkProver {
     num_attributes: usize,
     hash_circuit: Circuit<Field2_128>,
     hash_ligero_prover: LigeroProver<Field2_128>,
-    hash_witness_layout: WitnessLayout,
     signature_circuit: Circuit<FieldP256>,
     signature_ligero_prover: LigeroProver<FieldP256>,
-    signature_witness_layout: WitnessLayout,
 }
 
 /// Common initialization used by both the prover and verifier constructors.
@@ -78,9 +76,6 @@ impl MdocZkProver {
         let (signature_circuit, signature_ligero_parameters, hash_circuit, hash_ligero_parameters) =
             common_initialization(circuit, circuit_version, num_attributes)?;
 
-        let hash_witness_layout = WitnessLayout::from_circuit(&hash_circuit);
-        let signature_witness_layout = WitnessLayout::from_circuit(&signature_circuit);
-
         let hash_ligero_prover = LigeroProver::new(&hash_circuit, hash_ligero_parameters);
         let signature_ligero_prover =
             LigeroProver::new(&signature_circuit, signature_ligero_parameters);
@@ -90,10 +85,8 @@ impl MdocZkProver {
             num_attributes,
             hash_circuit,
             hash_ligero_prover,
-            hash_witness_layout,
             signature_circuit,
             signature_ligero_prover,
-            signature_witness_layout,
         })
     }
 
@@ -135,12 +128,12 @@ impl MdocZkProver {
 
         // Select one-time-pads, and produce Ligero witnesses.
         let hash_witness = Witness::fill_witness(
-            self.hash_witness_layout.clone(),
+            self.hash_ligero_prover.witness_layout().clone(),
             &inputs.hash_input()[self.hash_circuit.num_public_inputs()..],
             Field2_128::sample,
         );
         let signature_witness = Witness::fill_witness(
-            self.signature_witness_layout.clone(),
+            self.signature_ligero_prover.witness_layout().clone(),
             &inputs.signature_input()[self.signature_circuit.num_public_inputs()..],
             FieldP256::sample,
         );

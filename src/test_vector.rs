@@ -11,7 +11,7 @@ use crate::{
         prover::LigeroProof,
         tableau::TableauLayout,
     },
-    sumcheck::prover::SumcheckProof,
+    sumcheck::SumcheckProof,
 };
 use serde::Deserialize;
 use std::io::Cursor;

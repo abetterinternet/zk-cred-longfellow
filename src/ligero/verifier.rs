@@ -261,7 +261,7 @@ mod tests {
     use crate::{
         circuit::Circuit,
         fields::{field2_128::Field2_128, fieldp128::FieldP128},
-        sumcheck::{initialize_transcript, prover::SumcheckProtocol},
+        sumcheck::{SumcheckProtocol, initialize_transcript},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::{Transcript, TranscriptMode},
     };

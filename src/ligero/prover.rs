@@ -497,7 +497,7 @@ mod tests {
         circuit::{Circuit, Evaluation},
         constraints::proof_constraints::quadratic_constraints,
         fields::{field2_128::Field2_128, fieldp128::FieldP128},
-        sumcheck::{initialize_transcript, prover::SumcheckProtocol},
+        sumcheck::{SumcheckProtocol, initialize_transcript},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::{Transcript, TranscriptMode},
         witness::{Witness, WitnessLayout},

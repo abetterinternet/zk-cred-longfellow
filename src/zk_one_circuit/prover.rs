@@ -7,10 +7,7 @@ use crate::{
         merkle::Root,
         prover::{LigeroProof, LigeroProver},
     },
-    sumcheck::{
-        initialize_transcript,
-        prover::{ProverResult, SumcheckProof, SumcheckProtocol},
-    },
+    sumcheck::{ProverResult, SumcheckProof, SumcheckProtocol, initialize_transcript},
     transcript::{Transcript, TranscriptMode},
     witness::Witness,
     zk_one_circuit::verifier::Verifier,

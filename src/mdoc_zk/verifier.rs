@@ -7,7 +7,7 @@ use crate::{
         ATTRIBUTE_CBOR_DATA_LENGTH, CircuitStatements, CircuitVersion, MdocZkProof, ProofContext,
         prover::common_initialization,
     },
-    sumcheck::{initialize_transcript, prover::SumcheckProtocol},
+    sumcheck::{SumcheckProtocol, initialize_transcript},
     transcript::{Transcript, TranscriptMode},
 };
 use anyhow::{Context, anyhow};

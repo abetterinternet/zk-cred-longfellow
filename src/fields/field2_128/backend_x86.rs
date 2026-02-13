@@ -1,12 +1,12 @@
 #[cfg(target_arch = "x86")]
 use std::arch::x86::{
-    __m128i, _mm_clmulepi64_si128, _mm_cvtsi128_si32, _mm_or_si128, _mm_set_epi64x, _mm_slli_epi32,
-    _mm_slli_si128, _mm_srli_epi32, _mm_srli_si128, _mm_xor_si128,
+    __m128i, _mm_clmulepi64_si128, _mm_cvtsi128_si32, _mm_set_epi64x, _mm_slli_si128,
+    _mm_srli_si128, _mm_xor_si128,
 };
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::{
-    __m128i, _mm_clmulepi64_si128, _mm_cvtsi128_si64, _mm_or_si128, _mm_set_epi64x, _mm_slli_epi32,
-    _mm_slli_si128, _mm_srli_epi32, _mm_srli_si128, _mm_xor_si128,
+    __m128i, _mm_clmulepi64_si128, _mm_cvtsi128_si64, _mm_set_epi64x, _mm_slli_si128,
+    _mm_srli_si128, _mm_xor_si128,
 };
 
 /// Multiplies two GF(2^128) elements, represented as `u128`s.
@@ -60,65 +60,26 @@ pub(super) fn galois_square(x: u128) -> u128 {
 /// Reduce an intermediate 256-bit product by the field's quotient polynomial.
 #[target_feature(enable = "sse2")]
 #[target_feature(enable = "pclmulqdq")]
-fn reduce(result_low: __m128i, result_high: __m128i) -> __m128i {
+fn reduce(mut result_low: __m128i, result_high: __m128i) -> __m128i {
     // Perform the first step of the reduction by x^128 + x^7 + x^2 + x + 1. The carryless product
-    // above is 255 bits wide, and x^7 + x^2 + x + 1 is 8 bits wide. Thus, after one step of
-    // reduction, we will have an intermediate result that is 134 bits wide. A second reduction step
-    // will bring the result to 128 bits wide.
+    // above is 255 bits wide, and x^7 + x^2 + x + 1 is 8 bits wide. We need to do two reduction
+    // steps in order to get the final 128-bit result. First, we do a carryless multiplication of
+    // the topmost 64 bits by the constant 0x87, representing x^7 + x^2 + x + 1.
     //
-    // We can perform this reduction by shifting the top part of the product multiple times, and
-    // XORing with the bottom part of the product. Note that there is no 128-bit wide shift
-    // instruction, in part because that would require a very large barrel shifter. We can emulate
-    // such wide shifts for the short, constant shift amounts we need by performing left shifts
-    // and right shifts of packed 32-bit integers, as well as left and right shifts across lanes,
-    // and ORing the results together.
+    // (word_3 * x^192 + word_2 * x^128 + word_1 * x^64 + word_0) % Q(x)
     //
-    // We start with result_high * x^128 + result_low. Subtracting result_high * Q(x), we get
-    // result_high * (x^7 + x^2 + x + 1) + result_low.
-    let result_high_lane_shifted_left = _mm_slli_si128::<4>(result_high);
-    let shifted_1 = _mm_or_si128(
-        _mm_slli_epi32::<1>(result_high),
-        _mm_srli_epi32::<{ 32 - 1 }>(result_high_lane_shifted_left),
-    );
-    let shifted_2 = _mm_or_si128(
-        _mm_slli_epi32::<2>(result_high),
-        _mm_srli_epi32::<{ 32 - 2 }>(result_high_lane_shifted_left),
-    );
-    let shifted_7 = _mm_or_si128(
-        _mm_slli_epi32::<7>(result_high),
-        _mm_srli_epi32::<{ 32 - 7 }>(result_high_lane_shifted_left),
-    );
-    let mut first_reduction = result_low;
-    first_reduction = _mm_xor_si128(first_reduction, result_high);
-    first_reduction = _mm_xor_si128(first_reduction, shifted_1);
-    first_reduction = _mm_xor_si128(first_reduction, shifted_2);
-    first_reduction = _mm_xor_si128(first_reduction, shifted_7);
-    let result_high_lane_shifted_right = _mm_srli_si128::<12>(result_high);
-    let mut extra = _mm_srli_epi32::<{ 32 - 1 }>(result_high_lane_shifted_right);
-    extra = _mm_xor_si128(
-        extra,
-        _mm_srli_epi32::<{ 32 - 2 }>(result_high_lane_shifted_right),
-    );
-    extra = _mm_xor_si128(
-        extra,
-        _mm_srli_epi32::<{ 32 - 7 }>(result_high_lane_shifted_right),
-    );
+    // (word_2 * x^128 + word_3 * x^64 * (x^7 + x^2 + x + 1) + word_1 * x^64 + word_0) % Q(x)
+    //
+    // We can perform this reduction by doing a carryless multiplication of the topmost part of the
+    // result with a constant, and XORing with the lower parts of the product.
+    let first_product = _mm_clmulepi64_si128::<0x01>(result_high, pack_u128(0x87));
+    let middle = _mm_xor_si128(first_product, _mm_slli_si128::<8>(result_high));
+    result_low = _mm_xor_si128(result_low, _mm_slli_si128::<8>(middle));
 
-    // Perform the second step of the reduction. We again multiply the high integer, `extra`, by
-    // (x^7 + x^2 + x + 1), and add it to the low integer. This time, `extra` is only 6 bits wide,
-    // and the result will fit within 128 bits. We can also use a single packed 32-bit shift
-    // instruction for the three shifts, because we only care about the bits on the low end of the
-    // first lane.
-    let shifted_1 = _mm_slli_epi32::<1>(extra);
-    let shifted_2 = _mm_slli_epi32::<2>(extra);
-    let shifted_7 = _mm_slli_epi32::<7>(extra);
-    let mut second_reduction = first_reduction;
-    second_reduction = _mm_xor_si128(second_reduction, extra);
-    second_reduction = _mm_xor_si128(second_reduction, shifted_1);
-    second_reduction = _mm_xor_si128(second_reduction, shifted_2);
-    second_reduction = _mm_xor_si128(second_reduction, shifted_7);
-
-    second_reduction
+    // Perform the second step of the reduction. We again multiply the highest part of the remaining
+    // result by (x^7 + x^2 + x + 1), and add it to the low part.
+    let second_product = _mm_clmulepi64_si128::<0x01>(middle, pack_u128(0x87));
+    _mm_xor_si128(result_low, second_product)
 }
 
 #[target_feature(enable = "sse2")]

@@ -238,8 +238,6 @@ impl Transcript {
     ) -> Result<Vec<FE>, anyhow::Error> {
         let fsprf = self.get_current_fsprf();
 
-        // TODO: the case where the "field element" is a polynomial?
-
         let mut buffer = vec![0; FE::num_bytes()];
         Ok(
             std::iter::repeat_with(|| fsprf.sample_field_element(&mut buffer))

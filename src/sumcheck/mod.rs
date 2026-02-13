@@ -5,12 +5,11 @@
 use crate::{
     ParameterizedCodec,
     circuit::{Circuit, CircuitLayer, Evaluation},
-    constraints::{
-        proof_constraints::LinearConstraints,
-        symbolic::{SymbolicExpression, Term},
-    },
     fields::{CodecFieldElement, ProofFieldElement},
-    sumcheck::bind::{Binding, DenseSumcheckArray, bindeq},
+    sumcheck::{
+        bind::{Binding, DenseSumcheckArray, bindeq},
+        constraints::{LinearConstraints, SymbolicExpression, Term},
+    },
     transcript::Transcript,
     witness::{Witness, WitnessLayout},
 };
@@ -18,6 +17,7 @@ use anyhow::anyhow;
 use std::{borrow::Cow, io::Write};
 
 pub mod bind;
+pub mod constraints;
 
 /// A polynomial of degree 2, represented by its evaluations at points `p0` (the field's additive
 /// identity, aka 0) and `p2` (the field's multiplicative identity added to itself, aka 1 + 1) (see
@@ -750,8 +750,8 @@ impl<FE: CodecFieldElement> ParameterizedCodec<CircuitLayer> for ProofLayer<FE> 
 mod tests {
     use super::*;
     use crate::{
-        constraints::proof_constraints::LinearConstraintLhsTerm,
         fields::fieldp128::FieldP128,
+        sumcheck::constraints::LinearConstraintLhsTerm,
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::TranscriptMode,
         witness::WitnessLayout,

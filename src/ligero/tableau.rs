@@ -3,12 +3,12 @@
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
 
 use crate::{
-    constraints::proof_constraints::QuadraticConstraint,
     fields::{ProofFieldElement, field_element_iter_from_source},
     ligero::{
         LigeroParameters, Nonce,
         merkle::{MerkleTree, Node},
     },
+    sumcheck::constraints::QuadraticConstraint,
     witness::Witness,
 };
 use rand::{RngCore, random};
@@ -383,8 +383,8 @@ mod tests {
     use super::*;
     use crate::{
         circuit::Evaluation,
-        constraints::proof_constraints::quadratic_constraints,
         fields::fieldp128::FieldP128,
+        sumcheck::constraints::quadratic_constraints,
         test_vector::load_rfc,
         witness::{Witness, WitnessLayout},
     };

@@ -4,9 +4,6 @@
 
 use crate::{
     circuit::Circuit,
-    constraints::proof_constraints::{
-        LinearConstraints, QuadraticConstraint, quadratic_constraints,
-    },
     fields::ProofFieldElement,
     ligero::{
         LigeroChallenges, LigeroParameters,
@@ -15,6 +12,7 @@ use crate::{
         tableau::TableauLayout,
         write_hash_of_a, write_proof,
     },
+    sumcheck::constraints::{LinearConstraints, QuadraticConstraint, quadratic_constraints},
     transcript::Transcript,
     witness::WitnessLayout,
 };

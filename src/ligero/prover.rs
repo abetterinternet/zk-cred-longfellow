@@ -5,15 +5,15 @@
 use crate::{
     Codec, ParameterizedCodec,
     circuit::Circuit,
-    constraints::proof_constraints::{
-        LinearConstraintLhsTerm, LinearConstraints, QuadraticConstraint, quadratic_constraints,
-    },
     fields::{CodecFieldElement, ProofFieldElement},
     ligero::{
         LigeroChallenges, LigeroParameters, Nonce,
         merkle::{InclusionProof, MerkleTree, Root},
         tableau::{Tableau, TableauLayout},
         write_hash_of_a, write_proof,
+    },
+    sumcheck::constraints::{
+        LinearConstraintLhsTerm, LinearConstraints, QuadraticConstraint, quadratic_constraints,
     },
     transcript::Transcript,
     witness::{Witness, WitnessLayout},
@@ -495,9 +495,8 @@ mod tests {
     use super::*;
     use crate::{
         circuit::{Circuit, Evaluation},
-        constraints::proof_constraints::quadratic_constraints,
         fields::{field2_128::Field2_128, fieldp128::FieldP128},
-        sumcheck::{SumcheckProtocol, initialize_transcript},
+        sumcheck::{SumcheckProtocol, constraints::quadratic_constraints, initialize_transcript},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::{Transcript, TranscriptMode},
         witness::{Witness, WitnessLayout},

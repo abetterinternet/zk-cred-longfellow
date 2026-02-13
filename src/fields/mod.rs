@@ -115,6 +115,15 @@ pub trait CodecFieldElement:
 
     /// Generate a field element by rejection sampling, sampling random bytes from the provided
     /// source.
+    ///
+    /// # Parameters
+    ///
+    /// * `buffer` - A mutable byte slice of length `Self::num_bytes()`.
+    /// * `source` - Fills the provided buffer with random bytes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer is too small.
     fn sample_from_source<F>(buffer: &mut [u8], source: F) -> Self
     where
         F: FnMut(&mut [u8]),

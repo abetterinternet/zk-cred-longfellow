@@ -40,19 +40,15 @@ pub(super) fn galois_square(x: u128) -> u128 {
 /// Reduce an intermediate 256-bit product by the field's quotient polynomial.
 #[target_feature(enable = "neon")]
 #[target_feature(enable = "aes")]
-fn reduce(result_low: u128, result_high: u128) -> u128 {
-    // Perform the first step of the reduction by x^128 + x^7 + x^2 + x + 1. Shift the upper u128 of
-    // the product several times, and XOR it with the lower u128 of the product.
-    let shifted_1 = result_high << 1;
-    let shifted_2 = result_high << 2;
-    let shifted_7 = result_high << 7;
-    let first_reduction = result_low ^ result_high ^ shifted_1 ^ shifted_2 ^ shifted_7;
-    let extra =
-        (result_high >> (128 - 1)) ^ (result_high >> (128 - 2)) ^ (result_high >> (128 - 7));
+fn reduce(mut result_low: u128, result_high: u128) -> u128 {
+    // Perform the first step of the reduction by x^128 + x^7 + x^2 + x + 1. Multiply the top 64
+    // bits by x^7 + x^2 + x + 1, and XOR the result in shifted down by 128 bits.
+    let first_product = vmull_p64((result_high >> 64) as u64, 0x87);
+    let middle = first_product ^ (result_high << 64);
+    result_low ^= middle << 64;
 
-    // Perform the second step of the reduction.
-    let shifted_1 = extra << 1;
-    let shifted_2 = extra << 2;
-    let shifted_7 = extra << 7;
-    first_reduction ^ extra ^ shifted_1 ^ shifted_2 ^ shifted_7
+    // Perform the second step of the reduction. We again multiply the highest part of the remaining
+    // result by (x^7 + x^2 + x + 1), and add it to the low part.
+    let second_product = vmull_p64((middle >> 64) as u64, 0x87);
+    result_low ^ second_product
 }

@@ -108,27 +108,24 @@ pub trait CodecFieldElement:
 
     /// Generate a field element by rejection sampling.
     fn sample() -> Self {
-        Self::sample_from_source(|num_bytes| {
-            let mut bytes = vec![0; num_bytes];
-            rand::rng().fill_bytes(&mut bytes);
-
-            bytes
-        })
+        let mut buffer = vec![0; Self::num_bytes()];
+        let mut rng = rand::rng();
+        Self::sample_from_source(&mut buffer, |bytes| rng.fill_bytes(bytes))
     }
 
     /// Generate a field element by rejection sampling, sampling random bytes from the provided
     /// source.
-    fn sample_from_source<F>(source: F) -> Self
+    fn sample_from_source<F>(buffer: &mut [u8], source: F) -> Self
     where
-        F: FnMut(usize) -> Vec<u8>,
+        F: FnMut(&mut [u8]),
     {
-        Self::sample_counting_rejections(source).0
+        Self::sample_counting_rejections(buffer, source).0
     }
 
     /// Generate a field element by rejection sampling and return how many rejections were observed.
-    fn sample_counting_rejections<F>(mut source: F) -> (Self, usize)
+    fn sample_counting_rejections<F>(buffer: &mut [u8], mut source: F) -> (Self, usize)
     where
-        F: FnMut(usize) -> Vec<u8>,
+        F: FnMut(&mut [u8]),
     {
         let mut rejections = 0;
         let field_element = loop {
@@ -137,14 +134,14 @@ pub trait CodecFieldElement:
             // at most 7 bits.
             // https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-3.3
             let num_sampled_bytes = Self::num_bytes();
-            let mut sampled_bytes = source(num_sampled_bytes);
+            source(buffer);
             let excess_bits = num_sampled_bytes * 8 - Self::NUM_BITS;
             if excess_bits != 0 {
-                sampled_bytes[num_sampled_bytes - 1] &= (1 << (8 - excess_bits)) - 1;
+                buffer[num_sampled_bytes - 1] &= (1 << (8 - excess_bits)) - 1;
             }
             // FE::try_from rejects if the value is still too big after masking.
             // TODO: FE::try_from could fail for reasons besides the generated value being too big
-            if let Ok(fe) = Self::try_from(&sampled_bytes) {
+            if let Ok(fe) = Self::try_from(buffer) {
                 break fe;
             }
             rejections += 1;
@@ -275,15 +272,19 @@ pub trait ProofFieldElement: CodecFieldElement {
 }
 
 pub fn field_element_iter<FE: CodecFieldElement>() -> impl Iterator<Item = FE> {
-    std::iter::from_fn(|| Some(FE::sample()))
+    let mut buffer = vec![0; FE::num_bytes()];
+    let mut rng = rand::rng();
+    std::iter::repeat_with(move || {
+        FE::sample_from_source(&mut buffer, |bytes| rng.fill_bytes(bytes))
+    })
 }
 
-pub fn field_element_iter_from_source<F, FE>(mut source: F) -> impl Iterator<Item = FE>
+pub fn field_element_iter_from_source<F, FE>(source: F) -> impl Iterator<Item = FE>
 where
     FE: CodecFieldElement,
     F: FnMut() -> FE,
 {
-    std::iter::from_fn(move || Some(source()))
+    std::iter::repeat_with(source)
 }
 
 /// Field identifier. According to the draft specification, the encoding is of variable length ([1])
@@ -742,12 +743,10 @@ mod tests {
         let count = 100;
         let mut total_rejections = 0;
         for _ in 0..count {
-            let (_, rejections) = FieldP256::sample_counting_rejections(|num_bytes| {
-                let mut bytes = vec![0; num_bytes];
-                rand::rng().fill_bytes(&mut bytes);
-
-                bytes
-            });
+            let (_, rejections) = FieldP256::sample_counting_rejections(
+                &mut vec![0; FieldP256::num_bytes()],
+                |bytes| rand::rng().fill_bytes(bytes),
+            );
 
             total_rejections += rejections;
         }
@@ -759,17 +758,18 @@ mod tests {
         // GF(2^128) has an order that is a power of two, so we should never trigger rejection
         // sampling when generating random field elements.
         for _ in 0..100 {
-            let (_, rejections) = Field2_128::sample_counting_rejections(|num_bytes| {
-                let mut bytes = vec![0; num_bytes];
-                rand::rng().fill_bytes(&mut bytes);
-
-                bytes
-            });
+            let (_, rejections) = Field2_128::sample_counting_rejections(
+                &mut vec![0; Field2_128::num_bytes()],
+                |bytes| rand::rng().fill_bytes(bytes),
+            );
             assert_eq!(rejections, 0);
         }
 
         // Check that no bits are getting masked off when generating elements.
-        let element = Field2_128::sample_from_source(|num_bytes| vec![0xff; num_bytes]);
+        let element =
+            Field2_128::sample_from_source(&mut vec![0; Field2_128::num_bytes()], |bytes| {
+                bytes.copy_from_slice(&vec![0xff; Field2_128::num_bytes()])
+            });
         assert_eq!(element.get_encoded().unwrap(), vec![0xffu8; 16]);
     }
 

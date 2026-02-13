@@ -119,11 +119,17 @@ enum Direction {
 /// of [the paper][1].
 ///
 /// [1]: https://eprint.iacr.org/2024/2010.pdf
-fn fft(direction: Direction, power: u32, coset: usize, fft_array: &mut [Field2_128]) {
+fn fft(
+    direction: Direction,
+    power: u32,
+    coset: usize,
+    fft_array: &mut [Field2_128],
+    twiddles_scratch: &mut [Field2_128],
+) {
     if power == 0 {
         return;
     }
-    let mut twiddled = vec![Field2_128::ZERO; 1 << (power - 1)];
+    let twiddled = &mut twiddles_scratch[0..1 << (power - 1)];
     for mut curr_power in 0..power {
         // Forward FFT iterates over power..0
         if direction == Direction::Forward {
@@ -131,7 +137,7 @@ fn fft(direction: Direction, power: u32, coset: usize, fft_array: &mut [Field2_1
         }
         let stride = 1 << curr_power;
 
-        twiddles(curr_power, power, coset, &mut twiddled);
+        twiddles(curr_power, power, coset, twiddled);
 
         // for all u : 0 ≤ 2s · u < 2ℓ
         for (index, start) in (0..1 << power).step_by(2 * stride).enumerate() {
@@ -170,6 +176,7 @@ fn bidirectional_fft(
     coset: usize,
     nodes_count: usize,
     fft_array: &mut [Field2_128],
+    twiddles_scratch: &mut [Field2_128],
 ) {
     assert_eq!(
         fft_array.len(),
@@ -187,7 +194,13 @@ fn bidirectional_fft(
             for v in nodes_count..stride {
                 fft_butterfly_forward(fft_array, v, stride, twiddle);
             }
-            bidirectional_fft(power, coset, nodes_count, &mut fft_array[..stride]);
+            bidirectional_fft(
+                power,
+                coset,
+                nodes_count,
+                &mut fft_array[..stride],
+                twiddles_scratch,
+            );
             for v in 0..nodes_count {
                 fft_butterfly_diagonal(fft_array, v, stride, twiddle);
             }
@@ -196,10 +209,17 @@ fn bidirectional_fft(
                 power,
                 coset + stride,
                 &mut fft_array[stride..],
+                twiddles_scratch,
             );
         } else {
             // Inverse FFT: replace evaluations of the polynomial with coefficients
-            fft(Direction::Backward, power, coset, &mut fft_array[..stride]);
+            fft(
+                Direction::Backward,
+                power,
+                coset,
+                &mut fft_array[..stride],
+                twiddles_scratch,
+            );
             for v in (nodes_count - stride)..stride {
                 fft_butterfly_diagonal(fft_array, v, stride, twiddle);
             }
@@ -208,6 +228,7 @@ fn bidirectional_fft(
                 coset + stride,
                 nodes_count - stride,
                 &mut fft_array[stride..],
+                twiddles_scratch,
             );
             for v in 0..(nodes_count - stride) {
                 fft_butterfly_backward(fft_array, v, stride, twiddle);
@@ -232,9 +253,11 @@ pub(crate) fn interpolate(nodes: &[Field2_128], requested_evaluations: usize) ->
     fft_vec.resize(fft_size, Field2_128::ZERO);
     fft_vec[..nodes.len()].copy_from_slice(nodes);
 
+    let mut twiddles_scratch = vec![Field2_128::ZERO; fft_size / 2];
+
     // Run the bidirectional FFT to get nodes.len() coefficients of the polynomial, then
     // fft_size - nodes.len() evaluations of the polynomial in fft_vec.
-    bidirectional_fft(power, 0, nodes.len(), &mut fft_vec);
+    bidirectional_fft(power, 0, nodes.len(), &mut fft_vec, &mut twiddles_scratch);
 
     let mut out_vec = vec![Field2_128::ZERO; requested_evaluations];
 
@@ -267,9 +290,21 @@ pub(crate) fn interpolate(nodes: &[Field2_128], requested_evaluations: usize) ->
         // anymore after this iteration.
         if start + fft_size <= requested_evaluations {
             out_vec[start..(fft_size + start)].copy_from_slice(&fft_vec[..fft_size]);
-            fft(Direction::Forward, power, start, &mut out_vec[start..]);
+            fft(
+                Direction::Forward,
+                power,
+                start,
+                &mut out_vec[start..],
+                &mut twiddles_scratch,
+            );
         } else {
-            fft(Direction::Forward, power, start, &mut fft_vec);
+            fft(
+                Direction::Forward,
+                power,
+                start,
+                &mut fft_vec,
+                &mut twiddles_scratch,
+            );
             out_vec[start..requested_evaluations]
                 .copy_from_slice(&fft_vec[..(requested_evaluations - start)]);
         }

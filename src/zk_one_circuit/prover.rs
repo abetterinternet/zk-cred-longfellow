@@ -16,6 +16,7 @@ use crate::{
     zk_one_circuit::verifier::Verifier,
 };
 use anyhow::anyhow;
+use rand::RngCore;
 use std::io::{Cursor, Write};
 
 /// Longfellow ZK prover.
@@ -46,10 +47,12 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
         let evaluation = circuit.evaluate(inputs)?;
 
         // Select one-time-pad, and combine with circuit witness into the Ligero witness.
+        let mut rng = rand::rng();
+        let mut buffer = vec![0; FE::num_bytes()];
         let witness = Witness::fill_witness(
             self.ligero_prover.witness_layout().clone(),
             evaluation.private_inputs(circuit.num_public_inputs()),
-            FE::sample,
+            || FE::sample_from_source(&mut buffer, |bytes| rng.fill_bytes(bytes)),
         );
 
         // Construct Ligero commitment.

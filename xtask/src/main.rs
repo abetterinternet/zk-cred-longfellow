@@ -150,9 +150,7 @@ fn build_benchmark(
             if !artifact.target.kind.contains(&TargetKind::Bench) {
                 return None;
             }
-            let Some(executable) = artifact.executable else {
-                return None;
-            };
+            let executable = artifact.executable?;
             Some(Ok((artifact.manifest_path, executable)))
         })
         .collect::<Result<Vec<_>, _>>()?;

@@ -175,6 +175,10 @@ impl<FE: CodecFieldElement> Circuit<FE> {
     ///
     /// Note that `inputs` should include the implicit one input wire, `V[0] = 1`.
     pub fn evaluate(&self, inputs: &[FE]) -> Result<Evaluation<FE>, anyhow::Error> {
+        if inputs[0] != FE::ONE {
+            return Err(anyhow!("the first input wire was not one"));
+        }
+
         // There are n layers of gates, but with the inputs, we have n + 1 layers of wires.
         let mut wires = Vec::with_capacity(self.layers.len() + 1);
         wires.push(inputs.to_vec());

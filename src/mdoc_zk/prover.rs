@@ -162,10 +162,8 @@ impl MdocZkProver {
         inputs.update_macs(mac_verifier_key_share, mac_tags);
 
         // Evaluate the circuits to produce extended witnesses.
-        let hash_evaluation = self.hash_circuit.evaluate(&inputs.hash_input()[1..])?;
-        let signature_evaluation = self
-            .signature_circuit
-            .evaluate(&inputs.signature_input()[1..])?;
+        let hash_evaluation = self.hash_circuit.evaluate(inputs.hash_input())?;
+        let signature_evaluation = self.signature_circuit.evaluate(inputs.signature_input())?;
 
         // Run Sumcheck and Ligero on hash circuit.
         initialize_transcript(

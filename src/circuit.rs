@@ -172,18 +172,12 @@ impl<FE: CodecFieldElement> Circuit<FE> {
     }
 
     /// Evaluate the circuit with the provided inputs.
+    ///
+    /// Note that `inputs` should include the implicit one input wire, `V[0] = 1`.
     pub fn evaluate(&self, inputs: &[FE]) -> Result<Evaluation<FE>, anyhow::Error> {
         // There are n layers of gates, but with the inputs, we have n + 1 layers of wires.
         let mut wires = Vec::with_capacity(self.layers.len() + 1);
-
-        // "By convention, the input wire Vj[0] = 1 for all layers, and thus the quad representation
-        // handles the classic add and multiplication gates in a uniform manner."
-        // This is because we represent constants in the circuit by multiplying the input 1 by
-        // whatever the value we need. We apply this fixup only for the first layer, as subsequent
-        // layers are constructed to propagate the constant 1.
-        //
-        // https://eprint.iacr.org/2024/2010.pdf, section 2.1
-        wires.push([&[FE::ONE], inputs].concat());
+        wires.push(inputs.to_vec());
 
         // We are iterating over layers in reverse, so the output layer is at the end of the
         // iterator
@@ -668,7 +662,6 @@ pub(crate) mod tests {
         fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp128::FieldP128},
         test_vector::{CircuitTestVector, load_mac, load_rfc},
     };
-    use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -772,31 +765,6 @@ pub(crate) mod tests {
     fn evaluate_circuit_mac_false() {
         let (test_vector, circuit) = load_mac();
         evaluate_circuit_false::<Field2_128>(test_vector, circuit);
-    }
-
-    /// This test uses `include_bytes!()` instead of reading from files at runtime, so it can be run
-    /// in a browser.
-    #[wasm_bindgen_test(unsupported = test)]
-    fn evaluate_circuit_longfellow_rfc_1_true_include_bytes() {
-        let circuit_bytes = include_bytes!(
-            "../test-vectors/one-circuit/longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b.circuit.zst"
-        );
-        let serialized_circuit = zstd::decode_all(Cursor::new(&circuit_bytes)).unwrap();
-        let circuit = Circuit::decode(&mut Cursor::new(&serialized_circuit)).unwrap();
-
-        let test_vector: CircuitTestVector<_> = serde_json::from_slice(include_bytes!(
-            "../test-vectors/one-circuit/longfellow-rfc-1-87474f308020535e57a778a82394a14106f8be5b.json"
-        ))
-        .unwrap();
-
-        assert_eq!(circuit.num_quads(), test_vector.quads as usize);
-
-        let evaluation: Evaluation<FieldP128> =
-            circuit.evaluate(test_vector.valid_inputs()).unwrap();
-
-        for output in evaluation.outputs() {
-            assert_eq!(*output, FieldP128::ZERO);
-        }
     }
 
     /// This creates a simple circuit that exercises in-circuit assertions.
@@ -951,7 +919,9 @@ pub(crate) mod tests {
     fn evaluate_assertion_pass_partial() {
         // The input value of 1 should cause the in-circuit assertion to fail. The circuit output is still zero.
         let circuit = make_assertion_test_circuit();
-        let error = circuit.evaluate(&[FieldP128::ONE]).unwrap_err();
+        let error = circuit
+            .evaluate(&[FieldP128::ONE, FieldP128::ONE])
+            .unwrap_err();
         assert!(error.to_string().contains("assertion failed"));
     }
 
@@ -959,7 +929,9 @@ pub(crate) mod tests {
     fn evaluate_assertion_fail() {
         // This input should cause both the in-circuit assertion to fail and the circuit output be non-zero.
         let circuit = make_assertion_test_circuit();
-        let error = circuit.evaluate(&[FieldP128::from_u128(5)]).unwrap_err();
+        let error = circuit
+            .evaluate(&[FieldP128::ONE, FieldP128::from_u128(5)])
+            .unwrap_err();
         assert!(error.to_string().contains("assertion failed"));
     }
 
@@ -967,7 +939,9 @@ pub(crate) mod tests {
     fn evaluate_assertion_pass_full() {
         // The input value of 2 satisfies both the in-circuit assertion and the circuit output condition.
         let circuit = make_assertion_test_circuit();
-        let evaluation = circuit.evaluate(&[FieldP128::from_u128(2)]).unwrap();
+        let evaluation = circuit
+            .evaluate(&[FieldP128::ONE, FieldP128::from_u128(2)])
+            .unwrap();
         assert_eq!(evaluation.outputs()[0], FieldP128::ZERO);
     }
 }

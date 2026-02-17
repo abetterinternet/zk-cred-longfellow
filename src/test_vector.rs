@@ -136,6 +136,10 @@ impl<FE: CodecFieldElement> CircuitTestVector<FE> {
 
         test_vector.serialized_ligero_proof = ligero_proof.to_vec();
 
+        // Fix up inputs by prepending the implicit one input.
+        test_vector.valid_inputs.insert(0, FE::ONE);
+        test_vector.invalid_inputs.insert(0, FE::ONE);
+
         (test_vector, circuit)
     }
 

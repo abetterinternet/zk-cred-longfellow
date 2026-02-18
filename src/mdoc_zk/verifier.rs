@@ -80,12 +80,7 @@ impl MdocZkVerifier {
         }
 
         // Parse the proof.
-        let context = ProofContext {
-            hash_circuit: &self.hash_circuit,
-            signature_circuit: &self.signature_circuit,
-            hash_layout: self.hash_ligero_verifier.tableau_layout(),
-            signature_layout: self.signature_ligero_verifier.tableau_layout(),
-        };
+        let context = self.proof_context();
         let proof = MdocZkProof::get_decoded_with_param(&context, proof)
             .context("could not parse proof")?;
 
@@ -154,6 +149,16 @@ impl MdocZkVerifier {
         )?;
 
         Ok(())
+    }
+
+    /// Decoding context needed to serialize or deserialize proofs.
+    pub fn proof_context(&self) -> ProofContext<'_> {
+        ProofContext {
+            hash_circuit: &self.hash_circuit,
+            signature_circuit: &self.signature_circuit,
+            hash_layout: self.hash_ligero_verifier.tableau_layout(),
+            signature_layout: self.signature_ligero_verifier.tableau_layout(),
+        }
     }
 }
 

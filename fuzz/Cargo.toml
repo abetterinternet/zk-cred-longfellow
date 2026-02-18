@@ -1,0 +1,31 @@
+[workspace]
+
+[package]
+name = "zk-cred-longfellow-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+zstd = "0.13.3"
+
+[dependencies.zk-cred-longfellow]
+path = ".."
+
+[[bin]]
+name = "circuit"
+path = "fuzz_targets/circuit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mdoc_zk_proof"
+path = "fuzz_targets/mdoc_zk_proof.rs"
+test = false
+doc = false
+bench = false

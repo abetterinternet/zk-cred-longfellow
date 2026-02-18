@@ -266,9 +266,7 @@ mod tests {
     use wasm_bindgen_test::wasm_bindgen_test;
 
     fn verify<FE: ProofFieldElement>(test_vector: CircuitTestVector<FE>, circuit: Circuit<FE>) {
-        // hack: prepend 1 to the inputs just like Circuit::evaluate does
-        let mut public_inputs = vec![FE::ONE];
-        public_inputs.extend(test_vector.valid_inputs());
+        let public_inputs = &test_vector.valid_inputs()[..circuit.num_public_inputs()];
 
         let ligero_verifier = LigeroVerifier::new(&circuit, *test_vector.ligero_parameters());
 
@@ -277,15 +275,10 @@ mod tests {
         transcript
             .write_byte_array(test_vector.ligero_commitment().as_bytes())
             .unwrap();
-        initialize_transcript(
-            &mut transcript,
-            &circuit,
-            &public_inputs[0..circuit.num_public_inputs()],
-        )
-        .unwrap();
+        initialize_transcript(&mut transcript, &circuit, public_inputs).unwrap();
         let linear_constraints = SumcheckProtocol::new(&circuit)
             .linear_constraints(
-                &public_inputs[0..circuit.num_public_inputs()],
+                public_inputs,
                 &mut transcript,
                 &test_vector.sumcheck_proof(&circuit),
             )

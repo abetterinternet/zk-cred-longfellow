@@ -23,7 +23,12 @@ fn rfc_1(c: &mut Criterion) {
     };
 
     let session_id = b"test";
-    let inputs = &[FieldP128::from(45), FieldP128::from(5), FieldP128::from(6)];
+    let inputs = &[
+        FieldP128::ONE,
+        FieldP128::from(45),
+        FieldP128::from(5),
+        FieldP128::from(6),
+    ];
 
     let prover = Prover::new(&circuit, ligero_parameters);
 
@@ -39,7 +44,7 @@ fn rfc_1(c: &mut Criterion) {
     });
 
     let proof = prover.prove(session_id, inputs).unwrap();
-    let public_inputs = &inputs[..1];
+    let public_inputs = &inputs[..2];
 
     let verifier = Verifier::new(&circuit, ligero_parameters);
 
@@ -71,10 +76,11 @@ fn mac(c: &mut Criterion) {
 
     let session_id = b"test";
     let num_inputs = circuit.num_public_inputs() + circuit.num_private_inputs();
-    let inputs = vec![Field2_128::ZERO; num_inputs - 1];
+    let mut inputs = vec![Field2_128::ZERO; num_inputs];
+    inputs[0] = Field2_128::ONE;
     // The inputs are the implicit one, the message, the MACs, the verifier key share, and the proof
-    // key shares. The `Circuit::evaluate()` method will prepend the implicit one. We can set all of
-    // the other inputs to zero for benchmark purposes, since the MAC will verify successfully.
+    // key shares. Excepting the implicit one, we can set all inputs to zero for benchmark purposes,
+    // since the MAC will verify successfully.
 
     let prover = Prover::new(&circuit, ligero_parameters);
 
@@ -89,7 +95,7 @@ fn mac(c: &mut Criterion) {
     });
 
     let proof = prover.prove(session_id, inputs.as_slice()).unwrap();
-    let public_inputs = &inputs[..circuit.num_public_inputs() - 1];
+    let public_inputs = &inputs[..circuit.num_public_inputs()];
 
     let verifier = Verifier::new(&circuit, ligero_parameters);
 

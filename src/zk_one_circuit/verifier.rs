@@ -33,21 +33,16 @@ impl<'a, FE: ProofFieldElement> Verifier<'a, FE> {
     where
         FE: ProofFieldElement,
     {
-        // Prepend 1 to public inputs, just like Circuit::evaluate() does.
-        let mut inputs = Vec::with_capacity(statement.len() + 1);
-        inputs.push(FE::ONE);
-        inputs.extend(statement);
-
         // Start of Fiat-Shamir transcript.
         let mut transcript =
             Transcript::new(proof.oracle(), TranscriptMode::V3Compatibility).unwrap();
 
         transcript.write_byte_array(proof.ligero_commitment().as_bytes())?;
-        initialize_transcript(&mut transcript, self.circuit, &inputs)?;
+        initialize_transcript(&mut transcript, self.circuit, statement)?;
 
         // Run sumcheck verifier, and produce deferred linear constraints.
         let linear_constraints = SumcheckProtocol::new(self.circuit).linear_constraints(
-            &inputs,
+            statement,
             &mut transcript,
             proof.sumcheck_proof(),
         )?;

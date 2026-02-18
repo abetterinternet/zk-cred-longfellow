@@ -24,7 +24,7 @@ mod tests {
         // Here, we just load the test vector file to get the Ligero parameters,
         // and discard the proof. We generate a fresh proof, using real
         // randomness.
-        let public_inputs = &test_vector.valid_inputs()[..circuit.num_public_inputs() - 1];
+        let public_inputs = &test_vector.valid_inputs()[..circuit.num_public_inputs()];
         let session_id = b"test";
 
         let prover = Prover::new(&circuit, *test_vector.ligero_parameters());
@@ -52,7 +52,7 @@ mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn longfellow_rfc_1_87474f308020535e57a778a82394a14106f8be5b_mutation() {
         let (test_vector, circuit) = load_rfc();
-        let public_inputs = &test_vector.valid_inputs()[..circuit.num_public_inputs() - 1];
+        let public_inputs = &test_vector.valid_inputs()[..circuit.num_public_inputs()];
         let session_id = b"testtesttesttesttesttesttesttest";
 
         let prover = Prover::new(&circuit, *test_vector.ligero_parameters());

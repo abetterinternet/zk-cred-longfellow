@@ -46,7 +46,7 @@ struct CoseSign1Tuple(Vec<u8>, CoseHeaders, Option<Vec<u8>>, Vec<u8>);
 ///
 /// This is defined as a map from numbers or strings to various kinds of values. We only parse the
 /// kinds of parameters that we care about.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct CoseHeaders {
     pub(super) x5chain: Option<CoseX509>,
 }

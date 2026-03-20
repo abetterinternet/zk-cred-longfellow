@@ -18,7 +18,7 @@ pub(super) struct CoseSign1 {
     /// it will be the CBOR encoding of a map.
     pub(super) protected: Vec<u8>,
     /// Unprotected header parameters.
-    pub(super) unprotected: CoseUnprotectedHeaders,
+    pub(super) unprotected: CoseHeaders,
     /// The message that is the subject of the signature.
     ///
     /// This will be `None` for detached signatures.
@@ -40,30 +40,30 @@ impl From<CoseSign1Tuple> for CoseSign1 {
 
 /// Helper type for deserializing COSE_Sign1 from a CBOR list.
 #[derive(Deserialize)]
-struct CoseSign1Tuple(Vec<u8>, CoseUnprotectedHeaders, Option<Vec<u8>>, Vec<u8>);
+struct CoseSign1Tuple(Vec<u8>, CoseHeaders, Option<Vec<u8>>, Vec<u8>);
 
-/// Unprotected headers from a COSE_Sign1 message.
+/// Headers from a COSE_Sign1 message.
 ///
 /// This is defined as a map from numbers or strings to various kinds of values. We only parse the
 /// kinds of parameters that we care about.
 #[derive(Debug)]
-pub(super) struct CoseUnprotectedHeaders {
+pub(super) struct CoseHeaders {
     pub(super) x5chain: Option<CoseX509>,
 }
 
-impl<'de> Deserialize<'de> for CoseUnprotectedHeaders {
+impl<'de> Deserialize<'de> for CoseHeaders {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        deserializer.deserialize_map(CoseUnprotectedHeadersVisitor)
+        deserializer.deserialize_map(CoseHeadersVisitor)
     }
 }
 
-struct CoseUnprotectedHeadersVisitor;
+struct CoseHeadersVisitor;
 
-impl<'de> Visitor<'de> for CoseUnprotectedHeadersVisitor {
-    type Value = CoseUnprotectedHeaders;
+impl<'de> Visitor<'de> for CoseHeadersVisitor {
+    type Value = CoseHeaders;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("a map")
@@ -86,7 +86,7 @@ impl<'de> Visitor<'de> for CoseUnprotectedHeadersVisitor {
             }
         }
 
-        Ok(CoseUnprotectedHeaders { x5chain })
+        Ok(CoseHeaders { x5chain })
     }
 }
 
@@ -349,7 +349,7 @@ mod algorithms {
 mod tests {
     use crate::mdoc_zk::mdoc::{
         CoseKey, CoseSign1,
-        cose::{CoseLabel, CoseUnprotectedHeaders, CoseX509, ProtectedHeadersEs256},
+        cose::{CoseHeaders, CoseLabel, CoseX509, ProtectedHeadersEs256},
     };
     use assert_matches::assert_matches;
     use ciborium::{Value, cbor};
@@ -371,23 +371,19 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_headers() {
+        assert!(round_trip::<CoseHeaders>(cbor!({})).x5chain.is_none());
         assert!(
-            round_trip::<CoseUnprotectedHeaders>(cbor!({}))
+            round_trip::<CoseHeaders>(cbor!({-5 => {}}))
                 .x5chain
                 .is_none()
         );
         assert!(
-            round_trip::<CoseUnprotectedHeaders>(cbor!({-5 => {}}))
-                .x5chain
-                .is_none()
-        );
-        assert!(
-            round_trip::<CoseUnprotectedHeaders>(cbor!({"other" => {}}))
+            round_trip::<CoseHeaders>(cbor!({"other" => {}}))
                 .x5chain
                 .is_none()
         );
         assert_eq!(
-            round_trip::<CoseUnprotectedHeaders>(cbor!({33 => b"cert"}))
+            round_trip::<CoseHeaders>(cbor!({33 => b"cert"}))
                 .x5chain
                 .unwrap()
                 .0,

@@ -144,6 +144,12 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
         }
     };
 
+    let device_name_spaces_bytes = document
+        .device_signed
+        .name_spaces
+        .ok_or_else(|| anyhow!("DeviceSigned is missing nameSpaces"))?
+        .0
+        .0;
     let attribute_preimages = document
         .issuer_signed
         .name_spaces
@@ -179,7 +185,7 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
         valid_until: mso.validity_info.valid_until.0,
         device_public_key,
         doc_type: document.doc_type,
-        device_name_spaces_bytes: document.device_signed.name_spaces.0.0,
+        device_name_spaces_bytes,
         device_signature,
         attribute_preimages,
         attribute_digests: mso.value_digests,
@@ -222,7 +228,7 @@ struct IssuerSigned {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeviceSigned {
-    name_spaces: EncodedCbor,
+    name_spaces: Option<EncodedCbor>,
     device_auth: DeviceAuth,
 }
 

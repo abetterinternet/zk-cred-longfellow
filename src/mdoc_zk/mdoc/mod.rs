@@ -136,8 +136,12 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
     let (mso, mso_offsets) =
         parse_mso(msob.0.as_slice()).context("could not parse MobileSecurityObject")?;
 
-    let DeviceAuth::DeviceSignature(device_signature) = document.device_signed.device_auth else {
-        return Err(anyhow!("DeviceAuth used MAC instead of signature"));
+    let Some(device_signature) = document.device_signed.device_auth.device_signature else {
+        if document.device_signed.device_auth.device_mac.is_some() {
+            return Err(anyhow!("DeviceAuth used MAC instead of signature"));
+        } else {
+            return Err(anyhow!("DeviceAuth lacks a DeviceSignature"));
+        }
     };
 
     let attribute_preimages = document
@@ -225,9 +229,9 @@ struct DeviceSigned {
 /// DeviceAuth from ISO 18013-5.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-enum DeviceAuth {
-    DeviceSignature(CoseSign1),
-    DeviceMac(IgnoredAny),
+struct DeviceAuth {
+    device_signature: Option<CoseSign1>,
+    device_mac: Option<IgnoredAny>,
 }
 
 /// ZkDocument from ISO 18013-5.
@@ -1028,7 +1032,7 @@ fn parse_digest_ids(
 mod tests {
     use crate::mdoc_zk::{
         find_attributes,
-        mdoc::{ByteString, EncodedCbor, MobileSecurityObject, parse_mso, skip_body},
+        mdoc::{ByteString, DeviceAuth, EncodedCbor, MobileSecurityObject, parse_mso, skip_body},
         parse_device_response,
         tests::load_witness_test_vector,
     };
@@ -1210,5 +1214,13 @@ mod tests {
                 .values()
                 .all(|ns| { ns.values().all(|offset| *offset > offsets.value_digests) })
         );
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_empty_device_auth() {
+        let data = b"\xa0"; // empty map
+        let device_auth = ciborium::from_reader::<DeviceAuth, _>(data.as_slice()).unwrap();
+        assert!(device_auth.device_signature.is_none());
+        assert!(device_auth.device_mac.is_none());
     }
 }

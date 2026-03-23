@@ -352,50 +352,106 @@ mod tests {
         cose::{CoseHeaders, CoseLabel, CoseX509, ProtectedHeadersEs256},
     };
     use assert_matches::assert_matches;
-    use ciborium::{Value, cbor};
     use hex_literal::hex;
-    use serde::de::DeserializeOwned;
-    use std::io;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_cose_sign1() {
-        let parsed = round_trip::<CoseSign1>(cbor!([b"", {}, b"payload", b"signature"]));
+        let parsed = ciborium::from_reader::<CoseSign1, _>(
+            hex!(
+                "84" // array(4)
+                "40" // bytes(0)
+                "a0" // map(0)
+                "47" // bytes(7)
+                "7061796c6f6164" // "payload"
+                "49" // bytes(9)
+                "7369676e6174757265" // "signature"
+            )
+            .as_slice(),
+        )
+        .unwrap();
         assert_eq!(parsed.protected, b"");
         assert!(parsed.unprotected.x5chain.is_none());
         assert_eq!(parsed.payload.unwrap(), b"payload");
         assert_eq!(parsed.signature, b"signature");
 
-        let parsed = round_trip::<CoseSign1>(cbor!([b"", {}, null, b"signature"]));
+        let parsed = ciborium::from_reader::<CoseSign1, _>(
+            hex!(
+                "84" // array(4)
+                "40" // bytes(0)
+                "a0" // map(0)
+                "f6" // primitive(22), null
+                "49" // bytes(9)
+                "7369676e6174757265" // "signature"
+            )
+            .as_slice(),
+        )
+        .unwrap();
         assert!(parsed.payload.is_none());
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_headers() {
-        assert!(round_trip::<CoseHeaders>(cbor!({})).x5chain.is_none());
-        assert!(
-            round_trip::<CoseHeaders>(cbor!({-5 => {}}))
-                .x5chain
-                .is_none()
-        );
-        assert!(
-            round_trip::<CoseHeaders>(cbor!({"other" => {}}))
-                .x5chain
-                .is_none()
-        );
-        assert_eq!(
-            round_trip::<CoseHeaders>(cbor!({33 => b"cert"}))
-                .x5chain
-                .unwrap()
-                .0,
-            vec![b"cert"]
-        );
+        let headers_1 = ciborium::from_reader::<CoseHeaders, _>(
+            hex!(
+                "a0" // map(0)
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert!(headers_1.x5chain.is_none());
+
+        let headers_2 = ciborium::from_reader::<CoseHeaders, _>(
+            hex!(
+                "a1" // map(1)
+                "24" // negative(4), -1 - 4 = -5
+                "a0" // map(0)
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert!(headers_2.x5chain.is_none());
+
+        let headers_3 = ciborium::from_reader::<CoseHeaders, _>(
+            hex!(
+                "a1" // map(1)
+                "45" // bytes(5)
+                "6f74686572" // "other"
+                "a0" // map(0)
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert!(headers_3.x5chain.is_none());
+
+        let headers_4 = ciborium::from_reader::<CoseHeaders, _>(
+            hex!(
+                "a1" // map(1)
+                "18 21" // unsigned(33)
+                "44" // bytes(4)
+                "63657274" // "cert"
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(headers_4.x5chain.unwrap().0, vec![b"cert"]);
     }
 
     #[wasm_bindgen_test(unsupported  =test)]
     fn test_label() {
-        assert_matches!(round_trip(cbor!(-1)), CoseLabel::Number(number) => assert_eq!(number, -1));
-        assert_matches!(round_trip(cbor!("other")), CoseLabel::String(string) => assert_eq!(string, "other"));
+        assert_matches!(
+            ciborium::from_reader(hex!(
+                "20" // negative(0), -1 - 0 = -1
+            ).as_slice()).unwrap(),
+            CoseLabel::Number(number) => assert_eq!(number, -1)
+        );
+        assert_matches!(
+            ciborium::from_reader(hex!(
+                "65" // text(5)
+                "6f74686572" // "other"
+            ).as_slice()).unwrap(),
+            CoseLabel::String(string) => assert_eq!(string, "other")
+        );
     }
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -446,80 +502,222 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_cose_key() {
-        let key = round_trip::<CoseKey>(cbor!({
-            1 => 2, // kty = EC2
-            -1 => 1, // crv = P-256
-            -2 => b"x", // x-coordinate
-            -3 => b"y", // y-coordinate
-        }));
+        let key = ciborium::from_reader::<CoseKey, _>(
+            hex!(
+                "a4" // map(4)
+
+                // kty = EC2
+                "01" // unsigned(1)
+                "02" // unsigned(2)
+
+                // crv = P-256
+                "20" // negative(0), -1 - 0 = -1
+                "01" // unsigned(1)
+
+                // x-coordinate
+                "21" // negative(1), -1 - 1 = -2
+                "41" // bytes(1)
+                "78" // "x"
+
+                // y-coordinate
+                "22" // negative(2), -1 - 2 = -3
+                "41" // bytes(1)
+                "79" // "y"
+            )
+            .as_slice(),
+        )
+        .unwrap();
         assert_eq!(key.x, b"x");
         assert_eq!(key.y, b"y");
 
         // Wrong values for expected key parameters.
-        round_trip_err::<CoseKey>(cbor!({
-            1 => 1,
-            -1 => 1,
-            -2 => b"",
-            -3 => b"",
-        }));
-        round_trip_err::<CoseKey>(cbor!({
-            1 => 2,
-            -1 => 2,
-            -2 => b"",
-            -3 => b"",
-        }));
+        let wrong_kty_error = ciborium::from_reader::<CoseKey, _>(
+            hex!(
+                "a4" // map(4)
 
-        // Extra key-value pair.
-        round_trip_err::<CoseKey>(cbor!({
-            1 => 2,
-            -1 => 2,
-            -2 => b"",
-            -3 => b"",
-            "other" => b"other",
-            "map" => {
-                1 => 2,
-            },
-        }));
+                // wrong kty
+                "01" // unsigned(1)
+                "01" // unsigned(1)
+
+                // crv = P-256
+                "20" // negative(0), -1 - 0 = -1
+                "01" // unsigned(1)
+
+                // x-coordinate
+                "21" // negative(1), -1 - 1 = -2
+                "40" // bytes(0)
+
+                // y-coordinate
+                "22" // negative(2), -1 - 2 = -3
+                "40" // bytes(0)
+            )
+            .as_slice(),
+        )
+        .unwrap_err();
+        assert!(
+            wrong_kty_error
+                .to_string()
+                .contains("unsupported COSE key type")
+        );
+
+        let wrong_crv_error = ciborium::from_reader::<CoseKey, _>(
+            hex!(
+                "a4" // map(4)
+
+                // kty = EC2
+                "01" // unsigned(1)
+                "02" // unsigned(2)
+
+                // wrong crv
+                "20" // negative(0), -1 - 0 = -1
+                "02" // unsigned(2)
+
+                // x-coordinate
+                "21" // negative(1), -1 - 1 = -2
+                "40" // bytes(0)
+
+                // y-coordinate
+                "22" // negative(2), -1 - 2 = -3
+                "40" // bytes(0)
+            )
+            .as_slice(),
+        )
+        .unwrap_err();
+        assert!(
+            wrong_crv_error
+                .to_string()
+                .contains("unsupported elliptic curve")
+        );
+
+        // Extra key-value pairs.
+        let key_2 = ciborium::from_reader::<CoseKey, _>(
+            hex!(
+                "a6" // map(6)
+
+                // kty = EC2
+                "01" // unsigned(1)
+                "02" // unsigned(2)
+
+                // crv = P-256
+                "20" // negative(0), -1 - 0 = -1
+                "01" // unsigned(1)
+
+                // x-coordinate
+                "21" // negative(1), -1 - 1 = -2
+                "41" // bytes(1)
+                "78" // "x"
+
+                // y-coordinate
+                "22" // negative(2), -1 - 2 = -3
+                "41" // bytes(1)
+                "79" // "y"
+
+                "65" // text(5)
+                "6f74686572" // "other"
+                "45" // bytes(5)
+                "6f74686572" // "other"
+
+                "63" // text(3)
+                "6d6170" // "map"
+                "a1" // map(1)
+                "01" // unsigned(1)
+                "02" // unsigned(2)
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(key, key_2);
 
         // Missing key parameters.
-        round_trip_err::<CoseKey>(cbor!({
-            -1 => 1,
-            -2 => b"",
-            -3 => b"",
-        }));
-        round_trip_err::<CoseKey>(cbor!({
-            1 => 2,
-            -2 => b"",
-            -3 => b"",
-        }));
-        round_trip_err::<CoseKey>(cbor!({
-            1 => 2,
-            -1 => 1,
-            -3 => b"",
-        }));
-        round_trip_err::<CoseKey>(cbor!({
-            1 => 2,
-            -1 => 1,
-            -2 => b"",
-        }));
-    }
+        let missing_kty_error = ciborium::from_reader::<CoseKey, _>(
+            hex!(
+                "a3" // map(3)
 
-    fn round_trip<T: DeserializeOwned>(result: Result<Value, ciborium::value::Error>) -> T {
-        let value = result.unwrap();
-        let mut buffer = Vec::new();
-        ciborium::into_writer(&value, &mut buffer).unwrap();
-        ciborium::from_reader(buffer.as_slice()).unwrap()
-    }
+                // crv = P-256
+                "20" // negative(0), -1 - 0 = -1
+                "01" // unsigned(1)
 
-    fn round_trip_err<T: DeserializeOwned>(
-        result: Result<Value, ciborium::value::Error>,
-    ) -> ciborium::de::Error<io::Error> {
-        let value = result.unwrap();
-        let mut buffer = Vec::new();
-        ciborium::into_writer(&value, &mut buffer).unwrap();
-        ciborium::from_reader::<T, _>(buffer.as_slice())
-            .err()
-            .unwrap()
+                // x-coordinate
+                "21" // negative(1), -1 - 1 = -2
+                "41" // bytes(1)
+                "78" // "x"
+
+                // y-coordinate
+                "22" // negative(2), -1 - 2 = -3
+                "41" // bytes(1)
+                "79" // "y"
+            )
+            .as_slice(),
+        )
+        .unwrap_err();
+        assert!(missing_kty_error.to_string().contains("missing field"));
+
+        let missing_crv_error = ciborium::from_reader::<CoseKey, _>(
+            hex!(
+                "a3" // map(3)
+
+                // kty = EC2
+                "01" // unsigned(1)
+                "02" // unsigned(2)
+
+                // x-coordinate
+                "21" // negative(1), -1 - 1 = -2
+                "41" // bytes(1)
+                "78" // "x"
+
+                // y-coordinate
+                "22" // negative(2), -1 - 2 = -3
+                "41" // bytes(1)
+                "79" // "y"
+            )
+            .as_slice(),
+        )
+        .unwrap_err();
+        assert!(missing_crv_error.to_string().contains("missing field"));
+
+        let missing_x_error = ciborium::from_reader::<CoseKey, _>(
+            hex!(
+                "a3" // map(3)
+
+                // kty = EC2
+                "01" // unsigned(1)
+                "02" // unsigned(2)
+
+                // crv = P-256
+                "20" // negative(0), -1 - 0 = -1
+                "01" // unsigned(1)
+
+                // y-coordinate
+                "22" // negative(2), -1 - 2 = -3
+                "41" // bytes(1)
+                "79" // "y"
+            )
+            .as_slice(),
+        )
+        .unwrap_err();
+        assert!(missing_x_error.to_string().contains("missing field"));
+
+        let missing_y_error = ciborium::from_reader::<CoseKey, _>(
+            hex!(
+                "a3" // map(3)
+
+                // kty = EC2
+                "01" // unsigned(1)
+                "02" // unsigned(2)
+
+                // crv = P-256
+                "20" // negative(0), -1 - 0 = -1
+                "01" // unsigned(1)
+
+                // x-coordinate
+                "21" // negative(1), -1 - 1 = -2
+                "41" // bytes(1)
+                "78" // "x"
+            )
+            .as_slice(),
+        )
+        .unwrap_err();
+        assert!(missing_y_error.to_string().contains("missing field"));
     }
 
     #[wasm_bindgen_test(unsupported = test)]

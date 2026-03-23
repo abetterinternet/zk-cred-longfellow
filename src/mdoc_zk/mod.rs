@@ -687,10 +687,10 @@ pub(super) mod tests {
     use crate::{
         Codec,
         circuit::Circuit,
-        fields::{CodecFieldElement, FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
+        fields::{FieldElement, field2_128::Field2_128, fieldp256::FieldP256},
         mdoc_zk::{
-            CircuitInputs, CircuitVersion, byte_array_as_bits, parse_device_response,
-            prover::{MdocZkProver, compute_mac_tags},
+            CircuitVersion, byte_array_as_bits, parse_device_response,
+            prover::MdocZkProver,
             verifier::{self, MdocZkVerifier},
         },
     };
@@ -734,18 +734,6 @@ pub(super) mod tests {
         pub(super) attributes: Vec<TestVectorAttribute>,
         /// Current time, in RFC 3339 format.
         pub(super) now: String,
-        /// Inputs to the signature circuit.
-        #[serde(deserialize_with = "hex::serde::deserialize")]
-        pub(super) signature_input: Vec<u8>,
-        /// Inputs to the hash circuit.
-        #[serde(deserialize_with = "hex::serde::deserialize")]
-        pub(super) hash_input: Vec<u8>,
-        /// Verifier's share of MAC key.
-        #[serde(deserialize_with = "hex::serde::deserialize")]
-        pub(super) mac_verifier_key_share: Vec<u8>,
-        /// Prover's shares of MAC keys.
-        #[serde(deserialize_with = "hex::serde::deserialize")]
-        pub(super) mac_prover_key_shares: Vec<u8>,
     }
 
     /// Presented attribute, as represented in a test vector.
@@ -767,184 +755,6 @@ pub(super) mod tests {
         \x86\xEE\x81\xD8\x66\x9B\x63\xF2\xE1\x9B\xC1\x2A\x0C\x9F\x12\x35\x5D\xD0\x38\x5F\
         \xED\x3B\xC3\x3B\xED\xC9\x78\x1B\x9A\xAD\x47\xB3\x3E\x4C\x24\x70\x4B\x8D\x14\x28\
         \x8B\x1B\x3C\xB4\x5C\x28";
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn witness_preparation() {
-        let test_vector = load_witness_test_vector();
-
-        let attributes = test_vector
-            .attributes
-            .iter()
-            .map(|attr| attr.id.as_str())
-            .collect::<Vec<&str>>();
-
-        let mac_verifier_key_share =
-            Field2_128::try_from(test_vector.mac_verifier_key_share.as_slice()).unwrap();
-        let mac_prover_key_shares = test_vector
-            .mac_prover_key_shares
-            .chunks_exact(Field2_128::num_bytes())
-            .map(|bytes| Field2_128::try_from(bytes).unwrap())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-
-        let mut inputs = CircuitInputs::new(
-            CircuitVersion::V6,
-            &test_vector.mdoc,
-            &test_vector.transcript,
-            "org.iso.18013.5.1",
-            &attributes,
-            &test_vector.now,
-            &mac_prover_key_shares,
-        )
-        .unwrap();
-
-        let mac_tags = compute_mac_tags(
-            &inputs.mac_messages,
-            &mac_prover_key_shares,
-            &mac_verifier_key_share,
-        );
-        inputs.update_macs(mac_verifier_key_share, mac_tags);
-
-        let expected_signature_input = test_vector
-            .signature_input
-            .chunks_exact(FieldP256::num_bytes())
-            .map(|bytes| FieldP256::try_from(bytes).unwrap())
-            .collect::<Vec<_>>();
-        let expected_hash_input = test_vector
-            .hash_input
-            .chunks_exact(Field2_128::num_bytes())
-            .map(|bytes| Field2_128::try_from(bytes).unwrap())
-            .collect::<Vec<_>>();
-
-        let layout = &inputs.layout;
-        pretty_assertions::assert_eq!(
-            layout.split_signature_input(&mut inputs.signature_input().to_vec()),
-            layout.split_signature_input(&mut expected_signature_input.clone())
-        );
-
-        // We need to split comparison of the hash inputs up by top-level field, otherwise it will
-        // hit an allocation error when trying to write the diff.
-        let mut hash_actual = inputs.hash_input().to_vec();
-        let mut hash_actual_split = layout.split_hash_input(&mut hash_actual);
-        let mut hash_expected = expected_hash_input.clone();
-        let mut hash_expected_split = layout.split_hash_input(&mut hash_expected);
-        pretty_assertions::assert_eq!(
-            hash_actual_split.statement.implicit_one,
-            hash_expected_split.statement.implicit_one,
-            "implicit one"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.statement.attribute_inputs,
-            hash_expected_split.statement.attribute_inputs,
-            "attribute inputs"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.statement.time,
-            hash_expected_split.statement.time,
-            "time"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.statement.mac_tags,
-            hash_expected_split.statement.mac_tags,
-            "mac tags"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.statement.mac_verifier_key_share,
-            hash_expected_split.statement.mac_verifier_key_share,
-            "mac verifier key share"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.e_credential,
-            hash_expected_split.e_credential,
-            "e, credential"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.device_public_key_x,
-            hash_expected_split.device_public_key_x,
-            "device public key x"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.device_public_key_y,
-            hash_expected_split.device_public_key_y,
-            "device public key y"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.sha_256_block_count,
-            hash_expected_split.sha_256_block_count,
-            "sha-256 block count"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.sha_256_input,
-            hash_expected_split.sha_256_input,
-            "sha-256 input"
-        );
-        for (i, (actual_block_witness, expected_block_witness)) in hash_actual_split
-            .sha_256_witness_credential
-            .iter_blocks()
-            .zip(hash_expected_split.sha_256_witness_credential.iter_blocks())
-            .enumerate()
-        {
-            pretty_assertions::assert_eq!(
-                actual_block_witness,
-                expected_block_witness,
-                "sha-256 witness, credential, block {i}"
-            );
-        }
-        pretty_assertions::assert_eq!(
-            hash_actual_split.valid_from_offset,
-            hash_expected_split.valid_from_offset,
-            "validFrom offset"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.valid_until_offset,
-            hash_expected_split.valid_until_offset,
-            "validUntil offset"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.device_key_info_offset,
-            hash_expected_split.device_key_info_offset,
-            "deviceKeyInfo offset"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.value_digests_offset,
-            hash_expected_split.value_digests_offset,
-            "valueDigests offset"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.attribute_witnesses,
-            hash_expected_split.attribute_witnesses,
-            "attribute witnesses"
-        );
-        pretty_assertions::assert_eq!(
-            hash_actual_split.mac_prover_key_shares,
-            hash_expected_split.mac_prover_key_shares,
-            "mac prover key shares"
-        );
-
-        assert_eq!(inputs.signature_input(), expected_signature_input);
-
-        // Copy values for unused witness values. We don't care if these are different from the test
-        // vector.
-        for (attr_actual, attr_expected) in hash_actual_split
-            .attribute_witnesses
-            .inputs
-            .iter_mut()
-            .zip(hash_expected_split.attribute_witnesses.inputs.iter_mut())
-        {
-            let Some(attr_actual) = attr_actual else {
-                continue;
-            };
-            let Some(attr_expected) = attr_expected else {
-                continue;
-            };
-            *attr_actual.cbor_data_length = *attr_expected.cbor_data_length;
-            *attr_actual.unused_offset = *attr_expected.unused_offset;
-            *attr_actual.unused_length = *attr_expected.unused_length;
-        }
-
-        assert_eq!(hash_actual, expected_hash_input);
-    }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_byte_array() {

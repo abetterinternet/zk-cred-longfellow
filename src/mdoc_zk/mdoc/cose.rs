@@ -163,9 +163,9 @@ impl<'de> Visitor<'de> for CoseX509Visitor {
             }
             Some(ByteOrBytes::Bytes(bytes)) => {
                 let mut output = Vec::with_capacity(size_hint.unwrap_or_default());
-                output.push(bytes);
-                while let Some(bytes) = seq.next_element::<Vec<u8>>()? {
-                    output.push(bytes);
+                output.push(bytes.0);
+                while let Some(bytes) = seq.next_element::<ByteString>()? {
+                    output.push(bytes.0);
                 }
                 Ok(output)
             }
@@ -178,7 +178,7 @@ impl<'de> Visitor<'de> for CoseX509Visitor {
 #[serde(untagged)]
 enum ByteOrBytes {
     Byte(u8),
-    Bytes(Vec<u8>),
+    Bytes(ByteString),
 }
 
 #[derive(Debug)]
@@ -353,6 +353,7 @@ mod tests {
     };
     use assert_matches::assert_matches;
     use ciborium::{Value, cbor};
+    use hex_literal::hex;
     use serde::de::DeserializeOwned;
     use std::io;
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -393,23 +394,54 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported  =test)]
     fn test_label() {
-        assert_matches!(round_trip::<>(cbor!(-1)), CoseLabel::Number(number) => assert_eq!(number, -1));
-        assert_matches!(round_trip::<>(cbor!("other")), CoseLabel::String(string) => assert_eq!(string, "other"));
+        assert_matches!(round_trip(cbor!(-1)), CoseLabel::Number(number) => assert_eq!(number, -1));
+        assert_matches!(round_trip(cbor!("other")), CoseLabel::String(string) => assert_eq!(string, "other"));
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_cose_x509() {
-        assert_eq!(round_trip::<CoseX509>(cbor!(b"test")).0, [b"test"]);
-        assert_eq!(
-            round_trip::<CoseX509>(cbor!([b't', b'e', b's', b't'])).0,
-            [b"test"]
-        );
-        assert_eq!(round_trip::<CoseX509>(cbor!([b"test"])).0, [b"test"]);
-        assert_eq!(
-            round_trip::<CoseX509>(cbor!([b"cert1", b"cert2"])).0,
-            [b"cert1", b"cert2"]
-        );
-        assert!(round_trip::<CoseX509>(cbor!([])).0.is_empty());
+        let parsed_1 = ciborium::from_reader::<CoseX509, _>(
+            hex!(
+                "44" // bytes(4)
+                "74657374" // "test"
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(parsed_1.0, [b"test"]);
+
+        let parsed_2 = ciborium::from_reader::<CoseX509, _>(
+            hex!(
+                "81" // array(1)
+                "44" // bytes(4)
+                "74657374" // "test"
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(parsed_2.0, [b"test"]);
+
+        let parsed_3 = ciborium::from_reader::<CoseX509, _>(
+            hex!(
+                "82" // array(2)
+                "45" // bytes(5)
+                "6365727431" // "cert1"
+                "45" // bytes(5)
+                "6365727432" // "cert2"
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(parsed_3.0, [b"cert1", b"cert2"]);
+
+        let parsed_4 = ciborium::from_reader::<CoseX509, _>(
+            hex!(
+                "80" // array(0)
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert!(parsed_4.0.is_empty());
     }
 
     #[wasm_bindgen_test(unsupported = test)]

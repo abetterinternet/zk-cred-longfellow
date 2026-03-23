@@ -14,7 +14,10 @@ use crate::{
 use anyhow::{Context, anyhow};
 use ciborium::{Value, tag};
 use ciborium_ll::{Decoder, Header};
-use serde::{Deserialize, Serialize, de::IgnoredAny};
+use serde::{
+    Deserialize, Serialize,
+    de::{IgnoredAny, Visitor},
+};
 use std::{
     collections::{HashMap, hash_map},
     ops::Deref,
@@ -377,7 +380,7 @@ impl From<DeviceAuthentication> for DeviceAuthenticationTuple {
 /// This is necessary because `Vec<u8>` gets serialized as a list of unsigned integers by default.
 /// The byte string tag is only emitted by the `serialize_bytes()` serializer method. The only
 /// `Serialize` impls that `serde` provide which use this are for `CStr` and `CString`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub(super) struct ByteString(pub(super) Vec<u8>);
 
 impl Serialize for ByteString {
@@ -386,6 +389,43 @@ impl Serialize for ByteString {
         S: serde::Serializer,
     {
         serializer.serialize_bytes(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for ByteString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // While the ciborium deserializer can deserialize a bytes item into a `Vec<u8>`, serde's
+        // internal `Content` deserializer cannot. Thus, this type's deserializer needs to directly
+        // control deserialization, for cases like untagged enums or flattened structs where we may
+        // be reading through a `Content` deserializer.
+        deserializer.deserialize_any(ByteStringVisitor)
+    }
+}
+
+struct ByteStringVisitor;
+
+impl<'de> Visitor<'de> for ByteStringVisitor {
+    type Value = ByteString;
+
+    fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(ByteString(v))
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(ByteString(v.to_vec()))
+    }
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("bytes")
     }
 }
 

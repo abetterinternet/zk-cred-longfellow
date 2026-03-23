@@ -332,7 +332,7 @@ impl Serialize for ProtectedHeadersEs256 {
         S: serde::Serializer,
     {
         let mut map = serializer.serialize_map(Some(1))?;
-        map.serialize_entry(&header_parameters::ALG, &algorithms::EC256)?;
+        map.serialize_entry(&header_parameters::ALG, &algorithms::ES256)?;
         map.end()
     }
 }
@@ -342,7 +342,7 @@ impl Serialize for ProtectedHeadersEs256 {
 /// See <https://www.iana.org/assignments/cose/cose.xhtml#algorithms>.
 mod algorithms {
     /// The label for the ECDSA w/ SHA-256 algorithm.
-    pub(super) const EC256: i64 = -7;
+    pub(super) const ES256: i64 = -7;
 }
 
 #[cfg(test)]

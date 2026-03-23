@@ -6,7 +6,7 @@ fn main() {
     // Use a valid proof as a seed for the proof decoding fuzzer.
     fs::create_dir_all(base_dir.join("corpus/mdoc_zk_proof")).unwrap();
     fs::copy(
-        base_dir.join("../test-vectors/mdoc_zk/proof.bin"),
+        base_dir.join("../test-vectors/mdoc_zk/v6_1attr_issue_date.proof"),
         base_dir.join("corpus/mdoc_zk_proof/seed_proof"),
     )
     .unwrap();

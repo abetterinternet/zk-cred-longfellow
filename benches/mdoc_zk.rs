@@ -16,7 +16,7 @@ fn load_circuit_file() -> Vec<u8> {
 
 fn load_inputs() -> (Vec<u8>, Vec<u8>, String) {
     let value = serde_json::from_slice::<Value>(include_bytes!(
-        "../test-vectors/mdoc_zk/witness_test_vector.json"
+        "../test-vectors/mdoc_zk/v6_1attr_issue_date.json"
     ))
     .unwrap();
     let object = value.as_object().unwrap();
@@ -52,7 +52,7 @@ fn verify(c: &mut Criterion) {
         let circuit = load_circuit_file();
         let verifier = MdocZkVerifier::new(&circuit, CircuitVersion::V6, 1).unwrap();
         let (_, session_transcript, time) = load_inputs();
-        let proof = include_bytes!("../test-vectors/mdoc_zk/proof.bin");
+        let proof = include_bytes!("../test-vectors/mdoc_zk/v6_1attr_issue_date.proof");
         b.iter(|| {
             verifier
                 .verify(
@@ -72,7 +72,7 @@ fn verify(c: &mut Criterion) {
     });
 }
 
-/// Issuer public key for the witness test vector and proof test vector, in SEC 1 form.
+/// Issuer public key for the proof test vector, in SEC 1 form.
 const ISSUER_PUBLIC_KEY: &[u8] =
     b"\x04\xDC\x1C\x1F\x55\xCF\xF4\xCD\x5C\x76\xCF\x41\x69\x27\x8F\x72\x17\x66\x7F\
     \x86\xEE\x81\xD8\x66\x9B\x63\xF2\xE1\x9B\xC1\x2A\x0C\x9F\x12\x35\x5D\xD0\x38\x5F\

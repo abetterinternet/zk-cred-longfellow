@@ -720,9 +720,9 @@ pub(super) mod tests {
         (first_circuit, second_circuit)
     }
 
-    /// Test vector for the witness preparation process.
+    /// Test vector for mdoc presentation proof inputs.
     #[derive(Deserialize)]
-    pub(super) struct WitnessTestVector {
+    pub(super) struct TestVector {
         /// The mdoc DeviceResponse, containing the credential, device signature, opened attributes,
         /// etc.
         #[serde(deserialize_with = "hex::serde::deserialize")]
@@ -742,14 +742,14 @@ pub(super) mod tests {
         pub(super) id: String,
     }
 
-    pub(super) fn load_witness_test_vector() -> WitnessTestVector {
+    pub(super) fn load_v6_test_vector() -> TestVector {
         serde_json::from_slice(include_bytes!(
-            "../../test-vectors/mdoc_zk/witness_test_vector.json"
+            "../../test-vectors/mdoc_zk/v6_1attr_issue_date.json"
         ))
         .unwrap()
     }
 
-    /// Issuer public key for the witness test vector and proof test vector, in SEC 1 form.
+    /// Issuer public key for the proof test vector, in SEC 1 form.
     pub(super) const ISSUER_PUBLIC_KEY: &[u8] =
         b"\x04\xDC\x1C\x1F\x55\xCF\xF4\xCD\x5C\x76\xCF\x41\x69\x27\x8F\x72\x17\x66\x7F\
         \x86\xEE\x81\xD8\x66\x9B\x63\xF2\xE1\x9B\xC1\x2A\x0C\x9F\x12\x35\x5D\xD0\x38\x5F\
@@ -789,7 +789,7 @@ pub(super) mod tests {
     /// Test the prover and verifier against each other.
     #[wasm_bindgen_test(unsupported = test)]
     fn end_to_end() {
-        let witness_test_vector = load_witness_test_vector();
+        let witness_test_vector = load_v6_test_vector();
 
         let compressed = include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice();
         let decompressed = zstd::decode_all(compressed).unwrap();

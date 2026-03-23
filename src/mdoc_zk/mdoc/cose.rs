@@ -498,6 +498,22 @@ mod tests {
         )
         .unwrap();
         assert!(parsed_4.0.is_empty());
+
+        // Test out the ByteOrBytes::Byte code path. This is currently
+        // unreachable with valid COSE_X509 inputs, but that could change with
+        // serde-level changes.
+        let parsed_5 = ciborium::from_reader::<CoseX509, _>(
+            hex!(
+                "84" // array(4)
+                "18 63" // unsigned(0x63), 'c'
+                "18 65" // unsigned(0x65), 'e'
+                "18 72" // unsigned(0x72), 'r'
+                "18 74" // unsigned(0x74), 't'
+            )
+            .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(parsed_5.0, [b"cert"]);
     }
 
     #[wasm_bindgen_test(unsupported = test)]

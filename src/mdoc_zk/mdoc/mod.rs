@@ -7,7 +7,7 @@ use crate::{
         BitPlucker,
         ec::{AffinePoint, Signature},
         layout::{SHA_256_CREDENTIAL_WITNESS_WIRES, Sha256Witness},
-        mdoc::cose::{CoseKey, CoseSign1, ProtectedHeadersEs256, SigStructure},
+        mdoc::cose::{CoseHeaders, CoseKey, CoseSign1, ProtectedHeadersEs256, SigStructure},
         sha256::{Sha256Result, run_sha256, run_sha256_witnessed},
     },
 };
@@ -84,12 +84,19 @@ pub(super) fn parse_device_response(bytes: &[u8]) -> Result<Mdoc, anyhow::Error>
     }
     let document = documents.into_iter().next().unwrap();
 
-    let certificate_bytes = document
-        .issuer_signed
-        .issuer_auth
-        .unprotected
+    let protected_headers = if document.issuer_signed.issuer_auth.protected.is_empty() {
+        CoseHeaders::default()
+    } else {
+        ciborium::from_reader::<CoseHeaders, _>(
+            document.issuer_signed.issuer_auth.protected.as_slice(),
+        )
+        .context("could not parse protected headers")?
+    };
+    let unprotected_headers = &document.issuer_signed.issuer_auth.unprotected;
+    let certificate_bytes = unprotected_headers
         .x5chain
         .as_ref()
+        .or(protected_headers.x5chain.as_ref())
         .ok_or_else(|| anyhow!("missing certificate chain"))?
         .0
         .first()

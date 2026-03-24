@@ -1041,7 +1041,7 @@ mod tests {
         find_attributes,
         mdoc::{ByteString, DeviceAuth, EncodedCbor, MobileSecurityObject, parse_mso, skip_body},
         parse_device_response,
-        tests::load_witness_test_vector,
+        tests::load_v6_test_vector,
     };
     use ciborium::{cbor, tag};
     use ciborium_ll::Decoder;
@@ -1190,7 +1190,7 @@ mod tests {
     /// serde implementation (except for the offsets).
     #[wasm_bindgen_test(unsupported = test)]
     fn test_parse_mso() {
-        let test_vector = load_witness_test_vector();
+        let test_vector = load_v6_test_vector();
         let mdoc = parse_device_response(&test_vector.mdoc).unwrap();
         let msob: EncodedCbor =
             ciborium::from_reader(mdoc.issuer_signature_payload.as_slice()).unwrap();

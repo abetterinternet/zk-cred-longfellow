@@ -60,12 +60,12 @@ quads at that version.
 
 ## `mdoc_zk`
 
-### `witness_test_vector.json`
+### `v6_1attr_issue_date`
 
 This test vector was generated using a custom test from commit
-[a766c1c2ef1af6b45b686180b9436e88545d4d21][commit]. It provides all high-level prover inputs, plus
-MAC key shares generated randomly or from Fiat-Shamir challenges, and the resulting circuit input
-values.
+[a766c1c2ef1af6b45b686180b9436e88545d4d21][commit]. It provides the DeviceResponse, the
+SessionTranscript, the requested attributes, and the time. A proof generated using these inputs is
+stored in a neighboring file.
 
 [commit]: https://github.com/divergentdave/longfellow-zk/commit/a766c1c2ef1af6b45b686180b9436e88545d4d21
 

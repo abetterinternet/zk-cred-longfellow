@@ -376,6 +376,10 @@ impl CircuitInputs {
                     ];
                     kv_metadata_tuples.sort_by(|a, b| a.0.cmp(&b.0));
 
+                    // The circuit assumes that the first key-value pair occurs within the
+                    // IssuerSignedItemBytes hash preimage at an offset of five bytes. (or
+                    // equivalently, within the IssuerSignedItem at an offset of one byte)
+                    // Do a sanity check to confirm that this is the case.
                     if kv_metadata_tuples[0].0 + ENCODED_CBOR_PREFIX_LENGTH != 5 {
                         return Err(anyhow!(
                             "first key-value pair of IssuerSignedItem has an unexpected offset"

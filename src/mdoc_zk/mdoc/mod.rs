@@ -518,14 +518,8 @@ pub(super) fn find_attributes(
             return Err(anyhow!("IssuerSignedItem was not a map"));
         };
 
-        // Version 6 of the circuit requires the elementIdentifier key-value pair to be immediately
-        // followed by the elementValue key-value pair. We need to find those, and store an offset
-        // in the middle of the first key-value pair. We also need to find the digestID, to
-        // efficiently find the offset of the corresponding digest in the MSO.
-        //
-        // Read two items at a time. For maps of known size, stop after the expected number
-        // of entries have been read. For maps of indefinite size, stop when encountering a `break`
-        // header.
+        // Parse the entire map and record the offset of each key, the total encoded length of each
+        // key-value pair, and the contents of selected values.
 
         let mut element_identifier_string = None;
 

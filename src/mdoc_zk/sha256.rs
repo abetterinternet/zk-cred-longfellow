@@ -61,9 +61,9 @@ pub(super) fn run_sha256(input: &[u8]) -> Sha256Digest {
 }
 
 /// Compute the SHA-256 hash of an input, and write intermediate computations to the witness.
-pub(super) fn run_sha256_witnessed<'a>(
+pub(super) fn run_sha256_witnessed<'a, 'b: 'a>(
     input: &[u8],
-    witness: &'a mut Sha256Witness<'a>,
+    witness: &'b mut Sha256Witness<'a>,
     bit_plucker: &BitPlucker<4, Field2_128>,
     max_blocks: usize,
 ) -> Result<Sha256Result, anyhow::Error> {

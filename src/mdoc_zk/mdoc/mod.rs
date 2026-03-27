@@ -441,9 +441,9 @@ impl Deref for ByteString {
 /// Compute the hash of the credential, for the issuer signature.
 ///
 /// This also returns the preimage of the hash, and writes SHA-256 witness values.
-pub(super) fn compute_credential_hash<'a>(
+pub(super) fn compute_credential_hash<'a, 'b: 'a>(
     mdoc: &Mdoc,
-    witness: &'a mut Sha256Witness<'a>,
+    witness: &'b mut Sha256Witness<'a>,
     bit_plucker: &BitPlucker<4, Field2_128>,
     max_blocks: usize,
 ) -> Result<Sha256Result, anyhow::Error> {

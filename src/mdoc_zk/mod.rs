@@ -459,8 +459,8 @@ impl CircuitInputs {
         })
     }
 
-    fn write_attribute_witness_common<'a>(
-        attribute_witness: &'a mut AttributeWitnessV6<'a>,
+    fn write_attribute_witness_common<'a, 'b: 'a>(
+        attribute_witness: &'b mut AttributeWitnessV6<'a>,
         parsed_attribute: &ParsedAttribute,
         mdoc: &Mdoc,
         namespace: &str,

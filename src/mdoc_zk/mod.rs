@@ -7,11 +7,12 @@ use crate::{
         bit_plucker::BitPlucker,
         ec::{AffinePoint, fill_ecdsa_witness},
         layout::{
-            ATTRIBUTE_CBOR_DATA_LENGTH, AttributeInput, EcdsaWitness, InputLayout,
-            SHA_256_CREDENTIAL_KNOWN_PREFIX_BYTES,
+            ATTRIBUTE_CBOR_DATA_LENGTH_V6, ATTRIBUTE_CBOR_IDENTIFIER_LENGTH_V7,
+            ATTRIBUTE_CBOR_VALUE_LENGTH_V7, AttributeInputV6, AttributeInputV7, AttributeWitnessV6,
+            EcdsaWitness, InputLayout, SHA_256_CREDENTIAL_KNOWN_PREFIX_BYTES,
         },
         mdoc::{
-            ENCODED_CBOR_PREFIX_LENGTH, ParsedAttribute, compute_credential_hash,
+            ENCODED_CBOR_PREFIX_LENGTH, Mdoc, ParsedAttribute, compute_credential_hash,
             compute_session_transcript_hash, find_attributes, hash_to_field_element,
             parse_device_response,
         },
@@ -20,7 +21,10 @@ use crate::{
     sumcheck::SumcheckProof,
 };
 use anyhow::{Context, anyhow};
-use std::io::{Cursor, Write};
+use std::{
+    borrow::Cow,
+    io::{Cursor, Write},
+};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 mod bit_plucker;
@@ -32,10 +36,11 @@ mod sha256;
 pub mod verifier;
 
 /// Versions of the mdoc_zk circuit interface.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[wasm_bindgen]
 pub enum CircuitVersion {
     V6 = 6,
+    V7 = 7,
 }
 
 /// Inputs for the mdoc_zk circuits.
@@ -100,6 +105,7 @@ impl CircuitInputs {
             &mdoc,
             &mut split_hash_input.sha_256_witness_credential,
             &hash_bit_plucker,
+            layout.sha_256_max_blocks(),
         )?;
         let credential_hash = credential_hash_result.digest;
         *split_signature_input.e_credential = hash_to_field_element(credential_hash).context(
@@ -165,17 +171,42 @@ impl CircuitInputs {
         }
 
         // Set public contents of attributes.
-        for (out_slice, attribute) in split_hash_input
-            .statement
-            .attribute_inputs
-            .inputs
-            .iter_mut()
-            .zip(attributes.iter())
-        {
-            // Unwrap safety: when splitting the circuit inputs, we ensure there are as many `Some`
-            // values as there are requested attributes.
-            let out_slice = out_slice.as_mut().unwrap();
-            fill_attribute_statment(out_slice, attribute)?;
+        match &mut split_hash_input.statement.attribute_inputs {
+            layout::AttributeInputs::V6(attribute_inputs) => {
+                for (out_slice, attribute) in
+                    attribute_inputs.inputs.iter_mut().zip(attributes.iter())
+                {
+                    // Unwrap safety: when splitting the circuit inputs, we ensure there are as many
+                    // `Some` values as there are requested attributes.
+                    let out_slice = out_slice.as_mut().unwrap();
+
+                    // Check if the fields of `IssuerSignedItem` appear in the correct order for
+                    // this version.
+                    let ParsedAttribute {
+                        element_identifier,
+                        element_value,
+                        ..
+                    } = attribute;
+                    if element_identifier.offset + element_identifier.length != element_value.offset
+                    {
+                        return Err(anyhow!(
+                            "elementIdentifier and elementValue appear in an unsupported order"
+                        ));
+                    }
+
+                    fill_attribute_statement_v6(out_slice, &attribute.as_public_attribute())?;
+                }
+            }
+            layout::AttributeInputs::V7(attribute_inputs) => {
+                for (out_slice, attribute) in
+                    attribute_inputs.inputs.iter_mut().zip(attributes.iter())
+                {
+                    // Unwrap safety: when splitting the circuit inputs, we ensure there are as many
+                    // `Some` values as there are requested attributes.
+                    let out_slice = out_slice.as_mut().unwrap();
+                    fill_attribute_statement_v7(out_slice, &attribute.as_public_attribute())?;
+                }
+            }
         }
 
         // Set current time.
@@ -252,90 +283,163 @@ impl CircuitInputs {
             })
             .context("offset to valueDigests is too large")?;
 
-        for (attribute_witness_opt, parsed_attribute) in split_hash_input
-            .attribute_witnesses
-            .inputs
-            .iter_mut()
-            .zip(&attributes)
-        {
-            // Unwrap safety: when splitting the circuit inputs, we ensure there are as many `Some`
-            // values as there are requested attributes.
-            let attribute_witness = attribute_witness_opt.as_mut().unwrap();
+        match &mut split_hash_input.attribute_witnesses {
+            layout::AttributeWitnesses::V6(attribute_witnesses) => {
+                for (attribute_witness_opt, parsed_attribute) in
+                    attribute_witnesses.inputs.iter_mut().zip(&attributes)
+                {
+                    // Unwrap safety: when splitting the circuit inputs, we ensure there are as many
+                    // `Some` values as there are requested attributes.
+                    let attribute_witness = attribute_witness_opt.as_mut().unwrap();
 
-            // Re-encode the `IssuerSignedItemBytes` structure. This is less efficient than using a
-            // slice from the original encoded `DeviceResponse` input, but capturing the relevant
-            // offsets into the `DeviceResponse` structure would require significant additional
-            // parsing code.
-            let mut preimage = Vec::with_capacity(
-                parsed_attribute.issuer_signed_item_bytes.0.0.len() + ENCODED_CBOR_PREFIX_LENGTH,
-            );
-            ciborium::into_writer(&parsed_attribute.issuer_signed_item_bytes, &mut preimage)
-                .context("error encoding IssuerSignedItemBytes")?;
-            // Check that we pre-allocated the right amount.
-            debug_assert_eq!(
-                preimage.len(),
-                parsed_attribute.issuer_signed_item_bytes.0.0.len() + ENCODED_CBOR_PREFIX_LENGTH
-            );
-            let issuer_signed_item_bytes_prefix_length =
-                preimage.len() - parsed_attribute.issuer_signed_item_bytes.0.0.len();
+                    // Set witness values for the offset of the public statement in the
+                    // IssuerSignedItemBytes.
+                    //
+                    // Offsets recorded when parsing attribute structures are measured from the
+                    // beginning of the `IssuerSignedItem`, but the circuit expects offsets from the
+                    // beginning of the `IssuerSignedItemBytes`, which is what ISO 18013-5 says to
+                    // hash. Thus, we add an additional offset to handle this difference.
+                    //
+                    // This circuit expects the offset to point to the value following the
+                    // "elementIdentifier" key item, so we add the length of the serialized key.
+                    let attribute_offset = (parsed_attribute.element_identifier.offset
+                        + ELEMENT_IDENTIFIER_KEY_SERIALIZED_LENGTH as usize
+                        + ENCODED_CBOR_PREFIX_LENGTH)
+                        .try_into()
+                        .context("offset into IssuerSignedItem is too large")?;
+                    u12_as_bits(attribute_offset, attribute_witness.cbor_data_offset)
+                        .context("offset into IssuerSignedItem is too large")?;
 
-            // Fill SHA-256 hash witnesses.
-            let sha256_result = run_sha256_witnessed(
-                &preimage,
-                &mut attribute_witness.sha_256_witness,
-                &hash_bit_plucker,
-            )
-            .context("error hashing IssuerSignedItemBytes")?;
+                    // Fill unused witness values with zeros.
+                    //
+                    // Unwrap safety: these won't fail because 0 is in range.
+                    u12_as_bits(0, attribute_witness.cbor_data_length).unwrap();
+                    u12_as_bits(0, attribute_witness.unused_offset).unwrap();
+                    u12_as_bits(0, attribute_witness.unused_length).unwrap();
 
-            // Set the hash input.
-            byte_array_as_bits(&sha256_result.padded_input, attribute_witness.sha_256_input);
-
-            // Look up the digest and check that it matches.
-            let digest = mdoc
-                .attribute_digests
-                .get(namespace)
-                .ok_or_else(|| anyhow!("could not find namespace in valueDigests"))?
-                .get(&parsed_attribute.digest_id)
-                .ok_or_else(|| anyhow!("could not find digest in valueDigests"))?;
-            if digest != &sha256_result.digest.0 {
-                return Err(anyhow!("hash of attribute did not match"));
+                    Self::write_attribute_witness_common(
+                        attribute_witness,
+                        parsed_attribute,
+                        &mdoc,
+                        namespace,
+                        &hash_bit_plucker,
+                    )?;
+                }
             }
-            // Look up the offset of the digest.
-            let digest_offset = *mdoc
-                .mso_offsets
-                .value_digests_items
-                .get(namespace)
-                .ok_or_else(|| anyhow!("could not find namespace in valueDigests"))?
-                .get(&parsed_attribute.digest_id)
-                .ok_or_else(|| anyhow!("could not find digest in valueDigests"))?;
-            // Set the offset of the digest in the MobileSecurityObject.
-            digest_offset
-                .try_into()
-                .map_err(anyhow::Error::from)
-                .and_then(|digest_offset| {
-                    u12_as_bits(digest_offset, attribute_witness.digest_offset)
-                })
-                .context("offset of attribute hash is too large")?;
+            layout::AttributeWitnesses::V7(attribute_witnesses) => {
+                for (attribute_witness_opt, parsed_attribute) in
+                    attribute_witnesses.inputs.iter_mut().zip(&attributes)
+                {
+                    // Unwrap safety: when splitting the circuit inputs, we ensure there are as many
+                    // `Some` values as there are requested attributes.
+                    let attribute_witness = attribute_witness_opt.as_mut().unwrap();
 
-            // Set witness values for the offset of the public statement in the
-            // IssuerSignedItemBytes.
-            //
-            // The offset recorded when parsing attribute structures is measured from the beginning
-            // of the `IssuerSignedItem`, but the circuit expects offsets from the beginning of the
-            // `IssuerSignedItemBytes`, which is what ISO 18013-5 says to hash. Thus, we add an
-            // additional offset to handle this difference.
-            (parsed_attribute.public_cbor_offset + issuer_signed_item_bytes_prefix_length)
-                .try_into()
-                .map_err(anyhow::Error::from)
-                .and_then(|offset| u12_as_bits(offset, attribute_witness.cbor_data_offset))
-                .context("offset into IssuerSignedItem is too large")?;
+                    // Fill unused witness values with zeros.
+                    //
+                    // Unwrap safety: these won't fail because 0 is in range.
+                    u12_as_bits(0, attribute_witness.inner.cbor_data_offset).unwrap();
+                    u12_as_bits(0, attribute_witness.inner.cbor_data_length).unwrap();
+                    u12_as_bits(0, attribute_witness.inner.unused_offset).unwrap();
+                    u12_as_bits(0, attribute_witness.inner.unused_length).unwrap();
 
-            // Fill unused witness values with zeros.
-            //
-            // Unwrap safety: these won't fail because 0 is in range.
-            u12_as_bits(0, attribute_witness.cbor_data_length).unwrap();
-            u12_as_bits(0, attribute_witness.unused_offset).unwrap();
-            u12_as_bits(0, attribute_witness.unused_length).unwrap();
+                    Self::write_attribute_witness_common(
+                        &mut attribute_witness.inner,
+                        parsed_attribute,
+                        &mdoc,
+                        namespace,
+                        &hash_bit_plucker,
+                    )?;
+
+                    // Sort the four key value pairs by order of occurrence, and store their offsets
+                    // and lengths.
+                    let mut kv_metadata_tuples = [
+                        (
+                            parsed_attribute.digest_id.offset,
+                            parsed_attribute.digest_id.length,
+                            0,
+                        ),
+                        (
+                            parsed_attribute.random.offset,
+                            parsed_attribute.random.length,
+                            1,
+                        ),
+                        (
+                            parsed_attribute.element_identifier.offset,
+                            parsed_attribute.element_identifier.length,
+                            2,
+                        ),
+                        (
+                            parsed_attribute.element_value.offset,
+                            parsed_attribute.element_value.length,
+                            3,
+                        ),
+                    ];
+                    kv_metadata_tuples.sort_by(|a, b| a.0.cmp(&b.0));
+
+                    if kv_metadata_tuples[0].0 + ENCODED_CBOR_PREFIX_LENGTH != 5 {
+                        return Err(anyhow!(
+                            "first key-value pair of IssuerSignedItem has an unexpected offset"
+                        ));
+                    }
+                    u12_as_bits(
+                        kv_metadata_tuples[1].0 as u16 + ENCODED_CBOR_PREFIX_LENGTH as u16,
+                        attribute_witness.kv_offset_1,
+                    )?;
+                    u12_as_bits(
+                        kv_metadata_tuples[2].0 as u16 + ENCODED_CBOR_PREFIX_LENGTH as u16,
+                        attribute_witness.kv_offset_2,
+                    )?;
+                    u12_as_bits(
+                        kv_metadata_tuples[3].0 as u16 + ENCODED_CBOR_PREFIX_LENGTH as u16,
+                        attribute_witness.kv_offset_3,
+                    )?;
+                    u12_as_bits(
+                        kv_metadata_tuples[0].1 as u16,
+                        attribute_witness.kv_lengths[0],
+                    )?;
+                    u12_as_bits(
+                        kv_metadata_tuples[1].1 as u16,
+                        attribute_witness.kv_lengths[1],
+                    )?;
+                    u12_as_bits(
+                        kv_metadata_tuples[2].1 as u16,
+                        attribute_witness.kv_lengths[2],
+                    )?;
+                    u12_as_bits(
+                        kv_metadata_tuples[3].1 as u16,
+                        attribute_witness.kv_lengths[3],
+                    )?;
+
+                    // These unwraps are safe because all the indices are present in the array when
+                    // it is constructed, and we just sorted the array.
+                    let digest_id_order = kv_metadata_tuples
+                        .iter()
+                        .position(|(_, _, idx)| *idx == 0)
+                        .unwrap();
+                    let random_order = kv_metadata_tuples
+                        .iter()
+                        .position(|(_, _, idx)| *idx == 1)
+                        .unwrap();
+                    let element_identifier_order = kv_metadata_tuples
+                        .iter()
+                        .position(|(_, _, idx)| *idx == 2)
+                        .unwrap();
+                    let element_value_order = kv_metadata_tuples
+                        .iter()
+                        .position(|(_, _, idx)| *idx == 3)
+                        .unwrap();
+                    u2_as_bits(digest_id_order as u8, attribute_witness.kv_order_digest_id)?;
+                    u2_as_bits(random_order as u8, attribute_witness.kv_order_random)?;
+                    u2_as_bits(
+                        element_identifier_order as u8,
+                        attribute_witness.kv_order_element_identifier,
+                    )?;
+                    u2_as_bits(
+                        element_value_order as u8,
+                        attribute_witness.kv_order_element_value,
+                    )?;
+                }
+            }
         }
 
         // Set MAC prover key shares.
@@ -349,6 +453,68 @@ impl CircuitInputs {
             hash_input,
             mac_messages,
         })
+    }
+
+    fn write_attribute_witness_common<'a>(
+        attribute_witness: &'a mut AttributeWitnessV6<'a>,
+        parsed_attribute: &ParsedAttribute,
+        mdoc: &Mdoc,
+        namespace: &str,
+        hash_bit_plucker: &BitPlucker<4, Field2_128>,
+    ) -> Result<(), anyhow::Error> {
+        // Re-encode the `IssuerSignedItemBytes` structure. This is less efficient than using a
+        // slice from the original encoded `DeviceResponse` input, but capturing the relevant
+        // offsets into the `DeviceResponse` structure would require significant additional
+        // parsing code.
+        let mut preimage = Vec::with_capacity(
+            parsed_attribute.issuer_signed_item_bytes.0.0.len() + ENCODED_CBOR_PREFIX_LENGTH,
+        );
+        ciborium::into_writer(&parsed_attribute.issuer_signed_item_bytes, &mut preimage)
+            .context("error encoding IssuerSignedItemBytes")?;
+        // Check that we pre-allocated the right amount.
+        debug_assert_eq!(
+            preimage.len(),
+            parsed_attribute.issuer_signed_item_bytes.0.0.len() + ENCODED_CBOR_PREFIX_LENGTH
+        );
+
+        // Fill SHA-256 hash witnesses.
+        let sha256_result = run_sha256_witnessed(
+            &preimage,
+            &mut attribute_witness.sha_256_witness,
+            hash_bit_plucker,
+            2,
+        )
+        .context("error hashing IssuerSignedItemBytes")?;
+
+        // Set the hash input.
+        byte_array_as_bits(&sha256_result.padded_input, attribute_witness.sha_256_input);
+
+        // Look up the digest and check that it matches.
+        let digest = mdoc
+            .attribute_digests
+            .get(namespace)
+            .ok_or_else(|| anyhow!("could not find namespace in valueDigests"))?
+            .get(&parsed_attribute.digest_id.value)
+            .ok_or_else(|| anyhow!("could not find digest in valueDigests"))?;
+        if digest != &sha256_result.digest.0 {
+            return Err(anyhow!("hash of attribute did not match"));
+        }
+        // Look up the offset of the digest.
+        let digest_offset = *mdoc
+            .mso_offsets
+            .value_digests_items
+            .get(namespace)
+            .ok_or_else(|| anyhow!("could not find namespace in valueDigests"))?
+            .get(&parsed_attribute.digest_id.value)
+            .ok_or_else(|| anyhow!("could not find digest in valueDigests"))?;
+        // Set the offset of the digest in the MobileSecurityObject.
+        digest_offset
+            .try_into()
+            .map_err(anyhow::Error::from)
+            .and_then(|digest_offset| u12_as_bits(digest_offset, attribute_witness.digest_offset))
+            .context("offset of attribute hash is too large")?;
+
+        Ok(())
     }
 
     /// Updates the MAC verifier key share and MAC key tags in public circuit inputs.
@@ -388,21 +554,34 @@ impl CircuitInputs {
     }
 }
 
-/// Set public inputs related to one attribute.
-fn fill_attribute_statment(
-    attribute_input: &mut AttributeInput<'_>,
-    attribute_data: &ParsedAttribute,
+/// Set public inputs related to one attribute. (circuit version 6)
+fn fill_attribute_statement_v6(
+    attribute_input: &mut AttributeInputV6<'_>,
+    attribute: &PublicAttribute,
 ) -> Result<(), anyhow::Error> {
-    let mut buffer = [0u8; ATTRIBUTE_CBOR_DATA_LENGTH];
-    let len = attribute_data.public_cbor_data.len();
-    if len > ATTRIBUTE_CBOR_DATA_LENGTH {
-        return Err(anyhow!(
-            "public attribute data is too long: {len} > {ATTRIBUTE_CBOR_DATA_LENGTH}"
-        ));
-    }
-    buffer[..len].copy_from_slice(&attribute_data.public_cbor_data);
+    let SerializedAttributeV6 { buffer, length } = attribute.serialize_v6()?;
     byte_array_as_bits(&buffer, attribute_input.cbor_data);
-    byte_array_as_bits(&[len as u8], attribute_input.cbor_length);
+    byte_array_as_bits(&[length as u8], attribute_input.cbor_length);
+    Ok(())
+}
+
+/// Set public inputs related to one attribute. (circuit version 7)
+fn fill_attribute_statement_v7(
+    attribute_input: &mut AttributeInputV7<'_>,
+    attribute: &PublicAttribute,
+) -> Result<(), anyhow::Error> {
+    let SerializedAttributeV7 {
+        identifier_buffer,
+        identifier_length,
+        value_buffer,
+        value_length,
+    } = attribute.serialize_v7()?;
+
+    byte_array_as_bits(&identifier_buffer, attribute_input.cbor_identifier);
+    byte_array_as_bits(&value_buffer, attribute_input.cbor_value);
+    byte_array_as_bits(&[identifier_length], attribute_input.id_length);
+    byte_array_as_bits(&[value_length], attribute_input.value_length);
+
     Ok(())
 }
 
@@ -433,6 +612,26 @@ fn u12_as_bits(mut u12: u16, out: &mut [Field2_128; 12]) -> Result<(), anyhow::E
 
     if u12 > 0 {
         Err(anyhow!("CBOR offset is over 4095"))
+    } else {
+        Ok(())
+    }
+}
+
+/// Encode a 2-bit integer as field elements, with one field element representing each bit.
+///
+/// This is used to encode the order in which key-value pairs appear inside an `IssuerSignedItem`.
+///
+/// # Errors
+///
+/// Returns an error if the input is larger than 3.
+fn u2_as_bits(mut u2: u8, out: &mut [Field2_128; 2]) -> Result<(), anyhow::Error> {
+    for out_elem in out.iter_mut() {
+        *out_elem = Field2_128::inject_bits::<1>(u16::from(u2 & 1));
+        u2 >>= 1;
+    }
+
+    if u2 > 0 {
+        Err(anyhow!("Permutation index is over 3"))
     } else {
         Ok(())
     }
@@ -486,24 +685,33 @@ impl CircuitStatements {
         *split_signature_statement.issuer_public_key_y = issuer_public_key_coords[1];
 
         // Set the attribute identifier and value.
-        for (attribute_statement_opt, attribute) in split_hash_statement
-            .attribute_inputs
-            .inputs
-            .iter_mut()
-            .zip(attributes)
-        {
-            // Unwrap safety: when splitting the circuit inputs, we ensure there are as many `Some`
-            // values as there are attributes.
-            let attribute_statement = attribute_statement_opt.as_mut().unwrap();
-
-            let (data, length) = attribute.serialize()?;
-            if length > ATTRIBUTE_CBOR_DATA_LENGTH as u64 {
-                return Err(anyhow!(
-                    "public attribute data is too long: {length} > {ATTRIBUTE_CBOR_DATA_LENGTH}"
-                ));
+        match &mut split_hash_statement.attribute_inputs {
+            layout::AttributeInputs::V6(attribute_inputs) => {
+                for (attribute_statement_opt, attribute) in
+                    attribute_inputs.inputs.iter_mut().zip(attributes)
+                {
+                    // Unwrap safety: when splitting the circuit inputs, we ensure there are as many
+                    // `Some` values as there are attributes.
+                    let attribute_statement = attribute_statement_opt.as_mut().unwrap();
+                    fill_attribute_statement_v6(
+                        attribute_statement,
+                        &attribute.as_public_attribute()?,
+                    )?;
+                }
             }
-            byte_array_as_bits(&data, attribute_statement.cbor_data);
-            byte_array_as_bits(&[length as u8], attribute_statement.cbor_length);
+            layout::AttributeInputs::V7(attribute_inputs) => {
+                for (attribute_statement_opt, attribute) in
+                    attribute_inputs.inputs.iter_mut().zip(attributes)
+                {
+                    // Unwrap safety: when splitting the circuit inputs, we ensure there are as many
+                    // `Some` values as there are attributes.
+                    let attribute_statement = attribute_statement_opt.as_mut().unwrap();
+                    fill_attribute_statement_v7(
+                        attribute_statement,
+                        &attribute.as_public_attribute()?,
+                    )?;
+                }
+            }
         }
 
         // Set current time.
@@ -566,20 +774,105 @@ impl CircuitStatements {
     }
 }
 
-/// Inverse of the Reed-Solomon code's rate.
-const LIGERO_INVERSE_RATE: usize = 4;
-/// Number of columns requested to be opened during proof verification.
-const LIGERO_NREQ: usize = 128;
+// Length of `bytes(17) "elementIdentifier"`` when serialized as CBOR.
+const ELEMENT_IDENTIFIER_KEY_SERIALIZED_LENGTH: u8 = 1 + 17;
+
+// Length of `bytes(12) "elementValue"`` when serialized as CBOR.
+const ELEMENT_VALUE_KEY_SERIALIZED_LENGTH: u8 = 1 + 12;
+
+/// Internal representation of attribute-related values in the hash circuit's statement.
+struct PublicAttribute<'a> {
+    /// `elementIdentifier` value, encoded as CBOR.
+    identifier: Cow<'a, [u8]>,
+    /// `elementValue` value, encoded as CBOR.
+    value: Cow<'a, [u8]>,
+}
+
+impl<'a> PublicAttribute<'a> {
+    /// Additional preprocessing of attribute statement values for circuit version 6.
+    pub(super) fn serialize_v6(&self) -> Result<SerializedAttributeV6, anyhow::Error> {
+        let mut buffer = [0; ATTRIBUTE_CBOR_DATA_LENGTH_V6];
+        let mut cursor = Cursor::new(buffer.as_mut_slice());
+        cursor
+            .write_all(&self.identifier)
+            .context("attribute identifier is too long")?;
+        ciborium::into_writer("elementValue", &mut cursor)
+            .context("attribute contents are too long")?;
+        cursor
+            .write_all(&self.value)
+            .context("attribute contents are too long")?;
+        let length = cursor.position();
+        Ok(SerializedAttributeV6 { buffer, length })
+    }
+
+    /// Additional preprocessing of attribute statement values for circuit version 7.
+    pub(super) fn serialize_v7(&self) -> Result<SerializedAttributeV7, anyhow::Error> {
+        let mut identifier_buffer = [0; ATTRIBUTE_CBOR_IDENTIFIER_LENGTH_V7];
+        let mut identifier_cursor = Cursor::new(identifier_buffer.as_mut_slice());
+        identifier_cursor
+            .write_all(&self.identifier)
+            .context("attribute identifier is too long")?;
+        // Unwrap safety: this cursor position can't be greater than 32, so it will fit in a `u8`.
+        let identifier_length = ELEMENT_IDENTIFIER_KEY_SERIALIZED_LENGTH
+            + u8::try_from(identifier_cursor.position()).unwrap();
+
+        let mut value_buffer = [0; ATTRIBUTE_CBOR_VALUE_LENGTH_V7];
+        let mut value_cursor = Cursor::new(value_buffer.as_mut_slice());
+        value_cursor
+            .write_all(&self.value)
+            .context("attribute contents are too long")?;
+        // Unwrap safety: this cursor position can't be greater than 64, so it will fit in a `u8`.
+        let value_length =
+            ELEMENT_VALUE_KEY_SERIALIZED_LENGTH + u8::try_from(value_cursor.position()).unwrap();
+
+        Ok(SerializedAttributeV7 {
+            identifier_buffer,
+            identifier_length,
+            value_buffer,
+            value_length,
+        })
+    }
+}
+
+struct SerializedAttributeV6 {
+    buffer: [u8; ATTRIBUTE_CBOR_DATA_LENGTH_V6],
+    length: u64,
+}
+
+struct SerializedAttributeV7 {
+    identifier_buffer: [u8; ATTRIBUTE_CBOR_IDENTIFIER_LENGTH_V7],
+    identifier_length: u8,
+    value_buffer: [u8; ATTRIBUTE_CBOR_VALUE_LENGTH_V7],
+    value_length: u8,
+}
+
+/// Inverse of the Reed-Solomon code's rate. (circuit version 6)
+const LIGERO_INVERSE_RATE_V6: usize = 4;
+/// Inverse of the Reed-Solomon code's rate. (circuit version 7)
+const LIGERO_INVERSE_RATE_V7: usize = 7;
+/// Number of columns requested to be opened during proof verification. (circuit version 6)
+const LIGERO_NREQ_V6: usize = 128;
+/// Number of columns requested to be opened during proof verification. (circuit version 7)
+const LIGERO_NREQ_V7: usize = 132;
 
 /// Hardcoded Ligero parameters for the signature circuit.
 fn signature_ligero_parameters(circuit_version: CircuitVersion) -> LigeroParameters {
     let block_enc = match circuit_version {
         CircuitVersion::V6 => 2945,
+        CircuitVersion::V7 => 4096,
     };
-    let block_size = (block_enc + 1) / (2 + LIGERO_INVERSE_RATE);
-    let witnesses_per_row = block_size - LIGERO_NREQ;
+    let inverse_rate = match circuit_version {
+        CircuitVersion::V6 => LIGERO_INVERSE_RATE_V6,
+        CircuitVersion::V7 => LIGERO_INVERSE_RATE_V7,
+    };
+    let nreq = match circuit_version {
+        CircuitVersion::V6 => LIGERO_NREQ_V6,
+        CircuitVersion::V7 => LIGERO_NREQ_V7,
+    };
+    let block_size = (block_enc + 1) / (2 + inverse_rate);
+    let witnesses_per_row = block_size - nreq;
     LigeroParameters {
-        nreq: LIGERO_NREQ,
+        nreq,
         witnesses_per_row,
         quadratic_constraints_per_row: witnesses_per_row,
         block_size,
@@ -598,11 +891,23 @@ fn hash_ligero_parameters(
         (CircuitVersion::V6, 2) => 4025,
         (CircuitVersion::V6, 3) => 4121,
         (CircuitVersion::V6, 4) => 4283,
+        (CircuitVersion::V7, 1) => 4151,
+        (CircuitVersion::V7, 2) => 4265,
+        (CircuitVersion::V7, 3) => 4307,
+        (CircuitVersion::V7, 4) => 4415,
     };
-    let block_size = (block_enc + 1) / (2 + LIGERO_INVERSE_RATE);
-    let witnesses_per_row = block_size - LIGERO_NREQ;
+    let inverse_rate = match circuit_version {
+        CircuitVersion::V6 => LIGERO_INVERSE_RATE_V6,
+        CircuitVersion::V7 => LIGERO_INVERSE_RATE_V7,
+    };
+    let nreq = match circuit_version {
+        CircuitVersion::V6 => LIGERO_NREQ_V6,
+        CircuitVersion::V7 => LIGERO_NREQ_V7,
+    };
+    let block_size = (block_enc + 1) / (2 + inverse_rate);
+    let witnesses_per_row = block_size - nreq;
     LigeroParameters {
-        nreq: LIGERO_NREQ,
+        nreq,
         witnesses_per_row,
         quadratic_constraints_per_row: witnesses_per_row,
         block_size,
@@ -698,12 +1003,19 @@ pub(super) mod tests {
     use std::io::Cursor;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    pub(super) fn load_circuits(attributes: u8) -> (Circuit<FieldP256>, Circuit<Field2_128>) {
-        let data = match attributes {
-            1 => include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice(),
-            2 => include_bytes!("../../test-vectors/mdoc_zk/6_2_b4bb6f01b7043f4f51d8302a30b36e3d4d2d0efc3c24557ab9212ad524a9764e").as_slice(),
-            3 => include_bytes!("../../test-vectors/mdoc_zk/6_3_b2211223b954b34a1081e3fbf71b8ea2de28efc888b4be510f532d6ba76c2010").as_slice(),
-            4 => include_bytes!("../../test-vectors/mdoc_zk/6_4_c70b5f44a1365c53847eb8948ad5b4fdc224251a2bc02d958c84c862823c49d6").as_slice(),
+    pub(super) fn load_circuits(
+        version: CircuitVersion,
+        attributes: u8,
+    ) -> (Circuit<FieldP256>, Circuit<Field2_128>) {
+        let data = match (version,attributes) {
+            (CircuitVersion::V6, 1) => include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice(),
+            (CircuitVersion::V6, 2) => include_bytes!("../../test-vectors/mdoc_zk/6_2_b4bb6f01b7043f4f51d8302a30b36e3d4d2d0efc3c24557ab9212ad524a9764e").as_slice(),
+            (CircuitVersion::V6, 3) => include_bytes!("../../test-vectors/mdoc_zk/6_3_b2211223b954b34a1081e3fbf71b8ea2de28efc888b4be510f532d6ba76c2010").as_slice(),
+            (CircuitVersion::V6, 4) => include_bytes!("../../test-vectors/mdoc_zk/6_4_c70b5f44a1365c53847eb8948ad5b4fdc224251a2bc02d958c84c862823c49d6").as_slice(),
+            (CircuitVersion::V7, 1) => include_bytes!("../../test-vectors/mdoc_zk/7_1_8d079211715200ff06c5109639245502bfe94aa869908d31176aae4016182121").as_slice(),
+            (CircuitVersion::V7, 2) => include_bytes!("../../test-vectors/mdoc_zk/7_2_6a5810683e62b6d7766ebd0d7ca72518a2b8325418142adcadb10d51dbbcd5ad").as_slice(),
+            (CircuitVersion::V7, 3) => include_bytes!("../../test-vectors/mdoc_zk/7_3_8ee4849ae1293ae6fe5f9082ce3e5e15c4f198f2998c682fa1b727237d6d252f").as_slice(),
+            (CircuitVersion::V7, 4) => include_bytes!("../../test-vectors/mdoc_zk/7_4_5aebdaaafe17296a3ef3ca6c80c6e7505e09291897c39700410a365fb278e460").as_slice(),
             _ => panic!("unsupported number of attributes"),
         };
         let decompressed = zstd::decode_all(data).unwrap();
@@ -742,9 +1054,9 @@ pub(super) mod tests {
         pub(super) id: String,
     }
 
-    pub(super) fn load_v6_test_vector() -> TestVector {
+    pub(super) fn load_v6_v7_test_vector_inputs() -> TestVector {
         serde_json::from_slice(include_bytes!(
-            "../../test-vectors/mdoc_zk/v6_1attr_issue_date.json"
+            "../../test-vectors/mdoc_zk/v6_v7_1attr_issue_date.json"
         ))
         .unwrap()
     }
@@ -788,8 +1100,8 @@ pub(super) mod tests {
 
     /// Test the prover and verifier against each other.
     #[wasm_bindgen_test(unsupported = test)]
-    fn end_to_end() {
-        let witness_test_vector = load_v6_test_vector();
+    fn end_to_end_v6() {
+        let test_vector_inputs = load_v6_v7_test_vector_inputs();
 
         let compressed = include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice();
         let decompressed = zstd::decode_all(compressed).unwrap();
@@ -797,15 +1109,15 @@ pub(super) mod tests {
 
         let proof = prover
             .prove(
-                &witness_test_vector.mdoc,
+                &test_vector_inputs.mdoc,
                 "org.iso.18013.5.1",
-                &[&witness_test_vector.attributes[0].id],
-                &witness_test_vector.transcript,
-                &witness_test_vector.now,
+                &[&test_vector_inputs.attributes[0].id],
+                &test_vector_inputs.transcript,
+                &test_vector_inputs.now,
             )
             .unwrap();
 
-        let mdoc = parse_device_response(&witness_test_vector.mdoc).unwrap();
+        let mdoc = parse_device_response(&test_vector_inputs.mdoc).unwrap();
 
         let verifier = MdocZkVerifier::new(&decompressed, CircuitVersion::V6, 1).unwrap();
         verifier
@@ -817,8 +1129,45 @@ pub(super) mod tests {
                 }],
                 &mdoc.doc_type,
                 &mdoc.device_name_spaces_bytes,
-                &witness_test_vector.transcript,
-                &witness_test_vector.now,
+                &test_vector_inputs.transcript,
+                &test_vector_inputs.now,
+                &proof,
+            )
+            .unwrap();
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn end_to_end_v7() {
+        let test_vector_inputs = load_v6_v7_test_vector_inputs();
+
+        let compressed = include_bytes!("../../test-vectors/mdoc_zk/7_1_8d079211715200ff06c5109639245502bfe94aa869908d31176aae4016182121").as_slice();
+        let decompressed = zstd::decode_all(compressed).unwrap();
+        let prover = MdocZkProver::new(&decompressed, CircuitVersion::V7, 1).unwrap();
+
+        let proof = prover
+            .prove(
+                &test_vector_inputs.mdoc,
+                "org.iso.18013.5.1",
+                &[&test_vector_inputs.attributes[0].id],
+                &test_vector_inputs.transcript,
+                &test_vector_inputs.now,
+            )
+            .unwrap();
+
+        let mdoc = parse_device_response(&test_vector_inputs.mdoc).unwrap();
+
+        let verifier = MdocZkVerifier::new(&decompressed, CircuitVersion::V7, 1).unwrap();
+        verifier
+            .verify(
+                ISSUER_PUBLIC_KEY,
+                &[verifier::Attribute {
+                    identifier: "issue_date".to_owned(),
+                    value_cbor: b"\xd9\x03\xec\x6a2024-03-15".to_vec(),
+                }],
+                &mdoc.doc_type,
+                &mdoc.device_name_spaces_bytes,
+                &test_vector_inputs.transcript,
+                &test_vector_inputs.now,
                 &proof,
             )
             .unwrap();

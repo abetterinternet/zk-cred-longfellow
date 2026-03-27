@@ -1,7 +1,8 @@
 This document collects notes on the interface of the Longfellow mdoc\_zk
-circuits, identified as “longfellow-libzk-v1” internally. This targets version 6
-of the “ZK specification”. All information is taken from the [C++
-implementation](https://github.com/google/longfellow-zk), which implicitly
+circuits, identified as “longfellow-libzk-v1” internally. This targets versions
+6 and 7 of the “ZK specification”. Differences between versions are noted
+inline. All information is taken from the
+[C++ implementation](https://github.com/google/longfellow-zk), which implicitly
 defines this interface.
 
 # Assumptions
@@ -28,11 +29,12 @@ defines this interface.
   the presence of the attribute hash in the MSO, without fully parsing the MSO’s
   CBOR structure.
 * The credential length is limited by the maximum number of SHA-256 blocks
-  (modulo some subtractions for Sig\_structure tags added to the message). The
-  relevant constants are set to a limit of 35 SHA-256 blocks, for a maximum MSO
-  length of 2213 bytes.
-* The circuit does not parse the MSO’s CBOR structure, but rather performs byte
-  string comparisons, checking that CBOR fragments occur at the claimed
+  (modulo some subtractions for Sig\_structure tags added to the message). For
+  circuit version 6, the relevant constants are set to a limit of 35 SHA-256
+  blocks, for a maximum MSO length of 2213 bytes. For circuit version 7, the
+  limits are raised to 40 SHA-256 blocks and a maximum MSO length of 2533 bytes.
+* The circuit does not fully parse the MSO’s CBOR structure, but rather performs
+  byte string comparisons, checking that CBOR fragments occur at the claimed
   positions of various fields. The soundness of this approach depends on both
   how issuers form mdoc MSOs, and the length of the byte strings that the
   circuit checks for. We are assuming that MSOs will not contain matching byte
@@ -108,7 +110,7 @@ depend on the number of disclosed attributes, if they are allocated after a for
 loop that runs a variable number of times. There are parts of the codebase that
 still have support for version numbers prior to 6; such conditionals could also
 have an impact on wire number assignment or input preprocessing, and we only
-need to identify the interface for the latest version.
+need to identify the interface for the latest versions.
 
 The `BitPlucker` class is used in both circuits to perform a kind of time-space
 tradeoff inside the circuit. When preparing a witness that will be passed to a
@@ -137,6 +139,9 @@ chosen to be compatible with a now-removed Lagrange polynomial basis used
 elsewhere.
 
 ## Signature Circuit Inputs, P-256 Base Field
+
+Note that all signature circuit inputs are unchanged between circuit versions 6
+and 7.
 
 ### Public Inputs (Statement)
 
@@ -347,11 +352,11 @@ Field elements: 1
 The first input is an implicit 1 value. This is used internally to represent
 gates other than wire-wire multiplications as quad gates.
 
-#### Attributes
+#### Attributes (Circuit version 6)
 
 Field elements: attributes \* (96 \* 8 \+ 8) \= attributes \* 776
 
-The attributes disclosed in the credential presentation are the first public
+The attributes disclosed in the credential presentation are the next public
 inputs. The number of inputs will depend on the number of attributes supported
 by the particular circuit. All input wires associated with one particular
 attribute appear consecutively.
@@ -367,6 +372,38 @@ value, including necessary CBOR type and length prefixes. These 96 bytes are
 encoded into one input wire per bit, for a total of 768 input wires. Following
 that, the length of the CBOR data before zero padding is encoded in eight input
 wires, with one bit assigned to each.
+
+#### Attributes (Circuit version 7)
+
+Field elements: attributes \* (32 \* 8 \+ 64 \* 8 \+ 8 \+ 8) \= attributes \* 784
+
+As before, the disclosed attributes appear next in the public inputs. The number
+of inputs will depend on the number of attributes supported by the particular
+circuit. All input wires associated with one particular attribute appear
+consecutively.
+
+The public inputs for each attribute are divided into four sections, two byte
+arrays containing a single CBOR-encoded item, padded with zero bytes, and two
+8-bit length values. Note, however, that the length values cover more than the
+length of the contents of the preceding byte arrays. The contents of the
+`IssuerSignedItem` maps are split into key-value pairs, the byte arrays provide
+the contents of the values from certain pairs, while the lengths record the
+overall encoded length of certain key-value pairs.
+
+The CBOR encoding of the `elementIdentifier` value from the `IssuerSignedItem`
+appears first. This will be the CBOR encoding of a string, padded with zero
+bytes up to a length of 32 bytes. This is encoded with one input wire per bit.
+Next, the CBOR encoding of the `elementValue` value from the `IssuerSignedItem`
+is padded with zero bytes, up to a length of 64 bytes, and encoded with one
+input wire per bit. The type of CBOR item encoded here will vary, in accordance
+with the data element namespace's schema. Next, the total length of both the
+`elementIdentifier` key and `elementIdentifer` value is encoded as an 8-bit
+integer, with one input wire per bit. This length covers two CBOR-encoded
+strings. Note that the contribution from the CBOR string item for the key is
+fixed, since the key is fixed (one byte for the type and length, and seventeen
+bytes for the string's contents). Next, the total length of both the
+`elementValue` key and `elementValue` value is encoded in the same way, into
+eight input wires.
 
 #### Time
 
@@ -420,21 +457,27 @@ compares to the expected final hash output.
 
 #### Padded SHA-256 Input, Credential
 
-Field elements: (35 \* 64 \- 18) \* 8 \= 17776
+Field elements, circuit version 6: (35 \* 64 \- 18) \* 8 \= 17776
+
+Field elements, circuit version 7: (40 \* 64 \- 18) \* 8 \= 20336
 
 The hash input used in the credential signature, with the SHA-256 padding
 appended, is included in the input wires next. Blocks after the final block are
 filled with zero bytes. The entire byte buffer is encoded as one bit per input
-wire. A total of 35 blocks are supported, however 18 bytes from the
-Sig\_structure prefix are known constants, and excluded from input wires.
+wire. A total of 35 blocks are supported with circuit version 6, or 40 blocks
+with circuit version 7. 18 bytes from the Sig\_structure prefix are known
+constants, and excluded from input wires.
 
 #### Intermediate SHA-256 Witness Values
 
-Field elements: 35 \* (48 \* 32 \+ 64 \* 2 \+ 8 \* 32) / 4 \= 35 \* 1472 \=
+Field elements, circuit version 6: 35 \* (48 \* 32 \+ 64 \* 2 \+ 8 \* 32) / 4 \= 35 \* 1472 \=
 51520
 
-For each of the 35 SHA-256 blocks, multiple intermediate values are provided.
-Each array of multiple 32-bit values is stored in input wires using
+Field elements, circuit version 7: 40 \* (48 \* 32 \+ 64 \* 2 \+ 8 \* 32) / 4 \= 40 \* 1472 \=
+58880
+
+For each of the 35 or 40 SHA-256 blocks, multiple intermediate values are
+provided. Each array of multiple 32-bit values is stored in input wires using
 `BitPlucker`, with 4 bits per wire. (thus 8 input wires per 32-bit word) Witness
 values are grouped first by block number, then three arrays of 32-bit integers
 per block are written in each group.
@@ -513,8 +556,11 @@ The next offset is to the `valueDigests` key-value pair at the top level.
 
 #### Attribute Witnesses
 
-Field elements: attributes * (2 \* 64 \* 8 \+ 2 \* 1472 \+ 12 \+ 12 \+ 12 \+ 12
+Field elements, circuit version 6: attributes * (2 \* 64 \* 8 \+ 2 \* 1472 \+ 12 \+ 12 \+ 12 \+ 12
 \+ 12) \= attributes * 4028
+
+Field elements, circuit version 7: attributes * (2 \* 64 \* 8 \+ 2 \* 1472 \+ 12 \+ 12 \+ 12 \+ 12
+\+ 12 \+ 3 \* 12 \+ 4 \* 12 \+ 4 \* 2) \= attributes * 4120
 
 Multiple values are provided for each of the attributes disclosed in the
 credential presentation. These wires are grouped first by the attribute, and
@@ -547,7 +593,7 @@ Next, a 12-bit offset into the MSO is encoded into twelve input wires. This
 should point to the type prefix of the byte string inside `valueDigests` for
 this attribute.
 
-##### CBOR Offset in Preimage
+##### CBOR Offset in Preimage (Circuit version 6)
 
 Field elements per attribute: 12
 
@@ -557,7 +603,7 @@ needs to point to the CBOR prefix before the value of the `elementIdentifier`
 attribute. This is the same place that the substring included in the public
 inputs above begins. The offset is encoded with one bit per input wire.
 
-##### Unused Offset and Lengths
+##### Unused Offset and Lengths (Circuit version 6)
 
 Field elements per attribute: 12 \+ 12 \+ 12 \= 36
 
@@ -566,6 +612,39 @@ they are unused. This is likely an artifact of prior circuit interfaces, which
 provided the `elementIdentifier` and `elementValue` values separately, with an
 offset and length for each, and did not include them in one byte string spanning
 multiple CBOR items.
+
+##### Unused Offset and Lengths (Circuit version 7)
+
+Field elements per attribute: 12 \+ 12 \+ 12 \+ 12 \= 48
+
+In circuit version 7, all four of the offsets and lengths described above are unused.
+
+##### IssuerSignedItem Organization (Circuit version 7)
+
+Field elements per attribute (circuit version 7): 3 \* 12 \+ 4 \* 12 \+ 4 \* 2 \= 92
+
+This portion of the per-attribute witnesses is only used for circuit version 7.
+
+The next parts of the witness describe how the encoded `IssuerSignedItemBytes`
+hash preimage is divided into its fields. With the current specification
+version, the `IssuerSignedItem` map is expected to have four fields: `digestID`,
+`random`, `elementIdentifier`, and `elementValue`. Each gets successively
+encoded as a key and a value. Consider the portions of the hash preimage that
+are occupied by each of these key-value pairs, left to right. Note that the
+first key-value pair will always start at a byte offset of five. (two bytes for
+the tag from `encoded-cbor`, two bytes for the type and length of the bytes
+item, and one byte for the type and length of the `IssuerSignedItem` map)
+The offsets into the hash pre-image of the second, third, and fourth key-value
+pairs are encoded in the witness next, with offsets represented as 12-bit
+integers, and one input wire per bit. Then, the lengths of the four key-value
+pairs are encoded, in order from left to right, also as 12-bit integers.
+
+Finally, the relative order of the four key-value pairs is recorded, with a
+two-bit index for each field. These are encoded with one input wire per bit. The
+order of the `digestID` key-value pair is encoded first, with 0 indicating it is
+the first key-value pair, 1 indicating it is the second key-value pair, etc. The
+order for `random` is encoded next, followed by `elementIdentifier` and
+`elementValue`.
 
 #### MAC Prover Key Shares
 

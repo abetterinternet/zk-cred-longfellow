@@ -16,7 +16,7 @@ fn load_circuit_file() -> Vec<u8> {
 
 fn load_inputs() -> (Vec<u8>, Vec<u8>, String) {
     let value = serde_json::from_slice::<Value>(include_bytes!(
-        "../test-vectors/mdoc_zk/v6_1attr_issue_date.json"
+        "../test-vectors/mdoc_zk/v6_v7_1attr_issue_date.json"
     ))
     .unwrap();
     let object = value.as_object().unwrap();

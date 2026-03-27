@@ -61,16 +61,15 @@ pub(super) fn run_sha256(input: &[u8]) -> Sha256Digest {
 }
 
 /// Compute the SHA-256 hash of an input, and write intermediate computations to the witness.
-pub(super) fn run_sha256_witnessed<'a, const WIRES: usize>(
+pub(super) fn run_sha256_witnessed<'a>(
     input: &[u8],
-    witness: &'a mut Sha256Witness<'a, WIRES>,
+    witness: &'a mut Sha256Witness<'a>,
     bit_plucker: &BitPlucker<4, Field2_128>,
+    max_blocks: usize,
 ) -> Result<Sha256Result, anyhow::Error> {
     // Calculate the length of the input after adding extra zeroed blocks, to match the fixed size
     // of the circuit inputs.
-    let circuit_num_blocks = WIRES / Sha256BlockWitness::LENGTH;
-    let circuit_input_len = circuit_num_blocks * 64;
-    assert_eq!(WIRES % Sha256BlockWitness::LENGTH, 0);
+    let circuit_input_len = max_blocks * 64;
 
     let mut padded_input = Vec::with_capacity(circuit_input_len);
     padded_input.extend_from_slice(input);

@@ -4,14 +4,14 @@ use crate::{
     fields::{field2_128::Field2_128, fieldp256::FieldP256},
     ligero::verifier::LigeroVerifier,
     mdoc_zk::{
-        ATTRIBUTE_CBOR_DATA_LENGTH, CircuitStatements, CircuitVersion, MdocZkProof, ProofContext,
+        CircuitStatements, CircuitVersion, MdocZkProof, ProofContext, PublicAttribute,
         prover::common_initialization,
     },
     sumcheck::{SumcheckProtocol, initialize_transcript},
     transcript::{Transcript, TranscriptMode},
 };
 use anyhow::{Context, anyhow};
-use std::io::{Cursor, Write};
+use std::borrow::Cow;
 
 /// Zero-knowledge verifier for mdoc credential presentations.
 pub struct MdocZkVerifier {
@@ -163,6 +163,9 @@ impl MdocZkVerifier {
 }
 
 /// Identifier and value of an attribute.
+///
+/// This represents the verifier's view of a selectively disclosed attribute, with ergonomic
+/// handling of the element identifier as a `String`.
 pub struct Attribute {
     /// Attribute identifier.
     pub identifier: String,
@@ -171,20 +174,14 @@ pub struct Attribute {
 }
 
 impl Attribute {
-    pub(super) fn serialize(
-        &self,
-    ) -> Result<([u8; ATTRIBUTE_CBOR_DATA_LENGTH], u64), anyhow::Error> {
-        let mut buffer = [0; ATTRIBUTE_CBOR_DATA_LENGTH];
-        let mut cursor = Cursor::new(buffer.as_mut_slice());
-        ciborium::into_writer(&self.identifier, &mut cursor)
-            .map_err(|e| anyhow!("attribute identifier is too long: {e:?}"))?;
-        ciborium::into_writer("elementValue", &mut cursor)
-            .map_err(|e| anyhow!("attribute contents are too long: {e:?}"))?;
-        cursor
-            .write_all(&self.value_cbor)
-            .context("attribute contents are too long")?;
-        let position = cursor.position();
-        Ok((buffer, position))
+    pub(super) fn as_public_attribute(&self) -> Result<PublicAttribute<'_>, anyhow::Error> {
+        let mut identifier_cbor = Vec::with_capacity(self.identifier.len() + 2);
+        ciborium::into_writer(&self.identifier, &mut identifier_cbor)
+            .context("failed to serialize identifier")?;
+        Ok(PublicAttribute {
+            identifier: Cow::Owned(identifier_cbor),
+            value: Cow::Borrowed(&self.value_cbor),
+        })
     }
 }
 
@@ -192,7 +189,7 @@ impl Attribute {
 mod tests {
     use crate::mdoc_zk::{
         CircuitVersion,
-        tests::{ISSUER_PUBLIC_KEY, load_v6_test_vector},
+        tests::{ISSUER_PUBLIC_KEY, load_v6_v7_test_vector_inputs},
         verifier::{Attribute, MdocZkVerifier},
     };
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -206,7 +203,7 @@ mod tests {
         let decompressed = zstd::decode_all(compressed).unwrap();
         let verifier = MdocZkVerifier::new(&decompressed, CircuitVersion::V6, 1).unwrap();
 
-        let witness_test_vector = load_v6_test_vector();
+        let test_vector_inputs = load_v6_v7_test_vector_inputs();
 
         verifier
             .verify(
@@ -217,8 +214,34 @@ mod tests {
                 }],
                 "org.iso.18013.5.1.mDL",
                 b"\xA0", // Empty CBOR map
-                &witness_test_vector.transcript,
-                &witness_test_vector.now,
+                &test_vector_inputs.transcript,
+                &test_vector_inputs.now,
+                proof,
+            )
+            .unwrap();
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_verify_interop_v7() {
+        let proof = include_bytes!("../../test-vectors/mdoc_zk/v7_1attr_issue_date.proof");
+
+        let compressed = include_bytes!("../../test-vectors/mdoc_zk/7_1_8d079211715200ff06c5109639245502bfe94aa869908d31176aae4016182121").as_slice();
+        let decompressed = zstd::decode_all(compressed).unwrap();
+        let verifier = MdocZkVerifier::new(&decompressed, CircuitVersion::V7, 1).unwrap();
+
+        let test_vector_inputs = load_v6_v7_test_vector_inputs();
+
+        verifier
+            .verify(
+                ISSUER_PUBLIC_KEY,
+                &[Attribute {
+                    identifier: "issue_date".to_owned(),
+                    value_cbor: b"\xd9\x03\xec\x6a2024-03-15".to_vec(),
+                }],
+                "org.iso.18013.5.1.mDL",
+                b"\xA0", // Empty CBOR map
+                &test_vector_inputs.transcript,
+                &test_vector_inputs.now,
                 proof,
             )
             .unwrap();

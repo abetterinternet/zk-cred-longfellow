@@ -244,7 +244,9 @@ pub(super) fn compute_mac_tags(
 
 #[cfg(test)]
 mod tests {
-    use crate::mdoc_zk::{CircuitVersion, prover::MdocZkProver, tests::load_v6_test_vector};
+    use crate::mdoc_zk::{
+        CircuitVersion, prover::MdocZkProver, tests::load_v6_v7_test_vector_inputs,
+    };
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -253,15 +255,15 @@ mod tests {
         let decompressed = zstd::decode_all(compressed).unwrap();
         let prover = MdocZkProver::new(&decompressed, CircuitVersion::V6, 1).unwrap();
 
-        let witness_test_vector = load_v6_test_vector();
+        let test_vector_inputs = load_v6_v7_test_vector_inputs();
 
         prover
             .prove(
-                &witness_test_vector.mdoc,
+                &test_vector_inputs.mdoc,
                 "org.iso.18013.5.1",
-                &[&witness_test_vector.attributes[0].id],
-                &witness_test_vector.transcript,
-                &witness_test_vector.now,
+                &[&test_vector_inputs.attributes[0].id],
+                &test_vector_inputs.transcript,
+                &test_vector_inputs.now,
             )
             .unwrap();
     }

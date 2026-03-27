@@ -448,6 +448,7 @@ const P256_G: [FieldP256; 2] = {
 };
 
 /// An ECDSA signature.
+#[derive(Clone, Copy)]
 pub(super) struct Signature {
     pub(super) r: FieldP256Scalar,
     pub(super) s: FieldP256Scalar,

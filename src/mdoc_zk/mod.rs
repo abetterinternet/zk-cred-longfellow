@@ -385,37 +385,42 @@ impl CircuitInputs {
                             "first key-value pair of IssuerSignedItem has an unexpected offset"
                         ));
                     }
+                    // Unwrap safety: all these offsets and lengths are into the
+                    // IssuerSignedItemBytes hash preimage, which we already checked the length of.
                     u12_as_bits(
-                        kv_metadata_tuples[1].0 as u16 + ENCODED_CBOR_PREFIX_LENGTH as u16,
+                        u16::try_from(kv_metadata_tuples[1].0).unwrap()
+                            + ENCODED_CBOR_PREFIX_LENGTH as u16,
                         attribute_witness.kv_offset_1,
                     )?;
                     u12_as_bits(
-                        kv_metadata_tuples[2].0 as u16 + ENCODED_CBOR_PREFIX_LENGTH as u16,
+                        u16::try_from(kv_metadata_tuples[2].0).unwrap()
+                            + ENCODED_CBOR_PREFIX_LENGTH as u16,
                         attribute_witness.kv_offset_2,
                     )?;
                     u12_as_bits(
-                        kv_metadata_tuples[3].0 as u16 + ENCODED_CBOR_PREFIX_LENGTH as u16,
+                        u16::try_from(kv_metadata_tuples[3].0).unwrap()
+                            + ENCODED_CBOR_PREFIX_LENGTH as u16,
                         attribute_witness.kv_offset_3,
                     )?;
                     u12_as_bits(
-                        kv_metadata_tuples[0].1 as u16,
+                        u16::try_from(kv_metadata_tuples[0].1).unwrap(),
                         attribute_witness.kv_lengths[0],
                     )?;
                     u12_as_bits(
-                        kv_metadata_tuples[1].1 as u16,
+                        u16::try_from(kv_metadata_tuples[1].1).unwrap(),
                         attribute_witness.kv_lengths[1],
                     )?;
                     u12_as_bits(
-                        kv_metadata_tuples[2].1 as u16,
+                        u16::try_from(kv_metadata_tuples[2].1).unwrap(),
                         attribute_witness.kv_lengths[2],
                     )?;
                     u12_as_bits(
-                        kv_metadata_tuples[3].1 as u16,
+                        u16::try_from(kv_metadata_tuples[3].1).unwrap(),
                         attribute_witness.kv_lengths[3],
                     )?;
 
-                    // These unwraps are safe because all the indices are present in the array when
-                    // it is constructed, and we just sorted the array.
+                    // Unwrap safety: All the indices are present in the array when it is
+                    // constructed, and we just sorted the array.
                     let digest_id_order = kv_metadata_tuples
                         .iter()
                         .position(|(_, _, idx)| *idx == 0)
@@ -432,14 +437,21 @@ impl CircuitInputs {
                         .iter()
                         .position(|(_, _, idx)| *idx == 3)
                         .unwrap();
-                    u2_as_bits(digest_id_order as u8, attribute_witness.kv_order_digest_id)?;
-                    u2_as_bits(random_order as u8, attribute_witness.kv_order_random)?;
+                    // Unwrap safety: All the positions will be 0 through 3.
                     u2_as_bits(
-                        element_identifier_order as u8,
+                        u8::try_from(digest_id_order).unwrap(),
+                        attribute_witness.kv_order_digest_id,
+                    )?;
+                    u2_as_bits(
+                        u8::try_from(random_order).unwrap(),
+                        attribute_witness.kv_order_random,
+                    )?;
+                    u2_as_bits(
+                        u8::try_from(element_identifier_order).unwrap(),
                         attribute_witness.kv_order_element_identifier,
                     )?;
                     u2_as_bits(
-                        element_value_order as u8,
+                        u8::try_from(element_value_order).unwrap(),
                         attribute_witness.kv_order_element_value,
                     )?;
                 }
@@ -565,7 +577,10 @@ fn fill_attribute_statement_v6(
 ) -> Result<(), anyhow::Error> {
     let SerializedAttributeV6 { buffer, length } = attribute.serialize_v6()?;
     byte_array_as_bits(&buffer, attribute_input.cbor_data);
-    byte_array_as_bits(&[length as u8], attribute_input.cbor_length);
+    byte_array_as_bits(
+        &[u8::try_from(length).context("attribute contents are too long")?],
+        attribute_input.cbor_length,
+    );
     Ok(())
 }
 

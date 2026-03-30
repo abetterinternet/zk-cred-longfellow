@@ -4,9 +4,9 @@ use crate::{
     Sha256Digest,
     fields::{field2_128::Field2_128, fieldp256::FieldP256},
     mdoc_zk::{
-        BitPlucker,
+        BitPlucker, PublicAttribute,
         ec::{AffinePoint, Signature},
-        layout::{SHA_256_CREDENTIAL_WITNESS_WIRES, Sha256Witness},
+        layout::Sha256Witness,
         mdoc::cose::{CoseHeaders, CoseKey, CoseSign1, ProtectedHeadersEs256, SigStructure},
         sha256::{Sha256Result, run_sha256, run_sha256_witnessed},
     },
@@ -19,6 +19,7 @@ use serde::{
     de::{IgnoredAny, Visitor},
 };
 use std::{
+    borrow::Cow,
     collections::{HashMap, hash_map},
     ops::Deref,
 };
@@ -440,10 +441,11 @@ impl Deref for ByteString {
 /// Compute the hash of the credential, for the issuer signature.
 ///
 /// This also returns the preimage of the hash, and writes SHA-256 witness values.
-pub(super) fn compute_credential_hash<'a>(
+pub(super) fn compute_credential_hash<'a, 'b: 'a>(
     mdoc: &Mdoc,
-    witness: &'a mut Sha256Witness<'a, SHA_256_CREDENTIAL_WITNESS_WIRES>,
+    witness: &'b mut Sha256Witness<'a>,
     bit_plucker: &BitPlucker<4, Field2_128>,
+    max_blocks: usize,
 ) -> Result<Sha256Result, anyhow::Error> {
     let sig_structure = SigStructure {
         body_protected: ByteString(mdoc.issuer_signature_protected_headers.clone()),
@@ -454,11 +456,7 @@ pub(super) fn compute_credential_hash<'a>(
     ciborium::into_writer(&sig_structure, &mut message)
         .context("could not encode Sig_structure")?;
 
-    run_sha256_witnessed::<SHA_256_CREDENTIAL_WITNESS_WIRES>(
-        message.as_slice(),
-        witness,
-        bit_plucker,
-    )
+    run_sha256_witnessed(message.as_slice(), witness, bit_plucker, max_blocks)
 }
 
 /// Convert a SHA-256 hash from an ECDSA signature into a base field element for use as a circuit input.
@@ -476,10 +474,29 @@ pub(super) fn hash_to_field_element(mut digest: Sha256Digest) -> Result<FieldP25
 /// Information about an attribute extracted from an mdoc.
 #[derive(Debug, Clone)]
 pub(super) struct ParsedAttribute {
-    pub(super) digest_id: u64,
     pub(super) issuer_signed_item_bytes: EncodedCbor,
-    pub(super) public_cbor_data: Vec<u8>,
-    pub(super) public_cbor_offset: usize,
+
+    pub(super) digest_id: KeyValueData<u64>,
+    pub(super) random: KeyValueData<()>,
+    pub(super) element_identifier: KeyValueData<Vec<u8>>,
+    pub(super) element_value: KeyValueData<Vec<u8>>,
+}
+
+impl ParsedAttribute {
+    pub(super) fn as_public_attribute(&self) -> PublicAttribute<'_> {
+        PublicAttribute {
+            identifier: Cow::Borrowed(&self.element_identifier.value),
+            value: Cow::Borrowed(&self.element_value.value),
+        }
+    }
+}
+
+/// Information about one key-value pair in an `IssuerSignedItem`.
+#[derive(Debug, Clone)]
+pub(super) struct KeyValueData<T> {
+    pub(super) offset: usize,
+    pub(super) length: usize,
+    pub(super) value: T,
 }
 
 /// Locate attributes by their identifier, and return their values and related witnesses.
@@ -501,40 +518,65 @@ pub(super) fn find_attributes(
             return Err(anyhow!("IssuerSignedItem was not a map"));
         };
 
-        // Version 6 of the circuit requires the elementIdentifier key-value pair to be immediately
-        // followed by the elementValue key-value pair. We need to find those, and store an offset
-        // in the middle of the first key-value pair. We also need to find the digestID, to
-        // efficiently find the offset of the corresponding digest in the MSO.
-        //
-        // Read two items at a time. For maps of known size, stop after the expected number
-        // of entries have been read. For maps of indefinite size, stop when encountering a `break`
-        // header.
+        // Parse the entire map and record the offset of each key, the total encoded length of each
+        // key-value pair, and the contents of selected values.
 
-        let mut attribute_id = None;
+        let mut element_identifier_string = None;
+
         let mut digest_id = None;
-        let mut public_cbor_data_and_offset = None;
-
-        let mut last_entry_was_element_identifier = false;
-        let mut last_value_offset = None;
+        let mut random = None;
+        let mut element_identifier = None;
+        let mut element_value = None;
 
         parse_map(
             &mut decoder,
             &mut scratch,
             map_size_opt,
-            |decoder, scratch, key, _key_offset, value_offset, value_header| {
-                let mut this_entry_element_identifier = false;
+            |decoder, scratch, key, key_offset, value_offset, value_header| {
                 match key.as_str() {
                     "digestID" => {
+                        if digest_id.is_some() {
+                            return Err(anyhow!("duplicate digestID entry in IssuerSignedItem"));
+                        }
                         if let Header::Positive(id) = value_header {
-                            digest_id = Some(id)
+                            digest_id = Some(KeyValueData {
+                                offset: key_offset,
+                                length: decoder.offset() - key_offset,
+                                value: id,
+                            });
                         } else {
                             return Err(anyhow!("unexpected value for digestID: {value_header:?}"));
                         }
                     }
+                    "random" => {
+                        if random.is_some() {
+                            return Err(anyhow!("duplicate random entry in IssuerSignedItem"));
+                        }
+                        if let Header::Bytes(_) = value_header {
+                            skip_body(decoder, scratch, value_header)?;
+                            random = Some(KeyValueData {
+                                offset: key_offset,
+                                length: decoder.offset() - key_offset,
+                                value: (),
+                            });
+                        } else {
+                            return Err(anyhow!("unexpected value for random: {value_header:?}"));
+                        }
+                    }
                     "elementIdentifier" => {
-                        this_entry_element_identifier = true;
+                        if element_identifier.is_some() {
+                            return Err(anyhow!(
+                                "duplicate elementIdentifier entry in IssuerSignedItem"
+                            ));
+                        }
                         if let Header::Text(len) = value_header {
-                            attribute_id = Some(slurp_string(decoder, scratch, len)?);
+                            element_identifier_string = Some(slurp_string(decoder, scratch, len)?);
+                            let end_offset = decoder.offset();
+                            element_identifier = Some(KeyValueData {
+                                offset: key_offset,
+                                length: end_offset - key_offset,
+                                value: encoded_cbor.0.0[value_offset..end_offset].to_vec(),
+                            });
                         } else {
                             return Err(anyhow!(
                                 "unexpected value for elementIdentifier: {value_header:?}"
@@ -542,26 +584,21 @@ pub(super) fn find_attributes(
                         }
                     }
                     "elementValue" => {
-                        if !last_entry_was_element_identifier {
+                        if element_value.is_some() {
                             return Err(anyhow!(
-                                "elementValue did not immediately follow elementIdentifier"
+                                "duplicate elementValue entry in IssuerSignedItem"
                             ));
                         }
                         skip_body(decoder, scratch, value_header)?;
                         let end_offset = decoder.offset();
-                        let Some(start_offset) = last_value_offset else {
-                            return Err(anyhow!("elementValue did not follow elementIdentifier"));
-                        };
-                        public_cbor_data_and_offset = Some((
-                            encoded_cbor.0.0[start_offset..end_offset].to_vec(),
-                            start_offset,
-                        ));
+                        element_value = Some(KeyValueData {
+                            offset: key_offset,
+                            length: end_offset - key_offset,
+                            value: encoded_cbor.0.0[value_offset..end_offset].to_vec(),
+                        });
                     }
-                    _ => skip_body(decoder, scratch, value_header)?,
+                    _ => return Err(anyhow!("unexpected field in IssuerSignedItem: {key}")),
                 }
-
-                last_entry_was_element_identifier = this_entry_element_identifier;
-                last_value_offset = Some(value_offset);
 
                 Ok(())
             },
@@ -573,18 +610,26 @@ pub(super) fn find_attributes(
         }
 
         for (opt, desired_attribute_id) in out.iter_mut().zip(attribute_ids) {
-            if let Some(attribute_id) = &attribute_id
+            if let Some(attribute_id) = &element_identifier_string
                 && attribute_id == desired_attribute_id
             {
-                let (public_cbor_data, public_cbor_offset) = public_cbor_data_and_offset
-                    .take()
-                    .ok_or_else(|| anyhow!("elementValue was missing for IssuerSignedItem"))?;
+                let digest_id = digest_id
+                    .ok_or_else(|| anyhow!("digestID was missing from IssuerSignedItem"))?;
+                let random =
+                    random.ok_or_else(|| anyhow!("random was missing from IssuerSignedItem"))?;
+                let element_identifier = element_identifier.ok_or_else(|| {
+                    anyhow!("elementIdentifier was missing from IssuerSignedItem")
+                })?;
+                let element_value = element_value
+                    .ok_or_else(|| anyhow!("elementValue was missing from IssuerSignedItem"))?;
+
                 *opt = Some(ParsedAttribute {
-                    digest_id: digest_id
-                        .ok_or_else(|| anyhow!("digestID was missing for IssuerSignedItem"))?,
                     issuer_signed_item_bytes: encoded_cbor.clone(),
-                    public_cbor_data,
-                    public_cbor_offset,
+
+                    digest_id,
+                    random,
+                    element_identifier,
+                    element_value,
                 });
                 break;
             }
@@ -1081,7 +1126,7 @@ mod tests {
         find_attributes,
         mdoc::{ByteString, DeviceAuth, EncodedCbor, MobileSecurityObject, parse_mso, skip_body},
         parse_device_response,
-        tests::load_v6_test_vector,
+        tests::load_v6_v7_test_vector_inputs,
     };
     use ciborium::{cbor, tag};
     use ciborium_ll::Decoder;
@@ -1152,8 +1197,8 @@ mod tests {
         )
         .unwrap();
         let attribute = &attributes[0];
-        assert_eq!(attribute.digest_id, 0);
-        assert!(attribute.public_cbor_data.ends_with(&[0xf5])); // primitive(21), i.e. true
+        assert_eq!(attribute.digest_id.value, 0);
+        assert!(attribute.element_value.value.ends_with(&[0xf5])); // primitive(21), i.e. true
     }
 
     #[wasm_bindgen_test(unsupported = test)]
@@ -1185,44 +1230,14 @@ mod tests {
         )
         .unwrap();
         let attribute = &attributes[0];
-        assert_eq!(attribute.digest_id, 0);
+        assert_eq!(attribute.digest_id.value, 0);
         let needle = b"Passenger";
         assert!(
             attribute
-                .public_cbor_data
+                .element_value
+                .value
                 .windows(needle.len())
                 .any(|window| window == needle)
-        );
-    }
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn test_find_attributes_wrong_order() {
-        let mut data = Vec::new();
-        ciborium::into_writer(
-            &cbor!({
-                "elementValue" => true,
-                "elementIdentifier" => "age_over_21",
-                "random" => ByteString(b"0123456789012345".to_vec()),
-                "digestID" => 0,
-            })
-            .unwrap(),
-            &mut Cursor::new(&mut data),
-        )
-        .unwrap();
-
-        let error = find_attributes(
-            &HashMap::from([(
-                "org.iso.18013.5.1.aamva".to_string(),
-                Vec::from([tag::Required(ByteString(data))]),
-            )]),
-            "org.iso.18013.5.1.aamva",
-            &["age_over_21"],
-        )
-        .unwrap_err();
-        let error_message = format!("{error:#}");
-        assert!(
-            error_message.contains("follow elementIdentifier"),
-            "{error_message}"
         );
     }
 
@@ -1230,8 +1245,8 @@ mod tests {
     /// serde implementation (except for the offsets).
     #[wasm_bindgen_test(unsupported = test)]
     fn test_parse_mso() {
-        let test_vector = load_v6_test_vector();
-        let mdoc = parse_device_response(&test_vector.mdoc).unwrap();
+        let test_vector_inputs = load_v6_v7_test_vector_inputs();
+        let mdoc = parse_device_response(&test_vector_inputs.mdoc).unwrap();
         let msob: EncodedCbor =
             ciborium::from_reader(mdoc.issuer_signature_payload.as_slice()).unwrap();
 

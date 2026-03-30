@@ -448,6 +448,7 @@ const P256_G: [FieldP256; 2] = {
 };
 
 /// An ECDSA signature.
+#[derive(Clone, Copy)]
 pub(super) struct Signature {
     pub(super) r: FieldP256Scalar,
     pub(super) s: FieldP256Scalar,
@@ -481,8 +482,8 @@ impl Signature {
     }
 }
 
-pub(super) fn fill_ecdsa_witness<'a>(
-    witness: &'a mut EcdsaWitness<'a>,
+pub(super) fn fill_ecdsa_witness<'a, 'b: 'a>(
+    witness: &'b mut EcdsaWitness<'a>,
     public_key: AffinePoint,
     signature: Signature,
     hash: Sha256Digest,
@@ -537,8 +538,8 @@ fn embed_scalar_in_base_field(scalar: FieldP256Scalar) -> FieldP256 {
 }
 
 /// Perform the multi-scalar multiplication G*e + Q*r - R*s, and record related witnesses.
-fn multi_scalar_multiplication<'a>(
-    witness: &'a mut EcdsaWitness<'a>,
+fn multi_scalar_multiplication<'a, 'b: 'a>(
+    witness: &'b mut EcdsaWitness<'a>,
     g: AffinePoint,
     e: Sha256Digest,
     q: AffinePoint,

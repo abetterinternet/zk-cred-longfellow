@@ -63,11 +63,20 @@ quads at that version.
 ### `v6_1attr_issue_date`
 
 This test vector was generated using a custom test from commit
-[a766c1c2ef1af6b45b686180b9436e88545d4d21][commit]. It provides the DeviceResponse, the
-SessionTranscript, the requested attributes, and the time. A proof generated using these inputs is
-stored in a neighboring file.
+[a766c1c2ef1af6b45b686180b9436e88545d4d21][commit-a766c1c]. The two files provide a serialized proof, along
+with the DeviceResponse, the SessionTranscript, the requested attributes, and the time that were
+used to generate it.
 
-[commit]: https://github.com/divergentdave/longfellow-zk/commit/a766c1c2ef1af6b45b686180b9436e88545d4d21
+[commit-a766c1c]: https://github.com/divergentdave/longfellow-zk/commit/a766c1c2ef1af6b45b686180b9436e88545d4d21
+
+### `v7_1attr_issue_date`
+
+This test vector was generated using a custom test from commit
+[2c081d6a1772a5dc29e4de9e044bfac6c08b654e][commit-2c081d6]. It provides a serialized proof. The
+DeviceResponse, the SessionTranscript, the requested attributes, and the time are unchanged from the
+above test vector for circuit version 6, so the corresponding file is shared between tests.
+
+[commit-2c081d6]: https://github.com/divergentdave/longfellow-zk/commit/2c081d6a1772a5dc29e4de9e044bfac6c08b654e
 
 ## `bind`
 

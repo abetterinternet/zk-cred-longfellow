@@ -2,7 +2,11 @@
 //!
 //! These functions wrap the Rust API, replacing `usize` arguments and wrapping error types.
 
-use crate::mdoc_zk::{CircuitVersion, prover::MdocZkProver};
+use crate::mdoc_zk::{
+    CircuitVersion,
+    prover::MdocZkProver,
+    verifier::{Attribute, MdocZkVerifier},
+};
 use std::fmt::{self, Debug, Display};
 
 /// Initialize the prover by loading a decompressed circuit file.
@@ -36,6 +40,41 @@ pub fn prove(
             &requested_claims,
             session_transcript,
             time,
+        )
+        .map_err(MdocZkError)
+}
+
+/// Initialize the verifier by loading a decompressed circuit file.
+#[uniffi::export]
+pub fn initialize_verifier(
+    circuit: &[u8],
+    circuit_version: CircuitVersion,
+    num_attributes: u8,
+) -> Result<MdocZkVerifier, MdocZkError> {
+    MdocZkVerifier::new(circuit, circuit_version, usize::from(num_attributes)).map_err(MdocZkError)
+}
+
+/// Verify a proof of a credential presentation.
+#[uniffi::export]
+pub fn verify(
+    verifier: &MdocZkVerifier,
+    issuer_public_key_sec_1: &[u8],
+    attributes: &[Attribute],
+    doc_type: &str,
+    device_name_spaces_bytes: &[u8],
+    session_transcript: &[u8],
+    time: &str,
+    proof: &[u8],
+) -> Result<(), MdocZkError> {
+    verifier
+        .verify(
+            issuer_public_key_sec_1,
+            attributes,
+            doc_type,
+            device_name_spaces_bytes,
+            session_transcript,
+            time,
+            proof,
         )
         .map_err(MdocZkError)
 }

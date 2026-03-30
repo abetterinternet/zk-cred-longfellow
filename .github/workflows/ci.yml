@@ -32,6 +32,8 @@ jobs:
     - name: "Check for #[test] macro"
       run: |
         bash -c "! grep -r '#\[test\]' src"
+    - name: Check uniffi build
+      run: cargo check --features uniffi
 
   wasm-node:
     runs-on: ubuntu-latest

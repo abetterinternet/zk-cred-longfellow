@@ -9,6 +9,9 @@ name = "zk-cred-longfellow"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+uniffi = ["dep:uniffi"]
+
 [dependencies]
 aes = "0.8.4"
 anyhow = "1"
@@ -26,6 +29,7 @@ serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10.9"
 static_assertions = "1.1.0"
 subtle = { version = "2.6.1", features = ["const-generics"] }
+uniffi = { version = "0.31.0", optional = true, features = ["cli"] }
 wasm-bindgen = "0.2.106"
 x509-cert = { version = "0.2.5", default-features = false, features = ["hazmat", "std"] }
 zstd = "0.13.3"
@@ -69,8 +73,13 @@ harness = false
 name = "ntt"
 harness = false
 
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["uniffi"]
+
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "rlib", "staticlib"]
 
 [profile.release]
 lto = true

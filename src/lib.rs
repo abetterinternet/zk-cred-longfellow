@@ -7,6 +7,8 @@ use std::{
 };
 
 pub mod circuit;
+#[cfg(feature = "uniffi")]
+pub mod ffi_api;
 pub mod fields;
 pub mod js_api;
 pub mod ligero;
@@ -17,6 +19,9 @@ pub mod test_vector;
 pub mod transcript;
 mod witness;
 pub mod zk_one_circuit;
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
 
 /// A serialized size, which is in the range [1, 2^24 -1] per [draft-google-cfrg-libzk-00 section
 /// 7][1]. Serialized in little endian order, occupying 3 bytes.

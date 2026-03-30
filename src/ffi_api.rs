@@ -80,6 +80,7 @@ pub fn verify(
 }
 
 #[derive(uniffi::Object)]
+#[uniffi::export(Debug, Display)]
 pub struct MdocZkError(anyhow::Error);
 
 impl std::error::Error for MdocZkError {

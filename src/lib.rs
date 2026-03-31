@@ -10,6 +10,7 @@ pub mod circuit;
 #[cfg(feature = "uniffi")]
 pub mod ffi_api;
 pub mod fields;
+#[cfg(target_family = "wasm")]
 pub mod js_api;
 pub mod ligero;
 pub mod mdoc_zk;

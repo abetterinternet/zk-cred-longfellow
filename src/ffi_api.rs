@@ -29,10 +29,7 @@ pub fn prove(
     session_transcript: &[u8],
     time: &str,
 ) -> Result<Vec<u8>, MdocZkError> {
-    let requested_claims = requested_claims
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
+    let requested_claims: Vec<_> = requested_claims.iter().map(String::as_str).collect();
     prover
         .prove(
             device_response,
@@ -101,7 +98,7 @@ impl std::error::Error for MdocZkError {
 
 impl Display for MdocZkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        <anyhow::Error as Display>::fmt(&self.0, f)
+        write!(f, "{:#}", &self.0)
     }
 }
 

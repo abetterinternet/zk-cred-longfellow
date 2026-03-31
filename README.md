@@ -14,6 +14,16 @@ This project is part of [ISRG](https://abetterinternet.org)'s research into
 
 Run `wasm-pack build` to produce a WASM build with JavaScript bindings.
 
-Run `cargo build --release --features uniffi` followed by `cargo run --features=uniffi --bin
-uniffi-bindgen generate --library target/release/libzk_cred_longfellow.so --language <LANGUAGE>
---out-dir out` to produce a native build with bindings for Kotlin, Swift, or other languages.
+Run the following commands to produce a native build with bindings for Kotlin, Swift, or other
+languages.
+
+```bash
+cargo build --release --features uniffi
+cargo run \
+    --features uniffi \
+    --bin uniffi-bindgen \
+    generate \
+    --library target/release/libzk_cred_longfellow.so
+    --language <LANGUAGE>
+    --out-dir out
+```

@@ -12,12 +12,9 @@ pub(super) fn galois_multiply(x: u128, y: u128) -> u128 {
     let product3 = vmull_p64(x as u64, (y >> 64) as u64);
     let product4 = vmull_p64((x >> 64) as u64, (y >> 64) as u64);
     let middle = product2 ^ product3;
-    let middle_high = middle >> 64;
-    let middle_low = middle << 64;
-    let result_low = product1 ^ middle_low;
-    let result_high = product4 ^ middle_high;
 
-    reduce(result_low, result_high)
+    let intermediate_middle = reduce(middle, product4);
+    reduce(product1, intermediate_middle)
 }
 
 /// Squares a GF(2^128) element, represented as a `u128`.
@@ -31,24 +28,16 @@ pub(super) fn galois_square(x: u128) -> u128 {
     // has characteristic two and `product2` and `product3` cancel out.
     let product1 = vmull_p64(x as u64, x as u64);
     let product4 = vmull_p64((x >> 64) as u64, (x >> 64) as u64);
-    let result_low = product1;
-    let result_high = product4;
 
-    reduce(result_low, result_high)
+    let intermediate_middle = reduce(0, product4);
+    reduce(product1, intermediate_middle)
 }
 
-/// Reduce an intermediate 256-bit product by the field's quotient polynomial.
+/// Reduce an intermediate 192-bit result by the field's quotient polynomial.
 #[target_feature(enable = "neon")]
 #[target_feature(enable = "aes")]
-fn reduce(mut result_low: u128, result_high: u128) -> u128 {
-    // Perform the first step of the reduction by x^128 + x^7 + x^2 + x + 1. Multiply the top 64
-    // bits by x^7 + x^2 + x + 1, and XOR the result in shifted down by 128 bits.
-    let first_product = vmull_p64((result_high >> 64) as u64, 0x87);
-    let middle = first_product ^ (result_high << 64);
-    result_low ^= middle << 64;
-
-    // Perform the second step of the reduction. We again multiply the highest part of the remaining
-    // result by (x^7 + x^2 + x + 1), and add it to the low part.
-    let second_product = vmull_p64((middle >> 64) as u64, 0x87);
-    result_low ^ second_product
+fn reduce(result_low: u128, result_middle: u128) -> u128 {
+    // See the x86_64 implementation for an explanation of this function.
+    let product = vmull_p64((result_middle >> 64) as u64, 0x87);
+    result_low ^ (result_middle << 64) ^ product
 }

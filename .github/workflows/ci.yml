@@ -34,6 +34,10 @@ jobs:
         bash -c "! grep -r '#\[test\]' src"
     - name: Check uniffi build
       run: cargo check --features uniffi
+    - name: cargo-deny
+      uses: EmbarkStudios/cargo-deny-action@v2.0.15
+      with:
+        command: check bans licenses sources
 
   wasm-node:
     runs-on: ubuntu-latest

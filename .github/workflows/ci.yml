@@ -70,3 +70,13 @@ jobs:
       run: wasm-pack test --firefox --headless
       env:
         WASM_BINDGEN_USE_BROWSER: "1"
+
+  rustsec-advisories:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@v5
+    - name: cargo-deny
+      uses: EmbarkStudios/cargo-deny-action@v2.0.15
+      with:
+        command: check advisories

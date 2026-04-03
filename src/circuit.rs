@@ -782,25 +782,25 @@ pub(crate) mod tests {
     /// // Propagate 1 to next layer.
     /// V[2][0] = 1 * V[3][0] * V[3][0]
     /// // Calculate x^2 - 3x + 2.
-    /// V[2][1] = 1 * V[3][1] * V[3][1] + -3 * V[3][1] * V[3][0] + 2 * V[3][0] * V[3][0]
+    /// V[2][1] = 1 * V[3][1] * V[3][1] + -3 * V[3][0] * V[3][1] + 2 * V[3][0] * V[3][0]
     /// // Propagate x to next layer (for assertion).
-    /// V[2][2] = 1 * V[3][1] * V[3][0]
+    /// V[2][2] = 1 * V[3][0] * V[3][1]
     /// // Calculate -2 (for assertion).
     /// V[2][3] = -2 * V[3][0] * V[3][0]
     ///
     /// // Propagate 1 to next layer.
     /// V[1][0] = 1 * V[2][0] * V[2][0]
     /// // Propagate x^2 - 3x + 2 to next layer.
-    /// V[1][1] = 1 * V[2][1] * V[2][0]
+    /// V[1][1] = 1 * V[2][0] * V[2][1]
     /// // Assert x - 2 = 0. (occupying gate #2 on this layer)
-    /// 0 = V[2][2] * V[2][0] + V[2][3] * V[2][0]
+    /// 0 = V[2][0] * V[2][2] + V[2][0] * V[2][3]
     /// // Compute x^3 - 3x^2 + 2x.
     /// V[1][3] = 1 * V[2][1] * V[2][2]
     ///
     /// // Propagate x^2 - 3x + 2 to output.
-    /// V[0][0] = 1 * V[1][1] * V[1][0]
+    /// V[0][0] = 1 * V[1][0] * V[1][1]
     /// // Propagate x^3 - 3x^2 + 2x to output.
-    /// V[0][1] = 1 * V[1][3] * V[1][0]
+    /// V[0][1] = 1 * V[1][0] * V[1][3]
     /// ```
     ///
     /// This circuit only works over large-characteristic fields.
@@ -818,19 +818,19 @@ pub(crate) mod tests {
                 num_wires: Size(4),
                 quads: vec![
                     // Propagate x^2 - 3x + 2 to output.
-                    // V[0][0] = 1 * V[1][1] * V[1][0]
+                    // V[0][0] = 1 * V[1][0] * V[1][1]
                     Quad {
                         gate_index: 0,
-                        left_wire_index: 1,
-                        right_wire_index: 0,
+                        left_wire_index: 0,
+                        right_wire_index: 1,
                         const_table_index: 1,
                     },
                     // Propagate x^3 - 3x^2 + 2x to output.
-                    // V[0][1] = 1 * V[1][3] * V[1][0]
+                    // V[0][1] = 1 * V[1][0] * V[1][3]
                     Quad {
                         gate_index: 1,
-                        left_wire_index: 3,
-                        right_wire_index: 0,
+                        left_wire_index: 0,
+                        right_wire_index: 3,
                         const_table_index: 1,
                     },
                 ],
@@ -848,25 +848,25 @@ pub(crate) mod tests {
                         const_table_index: 1,
                     },
                     // Propagate x^2 - 3x + 2 to next layer.
-                    // V[1][1] = 1 * V[2][1] * V[2][0]
+                    // V[1][1] = 1 * V[2][0] * V[2][1]
                     Quad {
                         gate_index: 1,
-                        left_wire_index: 1,
-                        right_wire_index: 0,
+                        left_wire_index: 0,
+                        right_wire_index: 1,
                         const_table_index: 1,
                     },
                     // Assert x - 2 = 0. (occupying gate #2 on this layer)
-                    // 0 = V[2][2] * V[2][0] + V[2][3] * V[2][0]
+                    // 0 = V[2][0] * V[2][2] + V[2][0] * V[2][3]
                     Quad {
                         gate_index: 2,
-                        left_wire_index: 2,
-                        right_wire_index: 0,
+                        left_wire_index: 0,
+                        right_wire_index: 2,
                         const_table_index: 0,
                     },
                     Quad {
                         gate_index: 2,
-                        left_wire_index: 3,
-                        right_wire_index: 0,
+                        left_wire_index: 0,
+                        right_wire_index: 3,
                         const_table_index: 0,
                     },
                     // Compute x^3 - 3x^2 + 2x.
@@ -892,7 +892,7 @@ pub(crate) mod tests {
                         const_table_index: 1,
                     },
                     // Calculate x^2 - 3x + 2.
-                    // V[2][1] = 1 * V[3][1] * V[3][1] + -3 * V[3][1] * V[3][0] + 2 * V[3][0] * V[3][0]
+                    // V[2][1] = 1 * V[3][1] * V[3][1] + -3 * V[3][0] * V[3][1] + 2 * V[3][0] * V[3][0]
                     Quad {
                         gate_index: 1,
                         left_wire_index: 1,
@@ -901,8 +901,8 @@ pub(crate) mod tests {
                     },
                     Quad {
                         gate_index: 1,
-                        left_wire_index: 1,
-                        right_wire_index: 0,
+                        left_wire_index: 0,
+                        right_wire_index: 1,
                         const_table_index: 4,
                     },
                     Quad {
@@ -912,11 +912,11 @@ pub(crate) mod tests {
                         const_table_index: 2,
                     },
                     // Propagate x to next layer (for assertion).
-                    // V[2][2] = 1 * V[3][1] * V[3][0]
+                    // V[2][2] = 1 * V[3][0] * V[3][1]
                     Quad {
                         gate_index: 2,
-                        left_wire_index: 1,
-                        right_wire_index: 0,
+                        left_wire_index: 0,
+                        right_wire_index: 1,
                         const_table_index: 1,
                     },
                     // Calculate -2 (for assertion).

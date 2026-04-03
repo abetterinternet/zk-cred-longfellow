@@ -27,12 +27,10 @@ pub(super) fn galois_multiply(x: u128, y: u128) -> u128 {
     let product3 = _mm_clmulepi64_si128::<0x10>(x, y);
     let product4 = _mm_clmulepi64_si128::<0x11>(x, y);
     let middle = _mm_xor_si128(product2, product3);
-    let middle_high = _mm_srli_si128::<8>(middle);
-    let middle_low = _mm_slli_si128::<8>(middle);
-    let result_low = _mm_xor_si128(product1, middle_low);
-    let result_high = _mm_xor_si128(product4, middle_high);
 
-    let reduced = reduce(result_low, result_high);
+    let intermediate_middle = reduce(middle, product4);
+    let reduced = reduce(product1, intermediate_middle);
+
     unpack_u128(reduced)
 }
 
@@ -50,36 +48,50 @@ pub(super) fn galois_square(x: u128) -> u128 {
     // has characteristic two and `product2` and `product3` cancel out.
     let product1 = _mm_clmulepi64_si128::<0x00>(x, x);
     let product4 = _mm_clmulepi64_si128::<0x11>(x, x);
-    let result_low = product1;
-    let result_high = product4;
 
-    let reduced = reduce(result_low, result_high);
+    let intermediate_middle = reduce(pack_u128(0), product4);
+    let reduced = reduce(product1, intermediate_middle);
+
     unpack_u128(reduced)
 }
 
-/// Reduce an intermediate 256-bit product by the field's quotient polynomial.
+/// Reduce an intermediate 192-bit result into a 128-bit result, modulo the field's quotient
+/// polynomial.
+///
+/// The input to this function is split across two 128-bit registers, representing overlapping
+/// powers of the generator x. The input is interpreted as if it were `result_low ^ (result_middle
+/// << 64)`.
 #[target_feature(enable = "sse2")]
 #[target_feature(enable = "pclmulqdq")]
-fn reduce(mut result_low: __m128i, result_high: __m128i) -> __m128i {
-    // Perform the first step of the reduction by x^128 + x^7 + x^2 + x + 1. The carryless product
-    // above is 255 bits wide, and x^7 + x^2 + x + 1 is 8 bits wide. We need to do two reduction
-    // steps in order to get the final 128-bit result. First, we do a carryless multiplication of
-    // the topmost 64 bits by the constant 0x87, representing x^7 + x^2 + x + 1.
+fn reduce(result_low: __m128i, result_middle: __m128i) -> __m128i {
+    // The bits of `result_low` can be directly XOR'd into the reduced result. The bottom half of
+    // `result_middle` can be shifted up, and then XOR'd in. The top half of `result_middle` has
+    // powers of x greater than or equal to 128, and thus requires additional work. We can cancel
+    // out these positions by multiplying the upper half by x^128 + x^7 + x^2 + x + 1 and subtracting
+    // (or, equivalently, adding). If we shift the upper half of `result_middle` down and multiply
+    // by the above quotient polynomial, then the terms produced by multiplication with x^128 will
+    // exactly cancel out that upper half of `result_middle`. All that remains is to multiply the
+    // upper half of `result_middle` by x^7 + x^2 + x + 1, (represented as 0x87) and XOR that into
+    // the final result. Algebraically:
     //
-    // (word_3 * x^192 + word_2 * x^128 + word_1 * x^64 + word_0) % Q(x)
+    //   result_low + result_middle * x^64 = reduced mod Q(x)
     //
-    // (word_2 * x^128 + word_3 * x^64 * (x^7 + x^2 + x + 1) + word_1 * x^64 + word_0) % Q(x)
+    //   result_low + result_middle_low * x^64 + result_middle_high * x^128 = reduced mod Q(x)
     //
-    // We can perform this reduction by doing a carryless multiplication of the topmost part of the
-    // result with a constant, and XORing with the lower parts of the product.
-    let first_product = _mm_clmulepi64_si128::<0x01>(result_high, pack_u128(0x87));
-    let middle = _mm_xor_si128(first_product, _mm_slli_si128::<8>(result_high));
-    result_low = _mm_xor_si128(result_low, _mm_slli_si128::<8>(middle));
-
-    // Perform the second step of the reduction. We again multiply the highest part of the remaining
-    // result by (x^7 + x^2 + x + 1), and add it to the low part.
-    let second_product = _mm_clmulepi64_si128::<0x01>(middle, pack_u128(0x87));
-    _mm_xor_si128(result_low, second_product)
+    //   result_low + result_middle_low * x^64 + result_middle_high * x^128
+    //       - result_middle_high * Q(x) = reduced mod Q(x)
+    //
+    //   result_low + result_middle_low * x^64 + result_middle_high * x^128
+    //       - result_middle_high * (x^128 + x^7 + x^2 + x + 1) = reduced mod Q(x)
+    //
+    //   result_low + result_middle_low * x^64 - result_middle_high * (x^7 + x^2 + x + 1)
+    //       = reduced mod Q(x)
+    //
+    //   result_low + result_middle_low * x^64 + result_middle_high * (x^7 + x^2 + x + 1)
+    //       = reduced mod Q(x)
+    let product = _mm_clmulepi64_si128::<0x01>(result_middle, pack_u128(0x87));
+    let middle_low_half_shifted = _mm_slli_si128::<8>(result_middle);
+    _mm_xor_si128(_mm_xor_si128(result_low, middle_low_half_shifted), product)
 }
 
 #[target_feature(enable = "sse2")]

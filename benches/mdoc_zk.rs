@@ -81,7 +81,7 @@ const ISSUER_PUBLIC_KEY: &[u8] =
 
 criterion_group! {
     name = benches;
-    config = Criterion::default().sample_size(10).measurement_time(Duration::from_secs(180));
+    config = Criterion::default().measurement_time(Duration::from_secs(180));
     targets = prove, verify
 }
 

@@ -1,53 +1,36 @@
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion, criterion_group, measurement::WallTime};
-use std::{hint::black_box, time::Duration};
+use std::hint::black_box;
 use zk_cred_longfellow::fields::{
     ProofFieldElement, field2_128::Field2_128, fieldp128::FieldP128, fieldp256::FieldP256,
 };
 
 fn benchmark_extend<FE: ProofFieldElement>(g: &mut BenchmarkGroup<WallTime>) {
     struct Parameters {
-        // Parameters for extend().
         input_size: usize,
         output_size: usize,
-
-        // Parameters for configuring Criterion.rs.
-        sample_size: usize,
-        measurement_time: Duration,
     }
 
     for Parameters {
         input_size,
         output_size,
-        sample_size,
-        measurement_time,
     } in [
         Parameters {
             input_size: 8,
             output_size: 16,
-            sample_size: 100,
-            measurement_time: Duration::from_secs(5),
         },
         Parameters {
             input_size: 100,
             output_size: 200,
-            sample_size: 10,
-            measurement_time: Duration::from_secs(30),
         },
         Parameters {
             input_size: 981,
             output_size: 2945,
-            sample_size: 10,
-            measurement_time: Duration::from_secs(30),
         },
         Parameters {
             input_size: 1363,
             output_size: 4096,
-            sample_size: 10,
-            measurement_time: Duration::from_secs(30),
         },
     ] {
-        g.sample_size(sample_size);
-        g.measurement_time(measurement_time);
         let input = vec![FE::ZERO; input_size];
         let context = FE::extend_precompute(input_size, output_size);
         g.bench_function(

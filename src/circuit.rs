@@ -773,9 +773,10 @@ pub(crate) mod tests {
 
     /// This creates a simple circuit that exercises in-circuit assertions.
     ///
-    /// It takes one input, x, checks that x - 2 = 0 with an in-circuit assertion, and outputs
-    /// (x - 1) * (x - 2). Following convention, the input wire V[3][0] is set to the constant value
-    /// of 1, and V[3][1] is set to the input x. The circuit executes the following equations.
+    /// It takes one input, x, checks that x - 2 = 0 with an in-circuit assertion, and outputs two
+    /// values, (x - 1) * (x - 2) and x * (x - 1) * (x - 2). Following convention, the input wire
+    /// V[3][0] is set to the constant value of 1, and V[3][1] is set to the input x. The circuit
+    /// executes the following equations.
     ///
     /// ```text
     /// // Propagate 1 to next layer.
@@ -793,9 +794,13 @@ pub(crate) mod tests {
     /// V[1][1] = 1 * V[2][1] * V[2][0]
     /// // Assert x - 2 = 0. (occupying gate #2 on this layer)
     /// 0 = V[2][2] * V[2][0] + V[2][3] * V[2][0]
+    /// // Compute x^3 - 3x^2 + 2x.
+    /// V[1][3] = 1 * V[2][1] * V[2][2]
     ///
     /// // Propagate x^2 - 3x + 2 to output.
     /// V[0][0] = 1 * V[1][1] * V[1][0]
+    /// // Propagate x^3 - 3x^2 + 2x to output.
+    /// V[0][1] = 1 * V[1][3] * V[1][0]
     /// ```
     fn make_assertion_test_circuit() -> Circuit<FieldP128> {
         let constant_table = vec![
@@ -808,15 +813,25 @@ pub(crate) mod tests {
         let layers = vec![
             CircuitLayer {
                 logw: Size(2),
-                num_wires: Size(3),
-                quads: vec![Quad {
+                num_wires: Size(4),
+                quads: vec![
                     // Propagate x^2 - 3x + 2 to output.
                     // V[0][0] = 1 * V[1][1] * V[1][0]
-                    gate_index: 0,
-                    left_wire_index: 1,
-                    right_wire_index: 0,
-                    const_table_index: 1,
-                }],
+                    Quad {
+                        gate_index: 0,
+                        left_wire_index: 1,
+                        right_wire_index: 0,
+                        const_table_index: 1,
+                    },
+                    // Propagate x^3 - 3x^2 + 2x to output.
+                    // V[0][1] = 1 * V[1][3] * V[1][0]
+                    Quad {
+                        gate_index: 1,
+                        left_wire_index: 3,
+                        right_wire_index: 0,
+                        const_table_index: 1,
+                    },
+                ],
             },
             CircuitLayer {
                 logw: Size(2),
@@ -851,6 +866,14 @@ pub(crate) mod tests {
                         left_wire_index: 3,
                         right_wire_index: 0,
                         const_table_index: 0,
+                    },
+                    // Compute x^3 - 3x^2 + 2x.
+                    // V[1][3] = 1 * V[2][1] * V[2][2]
+                    Quad {
+                        gate_index: 3,
+                        left_wire_index: 1,
+                        right_wire_index: 2,
+                        const_table_index: 1,
                     },
                 ],
             },
@@ -907,11 +930,11 @@ pub(crate) mod tests {
         ];
         Circuit {
             version: 1,
-            num_outputs: 1,
+            num_outputs: 2,
             num_copies: 0,
             num_public_inputs: 1,
-            subfield_boundary: 1,
-            num_inputs: 1,
+            subfield_boundary: 2,
+            num_inputs: 2,
             num_layers: layers.len(),
             constant_table,
             layers,
@@ -946,6 +969,6 @@ pub(crate) mod tests {
         let evaluation = circuit
             .evaluate(&[FieldP128::ONE, FieldP128::from_u128(2)])
             .unwrap();
-        assert_eq!(evaluation.outputs()[0], FieldP128::ZERO);
+        assert_eq!(evaluation.outputs(), &[FieldP128::ZERO, FieldP128::ZERO]);
     }
 }

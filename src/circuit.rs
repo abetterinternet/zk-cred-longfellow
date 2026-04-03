@@ -802,13 +802,15 @@ pub(crate) mod tests {
     /// // Propagate x^3 - 3x^2 + 2x to output.
     /// V[0][1] = 1 * V[1][3] * V[1][0]
     /// ```
-    fn make_assertion_test_circuit() -> Circuit<FieldP128> {
+    ///
+    /// This circuit only works over large-characteristic fields.
+    pub(crate) fn make_assertion_test_circuit<FE: FieldElement>() -> Circuit<FE> {
         let constant_table = vec![
-            FieldP128::ZERO,
-            FieldP128::ONE,
-            FieldP128::from(2),
-            -FieldP128::from(2), // constant table index 3
-            -FieldP128::from(3), // constant table index 4
+            FE::ZERO,
+            FE::ONE,
+            FE::from(2),
+            -FE::from(2), // constant table index 3
+            -FE::from(3), // constant table index 4
         ];
         let layers = vec![
             CircuitLayer {

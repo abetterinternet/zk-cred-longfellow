@@ -408,33 +408,34 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
             // If element 2i+1 is in the array, it will be immediately after element 2i. See the
             // module level doccomment for an explanation of how we sort the sparse array to impose
             // this invariant.
+            //
+            // In the general case, we compute B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1].
+            // This can be rearranged so we can compute it with one fewer multiplication,
+            // B[i] = A[2 * i] + x * (A[2 * i + 1] - A[2 * i]).
+            //
+            // If either A[2 * i] or A[2 * i + 1] is zero because there's no corresponding entry in
+            // the sparse array, we can propagate that through the formula and eliminate some
+            // operations.
             read += 1;
-            let (coeff_2i, coeff_2i_plus_1) = if curr.hand_wire(hand).is_multiple_of(2) {
+            let coefficient = if curr.hand_wire(hand).is_multiple_of(2) {
                 // curr is 2i
-                (
-                    curr.coefficient,
-                    if let Some(next) = curr.is_next_wire(hand, next) {
-                        // next is 2i+1. Advance read index again.
-                        assert_eq!(
-                            next.gate_index, 0,
-                            "sparse array should have been bound down to 2D before binding a hand",
-                        );
-                        read += 1;
-                        next.coefficient
-                    } else {
-                        // sparse array does not contain 2i+1
-                        FE::ZERO
-                    },
-                )
+                if let Some(next) = curr.is_next_wire(hand, next) {
+                    // next is 2i+1. Advance read index again.
+                    assert_eq!(
+                        next.gate_index, 0,
+                        "sparse array should have been bound down to 2D before binding a hand",
+                    );
+                    read += 1;
+                    let (coeff_2i, coeff_2i_plus_1) = (curr.coefficient, next.coefficient);
+                    coeff_2i + binding * (coeff_2i_plus_1 - coeff_2i)
+                } else {
+                    // sparse array does not contain 2i+1
+                    (FE::ONE - binding) * curr.coefficient
+                }
             } else {
                 // curr is 2i+1, sparse array does not contain 2i
-                (FE::ZERO, curr.coefficient)
+                binding * curr.coefficient
             };
-
-            // B[i] = (1 - x) * A[2 * i] + x * A[2 * i + 1]
-            // Or, with one less multiplication:
-            //   = A[2 * i] + x * (A[2 * i + 1] - A[2 * i])
-            let coefficient = coeff_2i + binding * (coeff_2i_plus_1 - coeff_2i);
 
             // Don't bother writing elements with zero coefficient
             if coefficient != FE::ZERO {

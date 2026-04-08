@@ -750,8 +750,11 @@ impl<FE: CodecFieldElement> ParameterizedCodec<CircuitLayer> for ProofLayer<FE> 
 mod tests {
     use super::*;
     use crate::{
-        fields::fieldp128::FieldP128,
-        sumcheck::constraints::LinearConstraintLhsTerm,
+        circuit::tests::make_assertion_test_circuit,
+        fields::{FieldElement, fieldp128::FieldP128, fieldp256::FieldP256},
+        sumcheck::constraints::{
+            LinearConstraintLhsTerm, QuadraticConstraint, quadratic_constraints,
+        },
         test_vector::{CircuitTestVector, load_mac, load_rfc},
         transcript::TranscriptMode,
         witness::WitnessLayout,
@@ -1034,5 +1037,74 @@ mod tests {
             .get_encoded_with_param(&circuit)
             .unwrap();
         assert_eq!(test_vector.serialized_sumcheck_proof, test_vector_again);
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn sumcheck_proof_interop() {
+        let circuit = make_assertion_test_circuit::<FieldP256>();
+
+        let evaluation = circuit
+            .evaluate(&[FieldP256::ONE, FieldP256::from(2)])
+            .unwrap();
+
+        let pad_generator = {
+            let mut transcript = Transcript::new(b"pad prng", TranscriptMode::Normal).unwrap();
+            move || transcript.generate_challenge(1).unwrap()[0]
+        };
+        let witness_layout = WitnessLayout::from_circuit(&circuit);
+        let quadratic_constraints = quadratic_constraints(&circuit, &witness_layout);
+        let witness = Witness::fill_witness(
+            witness_layout,
+            evaluation.private_inputs(circuit.num_public_inputs()),
+            pad_generator,
+        );
+
+        let mut prover_transcript = Transcript::new(b"test", TranscriptMode::Normal).unwrap();
+        // don't write a commitment, don't do transcript initialization per "special rules for the first message"
+        let ProverResult {
+            proof,
+            linear_constraints,
+        } = SumcheckProtocol::new(&circuit)
+            .prove(&evaluation, &mut prover_transcript, &witness)
+            .unwrap();
+
+        for (i, proof_layer) in proof.layers.iter().enumerate() {
+            println!("Proof layer {i}:");
+            for (i, [left_polynomial, right_polynomial]) in
+                proof_layer.polynomials.iter().enumerate()
+            {
+                println!("  Round {}, left hand:", 2 * i);
+                println!("    P0: {:?}", left_polynomial.p0);
+                println!("    P2: {:?}", left_polynomial.p2);
+                println!("  Round {}, right hand:", 2 * i + 1);
+                println!("    P0: {:?}", right_polynomial.p0);
+                println!("    P2: {:?}", right_polynomial.p2);
+            }
+            println!("  VL: {:?}", proof_layer.vl);
+            println!("  VR: {:?}", proof_layer.vr);
+        }
+        let mut prev_linear_constraint_term: Option<LinearConstraintLhsTerm<FieldP256>> = None;
+        for linear_constraint_term in linear_constraints.lhs_terms {
+            if prev_linear_constraint_term.is_none_or(|prev| {
+                prev.constraint_number != linear_constraint_term.constraint_number
+            }) {
+                println!("Constraint {}", linear_constraint_term.constraint_number);
+                println!(
+                    "  Right hand side: {:?}",
+                    linear_constraints.rhs[linear_constraint_term.constraint_number]
+                );
+            }
+            println!(
+                "  Term: {:?} * W[{}]",
+                linear_constraint_term.constant_factor, linear_constraint_term.witness_index
+            );
+
+            prev_linear_constraint_term = Some(linear_constraint_term);
+        }
+        println!("Quadratic constraints:");
+        for quadratic_constraint in quadratic_constraints {
+            let QuadraticConstraint { x, y, z } = quadratic_constraint;
+            println!("w{x} * w{y} = w{z}");
+        }
     }
 }

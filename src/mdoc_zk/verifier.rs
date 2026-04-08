@@ -109,6 +109,14 @@ impl MdocZkVerifier {
             mac_verifier_key_share,
         )?;
 
+        // Check public input sizes against circuit metadata.
+        if statements.hash_statement().len() != self.hash_circuit.num_public_inputs() {
+            return Err(anyhow!("statement length does not match hash circuit"));
+        }
+        if statements.signature_statement().len() != self.signature_circuit.num_public_inputs() {
+            return Err(anyhow!("statement length does not match signature circuit"));
+        }
+
         // Run Sumcheck and Ligero on hash circuit.
         initialize_transcript(
             &mut transcript,

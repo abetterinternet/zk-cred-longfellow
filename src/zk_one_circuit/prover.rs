@@ -39,8 +39,13 @@ impl<'a, FE: ProofFieldElement> Prover<'a, FE> {
     /// proven. This includes both the statement, or public inputs, and the witness, or private
     /// inputs. The definition of the circuit determines which inputs are which.
     pub fn prove(&self, session_id: &[u8], inputs: &[FE]) -> Result<Proof<FE>, anyhow::Error> {
-        // Evaluate circuit.
         let circuit = self.sumcheck_prover.circuit();
+
+        if inputs.len() != circuit.num_inputs() {
+            return Err(anyhow!("input length does not match circuit"));
+        }
+
+        // Evaluate circuit.
         let evaluation = circuit.evaluate(inputs)?;
 
         // Select one-time-pad, and combine with circuit witness into the Ligero witness.

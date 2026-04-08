@@ -122,6 +122,14 @@ impl MdocZkProver {
             &mac_prover_key_shares,
         )?;
 
+        // Check input sizes against circuit metadata.
+        if inputs.hash_input().len() != self.hash_circuit.num_inputs() {
+            return Err(anyhow!("input length does not match hash circuit"));
+        }
+        if inputs.signature_input().len() != self.signature_circuit.num_inputs() {
+            return Err(anyhow!("input length does not match signature circuit"));
+        }
+
         // Initialize Fiat-Shamir transcript.
         let mut transcript = Transcript::new(session_transcript, TranscriptMode::Normal)?;
 
@@ -267,5 +275,43 @@ mod tests {
                 &test_vector_inputs.now,
             )
             .unwrap();
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_generate_proof_wrong_circuit_a() {
+        let compressed = include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice();
+        let decompressed = zstd::decode_all(compressed).unwrap();
+        let prover = MdocZkProver::new(&decompressed, CircuitVersion::V7, 1).unwrap();
+
+        let test_vector_inputs = load_v6_v7_test_vector_inputs();
+
+        prover
+            .prove(
+                &test_vector_inputs.mdoc,
+                "org.iso.18013.5.1",
+                &[&test_vector_inputs.attributes[0].id],
+                &test_vector_inputs.transcript,
+                &test_vector_inputs.now,
+            )
+            .unwrap_err();
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_generate_proof_wrong_circuit_b() {
+        let compressed = include_bytes!("../../test-vectors/mdoc_zk/7_1_8d079211715200ff06c5109639245502bfe94aa869908d31176aae4016182121").as_slice();
+        let decompressed = zstd::decode_all(compressed).unwrap();
+        let prover = MdocZkProver::new(&decompressed, CircuitVersion::V6, 1).unwrap();
+
+        let test_vector_inputs = load_v6_v7_test_vector_inputs();
+
+        prover
+            .prove(
+                &test_vector_inputs.mdoc,
+                "org.iso.18013.5.1",
+                &[&test_vector_inputs.attributes[0].id],
+                &test_vector_inputs.transcript,
+                &test_vector_inputs.now,
+            )
+            .unwrap_err();
     }
 }

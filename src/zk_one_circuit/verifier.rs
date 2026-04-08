@@ -6,6 +6,7 @@ use crate::{
     transcript::{Transcript, TranscriptMode},
     zk_one_circuit::prover::Proof,
 };
+use anyhow::anyhow;
 
 /// Longfellow ZK verifier.
 pub struct Verifier<'a, FE: ProofFieldElement> {
@@ -33,6 +34,10 @@ impl<'a, FE: ProofFieldElement> Verifier<'a, FE> {
     where
         FE: ProofFieldElement,
     {
+        if statement.len() != self.circuit.num_public_inputs() {
+            return Err(anyhow!("statement length does not match circuit"));
+        }
+
         // Start of Fiat-Shamir transcript.
         let mut transcript =
             Transcript::new(proof.oracle(), TranscriptMode::V3Compatibility).unwrap();

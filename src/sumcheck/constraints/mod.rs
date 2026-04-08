@@ -139,7 +139,9 @@ impl<FE: FieldElement> SymbolicExpression<FE> {
 impl<FE: FieldElement> AddAssign<Term<FE>> for SymbolicExpression<FE> {
     fn add_assign(&mut self, rhs: Term<FE>) {
         self.known += rhs.known;
-        self.terms.push(rhs.symbolic);
+        if rhs.symbolic.witness_index.is_some() {
+            self.terms.push(rhs.symbolic);
+        }
     }
 }
 

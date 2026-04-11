@@ -144,13 +144,15 @@ impl CircuitInputs {
             AffinePoint::new(mdoc.issuer_public_key_x, mdoc.issuer_public_key_y),
             mdoc.issuer_signature,
             credential_hash,
-        )?;
+        )
+        .context("problem building issuer signature witness")?;
         fill_ecdsa_witness(
             &mut split_signature_input.device_ecdsa_witness,
             mdoc.device_public_key,
             mdoc.device_signature,
             session_transcript_hash,
-        )?;
+        )
+        .context("problem building device signature witness")?;
 
         // Serialize MAC prover key shares to bytes.
         let mut mac_prover_key_shares_buffer =

@@ -250,6 +250,7 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
     /// [6.6][2]. Both are run when in `ProtocolRole::Prover`, and only constraints are computed
     /// when in `ProtocolRole::Verifier`. Besides some code reuse, doing both computations at once
     /// speeds up the prover considerably.
+    #[inline(always)] // Make sure branching on ProtocolRole discriminant gets optimized away
     fn run_protocol(
         &self,
         transcript: &mut Transcript,

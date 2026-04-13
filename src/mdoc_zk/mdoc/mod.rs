@@ -457,6 +457,7 @@ pub(super) fn compute_credential_hash<'a, 'b: 'a>(
         .context("could not encode Sig_structure")?;
 
     run_sha256_witnessed(message.as_slice(), witness, bit_plucker, max_blocks)
+        .context("error hashing credential")
 }
 
 /// Convert a SHA-256 hash from an ECDSA signature into a base field element for use as a circuit input.

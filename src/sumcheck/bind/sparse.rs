@@ -192,6 +192,11 @@ pub struct SparseQuadElement<FE> {
 
 impl<'a, FE: FieldElement> SparseQuadElement<FE> {
     /// A new sparse quad element, assigning the wire indices based on the indicated handedness.
+    ///
+    /// Note that the coefficient is allowed to be zero, to account for rare cases where
+    /// calculations cancel out. For efficiency, circuit files should not include quad elements with
+    /// a coefficient of zero. For side channel resistance, we should not treat zeros that arise
+    /// during proof generation differently than other values.
     fn new(
         gate_index: usize,
         hand: Hand,

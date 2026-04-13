@@ -192,6 +192,11 @@ pub struct SparseQuadElement<FE> {
 
 impl<'a, FE: FieldElement> SparseQuadElement<FE> {
     /// A new sparse quad element, assigning the wire indices based on the indicated handedness.
+    ///
+    /// Note that the coefficient is allowed to be zero, to account for rare cases where
+    /// calculations cancel out. For efficiency, circuit files should not include quad elements with
+    /// a coefficient of zero. For side channel resistance, we should not treat zeros that arise
+    /// during proof generation differently than other values.
     fn new(
         gate_index: usize,
         hand: Hand,
@@ -199,11 +204,6 @@ impl<'a, FE: FieldElement> SparseQuadElement<FE> {
         opposite_hand_wire: usize,
         coefficient: FE,
     ) -> Self {
-        debug_assert_ne!(
-            coefficient,
-            FE::ZERO,
-            "sparse array should not contain elements with zero coefficient",
-        );
         let (left_wire_index, right_wire_index) = match hand {
             Hand::Left => (hand_wire, opposite_hand_wire),
             Hand::Right => (opposite_hand_wire, hand_wire),
@@ -437,18 +437,15 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
                 binding * curr.coefficient
             };
 
-            // Don't bother writing elements with zero coefficient
-            if coefficient != FE::ZERO {
-                self.contents[write] = SparseQuadElement::new(
-                    0,
-                    hand,
-                    // 2i-th or 2i+1-th element contributes to the i-th bound element
-                    curr.hand_wire(hand) >> 1,
-                    curr.hand_wire(hand.opposite()),
-                    coefficient,
-                );
-                write += 1;
-            }
+            self.contents[write] = SparseQuadElement::new(
+                0,
+                hand,
+                // 2i-th or 2i+1-th element contributes to the i-th bound element
+                curr.hand_wire(hand) >> 1,
+                curr.hand_wire(hand.opposite()),
+                coefficient,
+            );
+            write += 1;
         }
 
         // Truncate the sparse array, which effectively zeroes out all elements of the original

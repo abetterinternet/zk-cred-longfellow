@@ -255,11 +255,7 @@ pub(crate) mod tests {
                         saw_element = true;
                     }
                 }
-                if *element == FE::ZERO {
-                    assert!(!saw_element)
-                } else {
-                    assert!(saw_element);
-                }
+                assert!(saw_element);
             }
         }
     }

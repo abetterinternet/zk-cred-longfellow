@@ -423,14 +423,13 @@ impl<'a, FE: ProofFieldElement> SumcheckProtocol<'a, FE> {
                             quad.compute_a(hand, wires, wires_scratch);
 
                             let evaluate_polynomial = |at| {
-                                wires_scratch
-                                    .bind_iter(at)
-                                    .enumerate()
-                                    .filter(|(_, fe)| bool::from(!fe.is_zero()))
-                                    .fold(FE::ZERO, |acc, (index, element)| {
+                                wires_scratch.bind_iter(at).enumerate().fold(
+                                    FE::ZERO,
+                                    |acc, (index, element)| {
                                         acc + element
                                             * wires[hand as usize].bound_element_at(at, index)
-                                    })
+                                    },
+                                )
                             };
 
                             // Evaluate the polynomial at P0 and P2, subtracting the pad

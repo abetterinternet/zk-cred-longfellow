@@ -377,7 +377,7 @@ impl CircuitInputs {
                             3,
                         ),
                     ];
-                    kv_metadata_tuples.sort_by(|a, b| a.0.cmp(&b.0));
+                    kv_metadata_tuples.sort_by_key(|(offset, _length, _original_index)| *offset);
 
                     // The circuit assumes that the first key-value pair occurs within the
                     // IssuerSignedItemBytes hash preimage at an offset of five bytes. (or

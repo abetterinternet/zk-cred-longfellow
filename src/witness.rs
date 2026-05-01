@@ -184,7 +184,7 @@ impl<FE: FieldElement> Witness<FE> {
             .take(count)
     }
 
-    /// Set the a value in the witness.
+    /// Set a value in the witness.
     #[cfg(test)]
     pub(crate) fn set_element(&mut self, index: usize, value: FE) {
         self.values[index] = value;

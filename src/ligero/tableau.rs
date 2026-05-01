@@ -348,7 +348,7 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         // rr...r│zz...z│00...0│ee...e
         //    │      │      │      │
         //    │      │      │      └ extended from BLOCK to NCOL total elements by interpolation
-        //    │      │      └ pad with 0s up to BLOCK elements
+        //    │      │      └ pad with 0s up to BLOCK elements (if necessary)
         //    │      └ remaining z witnesses
         // NREQ random elements
         let mut quad_constraint_x = quadratic_constraints.iter().map(|q| q.x);
@@ -364,10 +364,9 @@ impl<FE: ProofFieldElement> Tableau<FE> {
             );
 
             for _ in 0..layout.witnesses_per_row() {
-                // num_quadratic_rows is always a multiple of three
-                let witness = if quad_constraint_row < num_quadratic_rows / 3 {
+                let witness = if quad_constraint_row < layout.num_quadratic_triples() {
                     quad_constraint_x.next()
-                } else if quad_constraint_row < 2 * num_quadratic_rows / 3 {
+                } else if quad_constraint_row < 2 * layout.num_quadratic_triples() {
                     quad_constraint_y.next()
                 } else {
                     quad_constraint_z.next()
@@ -526,6 +525,7 @@ mod tests {
                 .as_slice(),
             || FieldP128::ZERO,
         );
+        assert!(witness.len() >= 3);
         witness.set_element(0, FieldP128::from_u128(15));
         witness.set_element(1, FieldP128::from_u128(16));
         witness.set_element(2, FieldP128::from_u128(17));

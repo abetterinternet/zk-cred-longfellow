@@ -183,6 +183,12 @@ impl<FE: FieldElement> Witness<FE> {
             .chain(std::iter::repeat(FE::ZERO))
             .take(count)
     }
+
+    /// Set the a value in the witness.
+    #[cfg(test)]
+    pub(crate) fn set_element(&mut self, index: usize, value: FE) {
+        self.values[index] = value;
+    }
 }
 
 #[cfg(test)]

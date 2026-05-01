@@ -219,8 +219,8 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         // Construct the tableau from the witness and the constraints.
         // Fill the low degree test row:
         // rr...r│ee...e
-        //    │     │
-        //    │     └ extended from BLOCK to NCOL total elements by interpolation
+        //    │      │
+        //    │      └ extended from BLOCK to NCOL total elements by interpolation
         // BLOCK random elements
         let low_degree_test_row: Vec<_> = element_generator
             .by_ref()
@@ -231,8 +231,8 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         // Fill the linear test row ("IDOT"): random field elements where elements [nreq..nreq+wr)
         // sum to 0, extended to NCOL
         // rr...r│i│ee...e
-        //    │   │   │
-        //    │   │   └ extended from DBLOCK to NCOL total elements by interpolation
+        //    │   │    │
+        //    │   │    └ extended from DBLOCK to NCOL total elements by interpolation
         //    │   └ additive inverse of previous wr elements
         // DBLOCK - 1 random elements
         let mut sum = FE::ZERO;

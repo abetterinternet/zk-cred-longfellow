@@ -233,7 +233,7 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         // rr...r│i│ee...e
         //    │   │    │
         //    │   │    └ extended from DBLOCK to NCOL total elements by interpolation
-        //    │   └ additive inverse of previous wr elements
+        //    │   └ additive inverse of previous WR elements
         // DBLOCK - 1 random elements
         let mut sum = FE::ZERO;
         let mut index = 0;
@@ -280,8 +280,8 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         // rr...r│00...0│rr...r│ee...e
         //    │      │      │      │
         //    │      │      │      └ extended from DBLOCK to NCOL total elements by interpolation
-        //    │      │      └ DBLOCK - num_witnesses - NREQ random elements
-        //    │      └ num_witnesses zeroes
+        //    │      │      └ DBLOCK - WR - NREQ random elements (n.b. WR + NREQ = BLOCK)
+        //    │      └ WR zeroes
         // NREQ random elements
         let mut index = 0;
         let quadratic_test_row: Vec<_> = std::iter::from_fn(|| {
@@ -308,7 +308,7 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         // rr...r│ww...w│ee...e
         //    │      │      │
         //    │      │      └ extended from BLOCK to NCOL total elements by interpolation
-        //    │      └ witnesses_per_row witness elements
+        //    │      └ WR witness elements
         // NREQ random elements
         for witness_row in 0..num_witness_rows {
             tableau.push(FE::extend(
@@ -335,16 +335,19 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         //
         // rr...r│xxxxxxxxx...x│ee...e
         // rr...r│xxxxxxxxx...x│ee...e
+        // ...
         // rr...r│xx...x│00...0│ee...e
         // rr...r│yyyyyyyyy...y│ee...e
         // rr...r│yyyyyyyyy...y│ee...e
+        // ...
         // rr...r│yy...y│00...0│ee...e
         // rr...r│zzzzzzzzz...z│ee...e
         // rr...r│zzzzzzzzz...z│ee...e
         //    │             │      │
         //    │             │      └ extended from BLOCK to NCOL total elements by interpolation
-        //    │             └ witnesses_per_row z witnesses
+        //    │             └ WR z witnesses
         // NREQ random elements
+        // ...
         // rr...r│zz...z│00...0│ee...e
         //    │      │      │      │
         //    │      │      │      └ extended from BLOCK to NCOL total elements by interpolation

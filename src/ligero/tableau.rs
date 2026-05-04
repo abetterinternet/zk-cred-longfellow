@@ -2,6 +2,9 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/draft-google-cfrg-libzk-01#section-4.3
 
+#[cfg(test)]
+use std::ops::Range;
+
 use crate::{
     fields::{ProofFieldElement, field_element_iter_from_source},
     ligero::{
@@ -83,6 +86,13 @@ impl TableauLayout {
     /// The number of quadratic constraints written in each row. Also `QR`.
     pub fn quadratic_constraints_per_row(&self) -> usize {
         self.parameters.quadratic_constraints_per_row
+    }
+
+    /// The indices of rows containing quadratic constraints.
+    #[cfg(test)]
+    pub(crate) fn quadratic_constraint_rows(&self) -> Range<usize> {
+        self.first_quadratic_constraint_row()
+            ..self.first_quadratic_constraint_row() + self.num_quadratic_rows()
     }
 
     /// Index of the first row of the tableau containing witnesses, used in the linear constraint
@@ -207,7 +217,11 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         let mut element_generator = field_element_iter_from_source(field_element_generator);
 
         // Construct the tableau from the witness and the constraints.
-        // Fill the low degree test row: extend(RANDOM[BLOCK], BLOCK, NCOL)
+        // Fill the low degree test row:
+        // rr...r│ee...e
+        //    │      │
+        //    │      └ extended from BLOCK to NCOL total elements by interpolation
+        // BLOCK random elements
         let low_degree_test_row: Vec<_> = element_generator
             .by_ref()
             .take(layout.block_size())
@@ -216,6 +230,11 @@ impl<FE: ProofFieldElement> Tableau<FE> {
 
         // Fill the linear test row ("IDOT"): random field elements where elements [nreq..nreq+wr)
         // sum to 0, extended to NCOL
+        // rr...r│i│ee...e
+        //    │   │    │
+        //    │   │    └ extended from DBLOCK to NCOL total elements by interpolation
+        //    │   └ additive inverse of previous WR elements
+        // DBLOCK - 1 random elements
         let mut sum = FE::ZERO;
         let mut index = 0;
         let mut row_random_elements = element_generator.by_ref().take(layout.dblock() - 1);
@@ -257,8 +276,13 @@ impl<FE: ProofFieldElement> Tableau<FE> {
         );
         tableau.push(FE::extend(&linear_test_row, extend_context_dblock_ncol));
 
-        // Quadratic test row: NREQ random elements then zeroes for each witness, then more random
-        // elements to fill to DBLOCK, then extended to NCOL
+        // Quadratic test row:
+        // rr...r│00...0│rr...r│ee...e
+        //    │      │      │      │
+        //    │      │      │      └ extended from DBLOCK to NCOL total elements by interpolation
+        //    │      │      └ DBLOCK - WR - NREQ random elements (n.b. WR + NREQ = BLOCK)
+        //    │      └ WR zeroes
+        // NREQ random elements
         let mut index = 0;
         let quadratic_test_row: Vec<_> = std::iter::from_fn(|| {
             let next = if index < layout.num_requested_columns() || index >= layout.block_size() {
@@ -277,8 +301,15 @@ impl<FE: ProofFieldElement> Tableau<FE> {
             extend_context_dblock_ncol,
         ));
 
-        // Padded witness rows: NREQ random elements, then witnesses_per_row elements of the witness
-        // extended to NCOL
+        // Padded witness rows:
+        // rr...r│ww...w│ee...e
+        // rr...r│ww...w│ee...e
+        // ...
+        // rr...r│ww...w│ee...e
+        //    │      │      │
+        //    │      │      └ extended from BLOCK to NCOL total elements by interpolation
+        //    │      └ WR witness elements
+        // NREQ random elements
         for witness_row in 0..num_witness_rows {
             tableau.push(FE::extend(
                 element_generator
@@ -294,9 +325,35 @@ impl<FE: ProofFieldElement> Tableau<FE> {
             ));
         }
 
-        // Padded quadratic witness rows: NREQ random elements, then witnesses_per_row elements from
-        // the x, y or z witnesses, depending on the quadratic witness row index. Then extended to
-        // NCOL.
+        // Padded quadratic witness rows. These rows are the vertical juxtaposition of the matrices
+        // for the x, y and z variables in the constraints, per the Ligero paper
+        // (<https://eprint.iacr.org/2022/1608.pdf>). So x, y and z witnesses are on distinct rows.
+        //
+        // We may have more quadratic constraints than can fit into a single triple of tableau rows.
+        // We lay out all the xs, then all the ys, then all the zs. The last row of witnesses for
+        // each variable is padded with zeroes as needed.
+        //
+        // rr...r│xxxxxxxxx...x│ee...e
+        // rr...r│xxxxxxxxx...x│ee...e
+        // ...
+        // rr...r│xx...x│00...0│ee...e
+        // rr...r│yyyyyyyyy...y│ee...e
+        // rr...r│yyyyyyyyy...y│ee...e
+        // ...
+        // rr...r│yy...y│00...0│ee...e
+        // rr...r│zzzzzzzzz...z│ee...e
+        // rr...r│zzzzzzzzz...z│ee...e
+        //    │             │      │
+        //    │             │      └ extended from BLOCK to NCOL total elements by interpolation
+        //    │             └ WR z witnesses
+        // NREQ random elements
+        // ...
+        // rr...r│zz...z│00...0│ee...e
+        //    │      │      │      │
+        //    │      │      │      └ extended from BLOCK to NCOL total elements by interpolation
+        //    │      │      └ pad with 0s up to BLOCK elements (if necessary)
+        //    │      └ remaining z witnesses
+        // NREQ random elements
         let mut quad_constraint_x = quadratic_constraints.iter().map(|q| q.x);
         let mut quad_constraint_y = quadratic_constraints.iter().map(|q| q.y);
         let mut quad_constraint_z = quadratic_constraints.iter().map(|q| q.z);
@@ -310,11 +367,12 @@ impl<FE: ProofFieldElement> Tableau<FE> {
             );
 
             for _ in 0..layout.witnesses_per_row() {
-                let witness = match quad_constraint_row % 3 {
-                    0 => quad_constraint_x.next(),
-                    1 => quad_constraint_y.next(),
-                    2 => quad_constraint_z.next(),
-                    _ => unreachable!("impossible remainder"),
+                let witness = if quad_constraint_row < layout.num_quadratic_triples() {
+                    quad_constraint_x.next()
+                } else if quad_constraint_row < 2 * layout.num_quadratic_triples() {
+                    quad_constraint_y.next()
+                } else {
+                    quad_constraint_z.next()
                 }
                 .map(|index| witness.element(index))
                 .unwrap_or(FE::ZERO);
@@ -380,10 +438,12 @@ impl<FE: ProofFieldElement> Tableau<FE> {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
     use super::*;
     use crate::{
         circuit::Evaluation,
-        fields::fieldp128::FieldP128,
+        fields::{FieldElement, fieldp128::FieldP128},
         sumcheck::constraints::quadratic_constraints,
         test_vector::load_rfc,
         witness::{Witness, WitnessLayout},
@@ -434,6 +494,75 @@ mod tests {
         assert_eq!(tree.root(), test_vector.ligero_commitment());
         for nonce in tree.nonces() {
             assert_eq!(nonce, &merkle_tree_nonce);
+        }
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn multiple_quadratic_constraint_rows() {
+        let (test_vector, circuit) = load_rfc();
+        let mut ligero_params = *test_vector.ligero_parameters();
+        // The test vector has a small number of quadratic constraints and thus a small value of
+        // quadratic_constraints_per_row. Our test synthesizes additional quadratic constraints so
+        // we fix up that parameter accordingly in order to pack the tableau efficiently.
+        ligero_params.quadratic_constraints_per_row = ligero_params.witnesses_per_row;
+
+        let evaluation: Evaluation<FieldP128> =
+            circuit.evaluate(test_vector.valid_inputs()).unwrap();
+
+        let witness_layout = WitnessLayout::from_circuit(&circuit);
+        // Construct bogus quadratic constraints that repeat the same x, y, z values so we can later
+        // easily check the constructed tableau, and construct enough of them that we'll need three
+        // rows for each of the x, y and z coordinates.
+        let quadratic_constraints: Vec<_> =
+            iter::from_fn(|| Some(QuadraticConstraint { x: 0, y: 1, z: 2 }))
+                .take(ligero_params.witnesses_per_row * 3)
+                .collect();
+
+        // Construct witness with all zeroes, except for the witnesses pointed to by the quadratic
+        // constraints.
+        let mut witness = Witness::fill_witness(
+            witness_layout,
+            iter::from_fn(|| Some(FieldP128::ZERO))
+                .take(evaluation.private_inputs(circuit.num_public_inputs()).len())
+                .collect::<Vec<_>>()
+                .as_slice(),
+            || FieldP128::ZERO,
+        );
+        assert!(witness.len() >= 3);
+        witness.set_element(0, FieldP128::from_u128(15));
+        witness.set_element(1, FieldP128::from_u128(16));
+        witness.set_element(2, FieldP128::from_u128(17));
+
+        let layout = TableauLayout::new(ligero_params, witness.len(), quadratic_constraints.len());
+        assert_eq!(layout.num_quadratic_rows(), 9);
+
+        let tableau = Tableau::build_with_field_element_generator(
+            ligero_params,
+            &witness,
+            &quadratic_constraints,
+            || test_vector.pad(),
+            &FieldP128::extend_precompute(layout.block_size(), layout.num_columns()),
+            &FieldP128::extend_precompute(layout.dblock(), layout.num_columns()),
+        );
+
+        for (idx, quadratic_constraint_row) in tableau.contents()
+            [tableau.layout.quadratic_constraint_rows()]
+        .iter()
+        .enumerate()
+        {
+            // We should get three rows of x, then three rows of y and then three rows of z
+            let expected_quadratic_witnesses = if idx < 3 {
+                vec![FieldP128::from_u128(15); tableau.layout.witnesses_per_row()]
+            } else if idx < 6 {
+                vec![FieldP128::from_u128(16); tableau.layout.witnesses_per_row()]
+            } else {
+                vec![FieldP128::from_u128(17); tableau.layout.witnesses_per_row()]
+            };
+
+            let got_quadratic_witnesses =
+                &quadratic_constraint_row[tableau.layout.num_requested_columns()
+                    ..tableau.layout.num_requested_columns() + tableau.layout.witnesses_per_row()];
+            assert_eq!(expected_quadratic_witnesses, got_quadratic_witnesses);
         }
     }
 }

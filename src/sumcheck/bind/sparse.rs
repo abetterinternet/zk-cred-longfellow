@@ -529,7 +529,7 @@ impl<FE: FieldElement> SparseSumcheckArray<FE> {
     pub fn compute_a(&self, hand: Hand, wires: &[Vec<FE>; 2], into: &mut Vec<FE>) {
         // Truncate to drop any values currently in `into`, then resize up to the desired size and
         // to initialize contents to zeroes.
-        into.truncate(0);
+        into.clear();
         into.resize(wires[hand as usize].len(), FE::ZERO);
 
         for element in &self.contents {

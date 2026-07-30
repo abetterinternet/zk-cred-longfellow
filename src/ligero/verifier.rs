@@ -161,7 +161,7 @@ impl<FE: ProofFieldElement> LigeroVerifier<FE> {
             .chunks(self.tableau_layout.witnesses_per_row())
             .zip(&proof.tableau_columns[self.tableau_layout.first_witness_row()..])
         {
-            inner_product_vector_extended.truncate(0);
+            inner_product_vector_extended.clear();
             inner_product_vector_extended
                 .resize(self.tableau_layout.num_requested_columns(), FE::ZERO);
             inner_product_vector_extended.extend(products);

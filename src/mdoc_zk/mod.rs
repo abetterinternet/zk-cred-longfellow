@@ -35,13 +35,18 @@ pub mod prover;
 mod sha256;
 pub mod verifier;
 
+// Add to src/mdoc_zk/mod.rs
+#[cfg(test)]
+mod prover_v8_test;
 /// Versions of the mdoc_zk circuit interface.
+
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[wasm_bindgen]
 pub enum CircuitVersion {
     V6 = 6,
     V7 = 7,
+    V8 = 8,
 }
 
 /// Inputs for the mdoc_zk circuits.
@@ -52,6 +57,56 @@ pub struct CircuitInputs {
     mac_messages: [Field2_128; 6],
 }
 
+    /// Fill PPID private witness values for V8 circuits.
+    ///
+    /// Computes SHA-256(pseudonym_seed || verifier_context) and fills the
+    /// corresponding witness wires.
+    fn fill_ppid_witness<'a>(
+        ppid_witness: &'a mut layout::PpidWitness<'a>,
+        attribute_ids: &[&str],
+        attributes: &[mdoc::ParsedAttribute],
+        verifier_context: &[u8; 32],
+        hash_bit_plucker: &BitPlucker<4, Field2_128>,
+    ) -> Result<(), anyhow::Error> {
+        // Find the pairwise_pseudonym attribute to extract the seed
+        let seed: [u8; 32] = attribute_ids
+            .iter()
+            .zip(attributes.iter())
+            .find(|(id, _)| **id == "pairwise_pseudonym")
+            .map(|(_, attr)| {
+                // The element value is CBOR-encoded: 0x58 0x20 followed by 32 bytes
+                let value = attr.element_value.value.as_slice();
+                if value.len() >= 34 && value[0] == 0x58 && value[1] == 0x20 {
+                    let mut seed = [0u8; 32];
+                    seed.copy_from_slice(&value[2..34]);
+                    Ok(seed)
+                } else {
+                    Err(anyhow!(
+                        "pseudonym_seed value is not a valid 32-byte CBOR byte string"
+                    ))
+                }
+            })
+            .unwrap_or(Ok([0u8; 32]))?; // default to zeros if attribute not present
+
+        // Fill ppid_seed bits (256 wires)
+        byte_array_as_bits(&seed, ppid_witness.seed);
+
+        // Compute SHA-256(seed || verifier_context) and fill witness
+        // Input is exactly 64 bytes = 1 SHA-256 block, but circuit uses 2 blocks
+        let mut sha_input = Vec::with_capacity(64);
+        sha_input.extend_from_slice(&seed);
+        sha_input.extend_from_slice(verifier_context);
+
+        run_sha256_witnessed(
+            &sha_input,
+            &mut ppid_witness.sha_witness,
+            hash_bit_plucker,
+            2,
+        )
+        .context("error computing PPID SHA-256 witness")?;
+
+        Ok(())
+    }
 impl CircuitInputs {
     /// Construct inputs for the signature and hash circuits.
     pub fn new(
@@ -62,6 +117,7 @@ impl CircuitInputs {
         attribute_ids: &[&str],
         time: &str,
         mac_prover_key_shares: &[Field2_128; 6],
+        verifier_context: Option<&[u8; 32]>, // NEW: V8 only
     ) -> Result<Self, anyhow::Error> {
         let layout = InputLayout::new(
             version,
@@ -201,13 +257,53 @@ impl CircuitInputs {
                 }
             }
             layout::AttributeInputs::V7(attribute_inputs) => {
-                for (out_slice, attribute) in
-                    attribute_inputs.inputs.iter_mut().zip(attributes.iter())
+                for ((out_slice, attribute), attribute_id) in attribute_inputs
+                    .inputs
+                    .iter_mut()
+                    .zip(attributes.iter())
+                    .zip(attribute_ids.iter())
                 {
                     // Unwrap safety: when splitting the circuit inputs, we ensure there are as many
                     // `Some` values as there are requested attributes.
                     let out_slice = out_slice.as_mut().unwrap();
-                    fill_attribute_statement_v7(out_slice, &attribute.as_public_attribute())?;
+                    // V8: for pairwise_pseudonym, the circuit expects the public
+                    // identifier to be "pairwise_pseudonym" not "pseudonym_seed"
+                    let mut pub_attr = attribute.as_public_attribute();
+                    let override_id;
+                    let override_value;
+                    if *attribute_id == "pairwise_pseudonym" {
+                        // Override identifier: circuit expects "pairwise_pseudonym" not "pseudonym_seed"
+                        let mut id_cbor = Vec::new();
+                        ciborium::into_writer("pairwise_pseudonym", &mut id_cbor).unwrap();
+                        override_id = id_cbor;
+                        pub_attr.identifier = std::borrow::Cow::Borrowed(&override_id);
+
+                        // Override value: circuit expects PPID = SHA256(seed || verifier_context)
+                        // The mdoc value is [0x58, 0x20, <32 seed bytes>]
+                        // Extract seed and compute PPID
+                        let raw_value = &pub_attr.value;
+                        if raw_value.len() >= 34 && raw_value[0] == 0x58 && raw_value[1] == 0x20 {
+                            let seed = &raw_value[2..34];
+                            let ctx = verifier_context
+                                .ok_or_else(|| anyhow!("verifier_context required for pairwise_pseudonym"))?;
+                            let mut sha_input = Vec::with_capacity(64);
+                            sha_input.extend_from_slice(seed);
+                            sha_input.extend_from_slice(ctx);
+                            use sha2::Digest;
+                            let ppid = sha2::Sha256::digest(&sha_input);
+                            // CBOR bytestring: 0x58 0x20 + 32 bytes
+                            let mut ppid_cbor = vec![0x58u8, 0x20];
+                            ppid_cbor.extend_from_slice(&ppid);
+                            override_value = ppid_cbor;
+                            pub_attr.value = std::borrow::Cow::Borrowed(&override_value);
+                        } else {
+                            override_value = Vec::new();
+                        }
+                    } else {
+                        override_id = Vec::new();
+                        override_value = Vec::new();
+                    }
+                    fill_attribute_statement_v7(out_slice, &pub_attr)?;
                 }
             }
         }
@@ -228,6 +324,12 @@ impl CircuitInputs {
             return Err(anyhow!("credential is expired"));
         }
         byte_array_as_bits(time.as_bytes(), split_hash_input.statement.time);
+
+        if let Some(vc) = split_hash_input.statement.verifier_context {
+            let ctx = verifier_context
+                .ok_or_else(|| anyhow!("verifier_context required for V8"))?;
+            byte_array_as_bits(ctx, vc);
+        }
 
         // Encode MAC messages. Note that this encodes the credential hash field element in
         // little-endian order, which effectively byte-reverses the hash digest.
@@ -460,6 +562,18 @@ impl CircuitInputs {
                 }
             }
         }
+        // V8: fill PPID witness
+        if let Some(ppid_witness) = &mut split_hash_input.ppid_witness {
+            let ctx = verifier_context
+                .ok_or_else(|| anyhow!("verifier_context required for V8 PPID"))?;
+            fill_ppid_witness(
+                ppid_witness,
+                attribute_ids,
+                &attributes,
+                ctx,
+                &hash_bit_plucker,
+            )?;
+        }
 
         // Set MAC prover key shares.
         split_hash_input
@@ -678,6 +792,7 @@ impl CircuitStatements {
         time: &str,
         proof: &MdocZkProof,
         mac_verifier_key_share: Field2_128,
+        verifier_context: Option<&[u8; 32]>, // NEW: V8 only
     ) -> Result<Self, anyhow::Error> {
         let layout = InputLayout::new(
             version,
@@ -721,12 +836,12 @@ impl CircuitStatements {
                     )?;
                 }
             }
+
             layout::AttributeInputs::V7(attribute_inputs) => {
+                // handles both V7 and V8
                 for (attribute_statement_opt, attribute) in
                     attribute_inputs.inputs.iter_mut().zip(attributes)
                 {
-                    // Unwrap safety: when splitting the circuit inputs, we ensure there are as many
-                    // `Some` values as there are attributes.
                     let attribute_statement = attribute_statement_opt.as_mut().unwrap();
                     fill_attribute_statement_v7(
                         attribute_statement,
@@ -743,6 +858,12 @@ impl CircuitStatements {
             ));
         }
         byte_array_as_bits(time.as_bytes(), split_hash_statement.time);
+        // V8: set verifier_context in public statement.
+        if let Some(vc) = split_hash_statement.verifier_context {
+            let ctx = verifier_context
+                .ok_or_else(|| anyhow!("verifier_context required for V8"))?;
+            byte_array_as_bits(ctx, vc);
+        }
 
         // Set MAC tags and verifier key share.
         split_hash_statement
@@ -882,14 +1003,17 @@ fn signature_ligero_parameters(circuit_version: CircuitVersion) -> LigeroParamet
     let block_enc = match circuit_version {
         CircuitVersion::V6 => 2945,
         CircuitVersion::V7 => 4096,
+        CircuitVersion::V8 => 2945, // same as V6
     };
     let inverse_rate = match circuit_version {
         CircuitVersion::V6 => LIGERO_INVERSE_RATE_V6,
         CircuitVersion::V7 => LIGERO_INVERSE_RATE_V7,
+        CircuitVersion::V8 => LIGERO_INVERSE_RATE_V6, // same as V6
     };
     let nreq = match circuit_version {
         CircuitVersion::V6 => LIGERO_NREQ_V6,
         CircuitVersion::V7 => LIGERO_NREQ_V7,
+        CircuitVersion::V8 => LIGERO_NREQ_V6, // same as V6
     };
     let block_size = (block_enc + 1) / (2 + inverse_rate);
     let witnesses_per_row = block_size - nreq;
@@ -903,6 +1027,7 @@ fn signature_ligero_parameters(circuit_version: CircuitVersion) -> LigeroParamet
 }
 
 /// Hardcoded Ligero parameters for the hash circuit.
+
 fn hash_ligero_parameters(
     circuit_version: CircuitVersion,
     num_attributes: usize,
@@ -917,14 +1042,20 @@ fn hash_ligero_parameters(
         (CircuitVersion::V7, 2) => 4265,
         (CircuitVersion::V7, 3) => 4307,
         (CircuitVersion::V7, 4) => 4415,
+        (CircuitVersion::V8, 1) => 4259,
+        (CircuitVersion::V8, 2) => 4307,
+        (CircuitVersion::V8, 3) => 4463,
+        (CircuitVersion::V8, 4) => 4481,
     };
     let inverse_rate = match circuit_version {
         CircuitVersion::V6 => LIGERO_INVERSE_RATE_V6,
         CircuitVersion::V7 => LIGERO_INVERSE_RATE_V7,
+        CircuitVersion::V8 => LIGERO_INVERSE_RATE_V6, // same as V6
     };
     let nreq = match circuit_version {
         CircuitVersion::V6 => LIGERO_NREQ_V6,
         CircuitVersion::V7 => LIGERO_NREQ_V7,
+        CircuitVersion::V8 => LIGERO_NREQ_V6, // same as V6
     };
     let block_size = (block_enc + 1) / (2 + inverse_rate);
     let witnesses_per_row = block_size - nreq;
@@ -1029,16 +1160,20 @@ pub(super) mod tests {
         version: CircuitVersion,
         attributes: u8,
     ) -> (Circuit<FieldP256>, Circuit<Field2_128>) {
-        let data = match (version,attributes) {
-            (CircuitVersion::V6, 1) => include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice(),
-            (CircuitVersion::V6, 2) => include_bytes!("../../test-vectors/mdoc_zk/6_2_b4bb6f01b7043f4f51d8302a30b36e3d4d2d0efc3c24557ab9212ad524a9764e").as_slice(),
-            (CircuitVersion::V6, 3) => include_bytes!("../../test-vectors/mdoc_zk/6_3_b2211223b954b34a1081e3fbf71b8ea2de28efc888b4be510f532d6ba76c2010").as_slice(),
-            (CircuitVersion::V6, 4) => include_bytes!("../../test-vectors/mdoc_zk/6_4_c70b5f44a1365c53847eb8948ad5b4fdc224251a2bc02d958c84c862823c49d6").as_slice(),
-            (CircuitVersion::V7, 1) => include_bytes!("../../test-vectors/mdoc_zk/7_1_8d079211715200ff06c5109639245502bfe94aa869908d31176aae4016182121").as_slice(),
-            (CircuitVersion::V7, 2) => include_bytes!("../../test-vectors/mdoc_zk/7_2_6a5810683e62b6d7766ebd0d7ca72518a2b8325418142adcadb10d51dbbcd5ad").as_slice(),
-            (CircuitVersion::V7, 3) => include_bytes!("../../test-vectors/mdoc_zk/7_3_8ee4849ae1293ae6fe5f9082ce3e5e15c4f198f2998c682fa1b727237d6d252f").as_slice(),
-            (CircuitVersion::V7, 4) => include_bytes!("../../test-vectors/mdoc_zk/7_4_5aebdaaafe17296a3ef3ca6c80c6e7505e09291897c39700410a365fb278e460").as_slice(),
-            _ => panic!("unsupported number of attributes"),
+        let data = match (version, attributes) {
+            (CircuitVersion::V6, 1) => include_bytes!("../../circuits/6_1_4096_2945_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice(),
+            (CircuitVersion::V6, 2) => include_bytes!("../../circuits/6_2_4025_2945_b4bb6f01b7043f4f51d8302a30b36e3d4d2d0efc3c24557ab9212ad524a9764e").as_slice(),
+            (CircuitVersion::V6, 3) => include_bytes!("../../circuits/6_3_4121_2945_b2211223b954b34a1081e3fbf71b8ea2de28efc888b4be510f532d6ba76c2010").as_slice(),
+            (CircuitVersion::V6, 4) => include_bytes!("../../circuits/6_4_4283_2945_c70b5f44a1365c53847eb8948ad5b4fdc224251a2bc02d958c84c862823c49d6").as_slice(),
+            (CircuitVersion::V7, 1) => include_bytes!("../../circuits/7_1_4151_4096_8d079211715200ff06c5109639245502bfe94aa869908d31176aae4016182121").as_slice(),
+            (CircuitVersion::V7, 2) => include_bytes!("../../circuits/7_2_4265_4096_6a5810683e62b6d7766ebd0d7ca72518a2b8325418142adcadb10d51dbbcd5ad").as_slice(),
+            (CircuitVersion::V7, 3) => include_bytes!("../../circuits/7_3_4307_4096_8ee4849ae1293ae6fe5f9082ce3e5e15c4f198f2998c682fa1b727237d6d252f").as_slice(),
+            (CircuitVersion::V7, 4) => include_bytes!("../../circuits/7_4_4415_4096_5aebdaaafe17296a3ef3ca6c80c6e7505e09291897c39700410a365fb278e460").as_slice(),
+            (CircuitVersion::V8, 1) => include_bytes!("../../circuits/8_1_4259_2945_bd2d720cef03fe633646d66b510ea9a3b8515b645a76b5f71c9bc52e0220c8c7").as_slice(),
+            (CircuitVersion::V8, 2) => include_bytes!("../../circuits/8_2_4307_2945_bb8e6a26d2700ddad968562d1c4aee83067772fee6f889748a0bc64f2c694ad5").as_slice(),
+            (CircuitVersion::V8, 3) => include_bytes!("../../circuits/8_3_4463_2945_6d13de1b9925c820d9ee68a8b98695bf09003f09dd0bbfb1e2dadccc3170dc30").as_slice(),
+            (CircuitVersion::V8, 4) => include_bytes!("../../circuits/8_4_4481_2945_5f49898162ba507527e7c014d39db8509453fb2f1cd04601f629ce8363205073").as_slice(),
+            _ => panic!("unsupported version/attributes combination"),
         };
         let decompressed = zstd::decode_all(data).unwrap();
         let mut cursor = Cursor::new(decompressed.as_slice());

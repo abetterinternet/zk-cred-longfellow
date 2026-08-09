@@ -14,6 +14,7 @@ license = "MPL-2.0"
 uniffi = ["dep:uniffi"]
 
 [dependencies]
+base64 = "0.21"
 aes = "0.8.4"
 anyhow = "1"
 byteorder = "1.5.0"

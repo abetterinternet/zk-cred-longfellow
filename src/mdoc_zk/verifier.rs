@@ -11,10 +11,12 @@ use crate::{
     transcript::{Transcript, TranscriptMode},
 };
 use anyhow::{Context, anyhow};
+use wasm_bindgen::prelude::wasm_bindgen;
 use std::borrow::Cow;
 
 /// Zero-knowledge verifier for mdoc credential presentations.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
+#[wasm_bindgen]
 pub struct MdocZkVerifier {
     circuit_version: CircuitVersion,
     num_attributes: usize,
@@ -107,6 +109,7 @@ impl MdocZkVerifier {
             time,
             &proof,
             mac_verifier_key_share,
+            None,
         )?;
 
         // Check public input sizes against circuit metadata.
@@ -255,5 +258,63 @@ mod tests {
                 proof,
             )
             .unwrap();
+    }
+}
+
+impl MdocZkVerifier {
+    /// Verify a V8 proof with PPID support.
+    #[allow(clippy::too_many_arguments)]
+    pub fn verify_with_ppid(
+        &self,
+        issuer_public_key_sec_1: &[u8],
+        attributes: &[Attribute],
+        doc_type: &str,
+        device_name_spaces_bytes: &[u8],
+        session_transcript: &[u8],
+        time: &str,
+        verifier_context: &[u8; 32],
+        proof: &[u8],
+    ) -> Result<(), anyhow::Error> {
+        if attributes.len() != self.num_attributes {
+            return Err(anyhow!("wrong number of attributes"));
+        }
+        let context = self.proof_context();
+        let proof = MdocZkProof::get_decoded_with_param(&context, proof)
+            .context("could not parse proof")?;
+        let mut transcript = Transcript::new(session_transcript, TranscriptMode::Normal)?;
+        transcript.write_byte_array(proof.hash_commitment.as_bytes())?;
+        transcript.write_byte_array(proof.signature_commitment.as_bytes())?;
+        let mac_verifier_key_share = transcript.generate_challenge(1)?[0];
+        let statements = CircuitStatements::new(
+            self.circuit_version,
+            issuer_public_key_sec_1,
+            attributes,
+            doc_type,
+            device_name_spaces_bytes,
+            session_transcript,
+            time,
+            &proof,
+            mac_verifier_key_share,
+            Some(verifier_context),
+        )?;
+        if statements.hash_statement().len() != self.hash_circuit.num_public_inputs() {
+            return Err(anyhow!("statement length does not match hash circuit"));
+        }
+        if statements.signature_statement().len() != self.signature_circuit.num_public_inputs() {
+            return Err(anyhow!("statement length does not match signature circuit"));
+        }
+        initialize_transcript(&mut transcript, &self.hash_circuit, statements.hash_statement())?;
+        let hash_linear_constraints = SumcheckProtocol::new(&self.hash_circuit)
+            .linear_constraints(statements.hash_statement(), &mut transcript, &proof.hash_sumcheck_proof)?;
+        self.hash_ligero_verifier.verify(
+            proof.hash_commitment, &proof.hash_ligero_proof, &mut transcript, &hash_linear_constraints,
+        )?;
+        initialize_transcript(&mut transcript, &self.signature_circuit, statements.signature_statement())?;
+        let signature_linear_constraints = SumcheckProtocol::new(&self.signature_circuit)
+            .linear_constraints(statements.signature_statement(), &mut transcript, &proof.signature_sumcheck_proof)?;
+        self.signature_ligero_verifier.verify(
+            proof.signature_commitment, &proof.signature_ligero_proof, &mut transcript, &signature_linear_constraints,
+        )?;
+        Ok(())
     }
 }

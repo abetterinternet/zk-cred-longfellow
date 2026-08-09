@@ -290,11 +290,54 @@ pub(super) struct MsoOffsets {
 }
 
 /// DeviceKeyInfo from ISO 18013-5.
-#[derive(Debug, Deserialize)]
+/// Supports two encodings of deviceKey:
+/// 1. A COSE_Key map directly (standard)
+/// 2. A bstr containing CBOR-encoded COSE_Key (some issuers wrap it)
+#[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[serde(rename_all = "camelCase")]
 struct DeviceKeyInfo {
     device_key: CoseKey,
+}
+
+impl<'de> serde::Deserialize<'de> for DeviceKeyInfo {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        // Deserialize as a generic CBOR Value first
+        let map = ciborium::Value::deserialize(deserializer)?;
+        let ciborium::Value::Map(entries) = map else {
+            return Err(D::Error::custom("DeviceKeyInfo must be a map"));
+        };
+        let mut device_key = None;
+        for (k, v) in entries {
+            let ciborium::Value::Text(key_str) = k else { continue; };
+            if key_str == "deviceKey" {
+                device_key = Some(match v {
+                    // Standard: deviceKey is a COSE_Key map directly
+                    ciborium::Value::Map(_) => {
+                        let mut buf = Vec::new();
+                        ciborium::into_writer(&ciborium::Value::Map(
+                            if let ciborium::Value::Map(m) = v { m } else { unreachable!() }
+                        ), &mut buf).map_err(D::Error::custom)?;
+                        ciborium::from_reader::<CoseKey, _>(buf.as_slice())
+                            .map_err(D::Error::custom)?
+                    }
+                    // Non-standard: deviceKey is bstr containing CBOR-encoded COSE_Key
+                    ciborium::Value::Bytes(bytes) => {
+                        ciborium::from_reader::<CoseKey, _>(bytes.as_slice())
+                            .map_err(D::Error::custom)?
+                    }
+                    other => {
+                        return Err(D::Error::custom(format!(
+                            "deviceKey has unexpected type: {:?}", other
+                        )));
+                    }
+                });
+            }
+        }
+        Ok(DeviceKeyInfo {
+            device_key: device_key.ok_or_else(|| D::Error::missing_field("deviceKey"))?,
+        })
+    }
 }
 
 /// ValidityInfo from ISO 18013-5.
@@ -612,7 +655,9 @@ pub(super) fn find_attributes(
 
         for (opt, desired_attribute_id) in out.iter_mut().zip(attribute_ids) {
             if let Some(attribute_id) = &element_identifier_string
-                && attribute_id == desired_attribute_id
+                && (attribute_id == desired_attribute_id
+                    || (*desired_attribute_id == "pairwise_pseudonym"
+                        && attribute_id == "pseudonym_seed"))
             {
                 let digest_id = digest_id
                     .ok_or_else(|| anyhow!("digestID was missing from IssuerSignedItem"))?;

@@ -1,9 +1,18 @@
 This document collects notes on the interface of the Longfellow mdoc\_zk
 circuits, identified as “longfellow-libzk-v1” internally. This targets versions
-6 and 7 of the “ZK specification”. Differences between versions are noted
-inline. All information is taken from the
+6, 7, and 8 of the “ZK specification”. Differences between versions are noted
+inline. Information on versions 6 and 7 is taken from the
 [C++ implementation](https://github.com/google/longfellow-zk), which implicitly
-defines this interface.
+defines the interface for those versions.
+
+Version 8 is a local extension, adding pairwise pseudonym identifier (PPID)
+support on top of version 7's circuit interface. It is not currently part of
+the upstream C++ implementation linked above, and its circuit version number
+has not been coordinated with any other party defining circuits for the same
+“ZK specification” namespace. Information on version 8 below is taken directly
+from this repository's own circuit compiler and prover code
+(`src/mdoc_zk/layout.rs`, `src/mdoc_zk/mod.rs`, `src/mdoc_zk/prover.rs`, and
+`src/mdoc_zk/verifier.rs`).
 
 # Assumptions
 
@@ -66,6 +75,14 @@ defines this interface.
 * The `deviceKeyInfo` object in the mdoc must contain the required `deviceKey`
   attribute first. There are further limitations on the COSE encoding of the
   device’s public key.
+* Circuit version 8 adds pairwise pseudonym identifier (PPID) support. The circuit derives a
+  per-verifier pseudonym as SHA-256(pseudonym\_seed || verifier\_context), where pseudonym\_seed is
+  a 32-byte private value taken from the mdoc's `pseudonym_seed` attribute, and verifier\_context
+  is a 32-byte public value chosen by the relying party (typically derived from the verifier's
+  identity, so that the same credential yields an unlinkable, distinct pseudonym for each
+  verifier). The circuit computes this hash directly and checks that it matches the disclosed
+  `pairwise_pseudonym` attribute value; pseudonym\_seed itself is never disclosed. All other
+  circuit version 8 inputs are identical to circuit version 7.
 
 # Circuit Inputs
 
@@ -140,8 +157,9 @@ elsewhere.
 
 ## Signature Circuit Inputs, P-256 Base Field
 
-Note that all signature circuit inputs are unchanged between circuit versions 6
-and 7.
+Note that all signature circuit inputs are unchanged between circuit versions 6,
+7, and 8. Circuit version 8's PPID/pseudonym extension only affects the hash
+circuit, described below.
 
 ### Public Inputs (Statement)
 
@@ -405,6 +423,12 @@ bytes for the string's contents). Next, the total length of both the
 `elementValue` key and `elementValue` value is encoded in the same way, into
 eight input wires.
 
+Circuit version 8 reuses this same attribute encoding unchanged, including for the
+`pairwise_pseudonym` attribute: its `elementValue` is the CBOR-encoded 32-byte PPID (the SHA-256
+digest described above), not the mdoc's private `pseudonym_seed` attribute value. See "Verifier
+Context" and "PPID Witness" below for the additional circuit version 8 inputs that let the circuit
+check this digest without disclosing the seed.
+
 #### Time
 
 Field elements: 20 \* 8 \= 160
@@ -412,6 +436,16 @@ Field elements: 20 \* 8 \= 160
 The current time is represented in RFC 3339 format, with four digit years, UTC
 time, and no time zone offset. This format takes 20 bytes. The time is encoded
 in this form, and then its bits are assigned to one input wire per bit.
+
+#### Verifier Context (Circuit version 8)
+
+Field elements: 32 \* 8 \= 256
+
+Circuit version 8 inserts one additional public input here, between the time and the MAC tags:
+the 32-byte verifier\_context value, bit-decomposed with one input wire per bit. This value has no
+effect on the credential or device binding checks; it is only consumed, together with the private
+pseudonym\_seed witness described below, to derive the PPID digest that the circuit checks against
+the disclosed `pairwise_pseudonym` attribute value.
 
 #### MAC Tags
 
@@ -645,6 +679,25 @@ order of the `digestID` key-value pair is encoded first, with 0 indicating it is
 the first key-value pair, 1 indicating it is the second key-value pair, etc. The
 order for `random` is encoded next, followed by `elementIdentifier` and
 `elementValue`.
+
+#### PPID Witness (Circuit version 8)
+
+Field elements: 32 \* 8 \+ 2 \* (48 \* 32 / 4 \+ 64 \* 2 \* 32 / 4 \+ 8 \* 32 / 4) \= 256 \+ 2 \* 1472
+\= 3200
+
+Circuit version 8 adds one more private witness section here, after all per-attribute witnesses
+and before the MAC prover key shares. This computes the PPID digest checked against the disclosed
+`pairwise_pseudonym` attribute (see "Attributes (Circuit version 7)" and "Verifier Context" above).
+
+The first 256 input wires hold the bit-decomposed 32-byte `pseudonym_seed` value, taken from the
+mdoc's private `pseudonym_seed` attribute and never disclosed as a public input.
+
+The remaining input wires provide SHA-256 witness values for
+SHA-256(pseudonym\_seed || verifier\_context), in the same message schedule / state values / 
+intermediate hash value format described under "Intermediate SHA-256 Witness Values" above, packed
+with `BitPlucker` at 4 bits per wire. The concatenation of the 32-byte seed and the 32-byte
+verifier\_context is exactly one 64-byte SHA-256 block before padding, but as with the per-attribute
+hashes above, the circuit still allocates witness space for two blocks.
 
 #### MAC Prover Key Shares
 

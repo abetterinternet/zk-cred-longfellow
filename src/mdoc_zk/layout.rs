@@ -34,9 +34,10 @@ impl InputLayout {
     ///
     /// This includes only public inputs, including the implicit 1.
     pub(super) fn signature_statement_length(&self) -> usize {
-        // Signature circuit input layout is unchanged between circuit versions 6 and 7.
+        // Signature circuit input layout is unchanged across circuit versions 6, 7, and 8 - V8
+        // only adds a verifier_context/ppid_witness to the HASH circuit, not this one.
         match self.version {
-            CircuitVersion::V6 | CircuitVersion::V7 => {}
+            CircuitVersion::V6 | CircuitVersion::V7 | CircuitVersion::V8 => {}
         }
         1 // implicit 1
             + 2 // issuer public key
@@ -49,9 +50,9 @@ impl InputLayout {
     ///
     /// This includes all public and private inputs, including the implicit 1.
     pub(super) fn signature_input_length(&self) -> usize {
-        // Signature circuit input layout is unchanged between circuit versions 6 and 7.
+        // Signature circuit input layout is unchanged across circuit versions 6, 7, and 8.
         match self.version {
-            CircuitVersion::V6 | CircuitVersion::V7 => {}
+            CircuitVersion::V6 | CircuitVersion::V7 | CircuitVersion::V8 => {}
         }
         self.signature_statement_length()
             + 1 // hash of credential
@@ -132,11 +133,17 @@ impl InputLayout {
     pub(super) fn hash_statement_length(&self) -> usize {
         let wires_per_attribute = match self.version {
             CircuitVersion::V6 => AttributeInputV6::LENGTH,
-            CircuitVersion::V7 => AttributeInputV7::LENGTH,
+            CircuitVersion::V7 | CircuitVersion::V8 => AttributeInputV7::LENGTH,
+        };
+        let verifier_context_wires = match self.version {
+            CircuitVersion::V6 | CircuitVersion::V7 => 0,
+            // V8 adds 32 bytes of verifier_context after time, before MAC tags
+            CircuitVersion::V8 => VERIFIER_CONTEXT_BYTES * 8,
         };
         1 // implicit 1
             + usize::from(self.attributes) * wires_per_attribute // attribute CBOR data
             + 20 * 8 // time in RFC 3339 format
+            + verifier_context_wires
             + 3 * 2 // MAC tags
             + 1 // MAC verifier key share
     }
@@ -148,7 +155,12 @@ impl InputLayout {
         let sha_256_max_blocks = self.sha_256_max_blocks();
         let wires_per_attribute = match self.version {
             CircuitVersion::V6 => AttributeWitnessV6::LENGTH,
-            CircuitVersion::V7 => AttributeWitnessV7::LENGTH,
+            CircuitVersion::V7 | CircuitVersion::V8 => AttributeWitnessV7::LENGTH,
+        };
+        // V8 adds ppid_seed (32*8 bits) and 2 SHA-256 block witnesses after attribute witnesses
+        let ppid_wires = match self.version {
+            CircuitVersion::V6 | CircuitVersion::V7 => 0,
+            CircuitVersion::V8 => PPID_SEED_BYTES * 8 + sha_256_witness_wires(2),
         };
         self.hash_statement_length()
             + 256 // hash of credential
@@ -161,6 +173,7 @@ impl InputLayout {
             + 12 // deviceKeyInfo CBOR offset
             + 12 // valueDigests CBOR offset
             + usize::from(self.attributes) * wires_per_attribute
+            + ppid_wires
             + 3 * 2 // MAC prover key shares
     }
 
@@ -168,7 +181,7 @@ impl InputLayout {
     pub(super) fn sha_256_max_blocks(&self) -> usize {
         match self.version {
             CircuitVersion::V6 => SHA_256_CREDENTIAL_MAX_BLOCKS_V6,
-            CircuitVersion::V7 => SHA_256_CREDENTIAL_MAX_BLOCKS_V7,
+            CircuitVersion::V7 | CircuitVersion::V8 => SHA_256_CREDENTIAL_MAX_BLOCKS_V7,
         }
     }
 
@@ -196,10 +209,8 @@ impl InputLayout {
                 for out in attribute_inputs.inputs[0..self.attributes.into()].iter_mut() {
                     let (chunk, rest) = input.split_at_mut(AttributeInputV6::LENGTH);
                     input = rest;
-
                     let (cbor_data, cbor_length) =
                         chunk.split_at_mut(ATTRIBUTE_CBOR_DATA_LENGTH_V6 * 8);
-
                     *out = Some(AttributeInputV6 {
                         cbor_data: cbor_data.try_into().unwrap(),
                         cbor_length: cbor_length.try_into().unwrap(),
@@ -207,18 +218,16 @@ impl InputLayout {
                 }
                 AttributeInputs::V6(attribute_inputs)
             }
-            CircuitVersion::V7 => {
+            CircuitVersion::V7 | CircuitVersion::V8 => {
                 let mut attribute_inputs = AttributeInputsV7::default();
                 for out in attribute_inputs.inputs[0..self.attributes.into()].iter_mut() {
                     let (chunk, rest) = input.split_at_mut(AttributeInputV7::LENGTH);
                     input = rest;
-
                     let (cbor_identifier, chunk) =
                         chunk.split_at_mut(ATTRIBUTE_CBOR_IDENTIFIER_LENGTH_V7 * 8);
                     let (cbor_value, chunk) =
                         chunk.split_at_mut(ATTRIBUTE_CBOR_VALUE_LENGTH_V7 * 8);
                     let (id_length, value_length) = chunk.split_at_mut(8);
-
                     *out = Some(AttributeInputV7 {
                         cbor_identifier: cbor_identifier.try_into().unwrap(),
                         cbor_value: cbor_value.try_into().unwrap(),
@@ -226,11 +235,25 @@ impl InputLayout {
                         value_length: value_length.try_into().unwrap(),
                     });
                 }
+                // V8 reuses the V7 attribute format
                 AttributeInputs::V7(attribute_inputs)
             }
         };
 
         let (time, input) = input.split_at_mut(20 * 8);
+
+        // V8: verifier_context appears after time, before MAC tags
+        let (verifier_context, input) = match self.version {
+            CircuitVersion::V6 | CircuitVersion::V7 => (None, input),
+            CircuitVersion::V8 => {
+                let (vc, rest) = input.split_at_mut(VERIFIER_CONTEXT_BYTES * 8);
+                (
+                    Some(<&mut [Field2_128; VERIFIER_CONTEXT_BYTES * 8]>::try_from(vc).unwrap()),
+                    rest,
+                )
+            }
+        };
+
         let (mac_tags, input) = input.split_at_mut(3 * 2);
         let (mac_verifier_key_share, input) = input.split_first_mut().unwrap();
         assert!(input.is_empty());
@@ -239,6 +262,7 @@ impl InputLayout {
             implicit_one,
             attribute_inputs,
             time: time.try_into().unwrap(),
+            verifier_context,
             mac_tags: mac_tags.try_into().unwrap(),
             mac_verifier_key_share,
         }
@@ -279,7 +303,6 @@ impl InputLayout {
                 for out in attribute_witnesses.inputs[0..self.attributes.into()].iter_mut() {
                     let (chunk, rest) = input.split_at_mut(AttributeWitnessV6::LENGTH);
                     input = rest;
-
                     let (sha_256_input, chunk) = chunk.split_at_mut(2 * 64 * 8);
                     let (sha_256_witness, chunk) =
                         chunk.split_at_mut(2 * Sha256BlockWitness::LENGTH);
@@ -289,7 +312,6 @@ impl InputLayout {
                     let (unused_offset, chunk) = chunk.split_at_mut(CBOR_OFFSET_BITS);
                     let (unused_length, chunk) = chunk.split_at_mut(CBOR_OFFSET_BITS);
                     assert!(chunk.is_empty());
-
                     *out = Some(AttributeWitnessV6 {
                         sha_256_input: sha_256_input.try_into().unwrap(),
                         sha_256_witness: Sha256Witness {
@@ -304,12 +326,11 @@ impl InputLayout {
                 }
                 AttributeWitnesses::V6(attribute_witnesses)
             }
-            CircuitVersion::V7 => {
+            CircuitVersion::V7 | CircuitVersion::V8 => {
                 let mut attribute_witnesses = AttributeWitnessesV7::default();
                 for out in attribute_witnesses.inputs[0..self.attributes.into()].iter_mut() {
                     let (chunk, rest) = input.split_at_mut(AttributeWitnessV7::LENGTH);
                     input = rest;
-
                     let (sha_256_input, chunk) = chunk.split_at_mut(2 * 64 * 8);
                     let (sha_256_witness, chunk) =
                         chunk.split_at_mut(2 * Sha256BlockWitness::LENGTH);
@@ -318,7 +339,6 @@ impl InputLayout {
                     let (cbor_data_length, chunk) = chunk.split_at_mut(CBOR_OFFSET_BITS);
                     let (unused_offset, chunk) = chunk.split_at_mut(CBOR_OFFSET_BITS);
                     let (unused_length, chunk) = chunk.split_at_mut(CBOR_OFFSET_BITS);
-
                     let (kv_offset_1, chunk) = chunk.split_at_mut(CBOR_OFFSET_BITS);
                     let (kv_offset_2, chunk) = chunk.split_at_mut(CBOR_OFFSET_BITS);
                     let (kv_offset_3, chunk) = chunk.split_at_mut(CBOR_OFFSET_BITS);
@@ -330,9 +350,7 @@ impl InputLayout {
                     let (kv_order_random, chunk) = chunk.split_at_mut(2);
                     let (kv_order_element_identifier, chunk) = chunk.split_at_mut(2);
                     let (kv_order_element_value, chunk) = chunk.split_at_mut(2);
-
                     assert!(chunk.is_empty());
-
                     *out = Some(AttributeWitnessV7 {
                         inner: AttributeWitnessV6 {
                             sha_256_input: sha_256_input.try_into().unwrap(),
@@ -366,6 +384,24 @@ impl InputLayout {
             }
         };
 
+        // V8: ppid_seed and ppid SHA-256 witness appear after attribute witnesses
+        let ppid_witness = match self.version {
+            CircuitVersion::V6 | CircuitVersion::V7 => None,
+            CircuitVersion::V8 => {
+                let (seed, rest) = input.split_at_mut(PPID_SEED_BYTES * 8);
+                input = rest;
+                let ppid_sha_wires = sha_256_witness_wires(2);
+                let (sha_witness_data, rest) = input.split_at_mut(ppid_sha_wires);
+                input = rest;
+                Some(PpidWitness {
+                    seed: seed.try_into().unwrap(),
+                    sha_witness: Sha256Witness {
+                        input: sha_witness_data,
+                    },
+                })
+            }
+        };
+
         let (mac_prover_key_shares, input) = input.split_at_mut(3 * 2);
         assert!(input.is_empty());
 
@@ -384,10 +420,13 @@ impl InputLayout {
             device_key_info_offset: device_key_info_offset.try_into().unwrap(),
             value_digests_offset: value_digests_offset.try_into().unwrap(),
             attribute_witnesses,
+            ppid_witness,
             mac_prover_key_shares: mac_prover_key_shares.try_into().unwrap(),
         }
     }
 }
+
+// ── Signature circuit structs (unchanged across circuit versions 6-8) ──────
 
 /// Pointers to different parts of the signature circuit's public inputs.
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
@@ -444,12 +483,10 @@ impl<'a> EcdsaWitness<'a> {
         let (r_x_inverse, witnesses) = witnesses.split_first_mut().unwrap();
         let (neg_s_inverse, witnesses) = witnesses.split_first_mut().unwrap();
         let (q_x_inverse, witnesses) = witnesses.split_first_mut().unwrap();
-
         let (sum_g_q, witnesses) = witnesses.split_at_mut(2);
         let (sum_g_r, witnesses) = witnesses.split_at_mut(2);
         let (sum_q_r, witnesses) = witnesses.split_at_mut(2);
         let (sum_g_q_r, witnesses) = witnesses.split_at_mut(2);
-
         Self {
             r_x,
             r_y,
@@ -488,17 +525,25 @@ impl<'a> EcdsaWitness<'a> {
     }
 }
 
+// ── Hash circuit structs ───────────────────────────────────────────────────
+
 /// Pointers to different parts of the hash circuit's public inputs.
+///
+/// `verifier_context` is `Some` only for V8 circuits.
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct SplitHashStatement<'a> {
     pub(super) implicit_one: &'a mut Field2_128,
     pub(super) attribute_inputs: AttributeInputs<'a>,
     pub(super) time: &'a mut [Field2_128; 20 * 8],
+    /// V8 only: 32-byte verifier context, bit-decomposed.
+    pub(super) verifier_context: Option<&'a mut [Field2_128; VERIFIER_CONTEXT_BYTES * 8]>,
     pub(super) mac_tags: &'a mut [Field2_128; 6],
     pub(super) mac_verifier_key_share: &'a mut Field2_128,
 }
 
 /// Pointers to different parts of the hash circuit's inputs.
+///
+/// `ppid_witness` is `Some` only for V8 circuits.
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct SplitHashInput<'a> {
     pub(super) statement: SplitHashStatement<'a>,
@@ -513,13 +558,25 @@ pub(super) struct SplitHashInput<'a> {
     pub(super) device_key_info_offset: &'a mut [Field2_128; CBOR_OFFSET_BITS],
     pub(super) value_digests_offset: &'a mut [Field2_128; CBOR_OFFSET_BITS],
     pub(super) attribute_witnesses: AttributeWitnesses<'a>,
+    /// V8 only: PPID seed and SHA-256 witness.
+    pub(super) ppid_witness: Option<PpidWitness<'a>>,
     pub(super) mac_prover_key_shares: &'a mut [Field2_128; 3 * 2],
+}
+
+/// V8 only: PPID private witness values.
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+pub(super) struct PpidWitness<'a> {
+    /// 32-byte pseudonym seed, bit-decomposed (256 wires).
+    pub(super) seed: &'a mut [Field2_128; PPID_SEED_BYTES * 8],
+    /// SHA-256 witness for SHA-256(seed || verifier_context), 2 blocks.
+    pub(super) sha_witness: Sha256Witness<'a>,
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) enum AttributeInputs<'a> {
     V6(AttributeInputsV6<'a>),
     V7(AttributeInputsV7<'a>),
+    // V8 reuses V7 attribute format
 }
 
 #[derive(Default)]
@@ -566,7 +623,7 @@ impl<'a> AttributeInputV7<'a> {
 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct Sha256Witness<'a> {
-    input: &'a mut [Field2_128],
+    pub(super) input: &'a mut [Field2_128],
 }
 
 impl<'a> Sha256Witness<'a> {
@@ -578,7 +635,6 @@ impl<'a> Sha256Witness<'a> {
                 let (state_e_a, input) = input.split_at_mut(64 * 2 * 32 / 4);
                 let (intermediate_hash_value, input) = input.split_at_mut(8 * 32 / 4);
                 assert!(input.is_empty());
-
                 Sha256BlockWitness {
                     message_schedule: message_schedule.try_into().unwrap(),
                     state_e_a: state_e_a.try_into().unwrap(),
@@ -609,6 +665,7 @@ impl<'a> Sha256BlockWitness<'a> {
 pub(super) enum AttributeWitnesses<'a> {
     V6(AttributeWitnessesV6<'a>),
     V7(AttributeWitnessesV7<'a>),
+    // V8 reuses V7 witness format
 }
 
 #[derive(Default)]
@@ -671,6 +728,8 @@ impl<'a> AttributeWitnessV7<'a> {
     };
 }
 
+// ── Wire count helpers ─────────────────────────────────────────────────────
+
 /// Computes the number of input wires needed for the credential SHA-256 input, given the maximum
 /// number of blocks.
 ///
@@ -687,11 +746,13 @@ pub(super) fn sha_256_witness_wires(max_blocks: usize) -> usize {
     max_blocks * Sha256BlockWitness::LENGTH
 }
 
+// ── Constants ──────────────────────────────────────────────────────────────
+
 /// Maximum allowed number of SHA-256 blocks during verification of the issuer's signature over the
 /// credential. (circuit version 6)
 pub(super) const SHA_256_CREDENTIAL_MAX_BLOCKS_V6: usize = 35;
 /// Maximum allowed number of SHA-256 blocks during verification of the issuer's signature over the
-/// credential. (circuit version 7)
+/// credential. (circuit versions 7 and 8)
 pub(super) const SHA_256_CREDENTIAL_MAX_BLOCKS_V7: usize = 40;
 
 /// Length of the constant prefix excluded from the SHA-256 padded input witness.
@@ -707,6 +768,13 @@ pub(super) const ATTRIBUTE_CBOR_DATA_LENGTH_V6: usize = 96;
 pub(super) const ATTRIBUTE_CBOR_IDENTIFIER_LENGTH_V7: usize = 32;
 /// Number of bytes allocated for attribute value.
 pub(super) const ATTRIBUTE_CBOR_VALUE_LENGTH_V7: usize = 64;
+
+/// Number of bytes in the verifier context (V8 only).
+pub(super) const VERIFIER_CONTEXT_BYTES: usize = 32;
+/// Number of bytes in the PPID seed (V8 only).
+pub(super) const PPID_SEED_BYTES: usize = 32;
+
+// ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -732,39 +800,48 @@ mod tests {
     fn correct_lengths_v6_1() {
         correct_lengths(CircuitVersion::V6, 1);
     }
-
     #[wasm_bindgen_test(unsupported = test)]
     fn correct_lengths_v6_2() {
         correct_lengths(CircuitVersion::V6, 2);
     }
-
     #[wasm_bindgen_test(unsupported = test)]
     fn correct_lengths_v6_3() {
         correct_lengths(CircuitVersion::V6, 3);
     }
-
     #[wasm_bindgen_test(unsupported = test)]
     fn correct_lengths_v6_4() {
         correct_lengths(CircuitVersion::V6, 4);
     }
-
     #[wasm_bindgen_test(unsupported = test)]
     fn correct_lengths_v7_1() {
         correct_lengths(CircuitVersion::V7, 1);
     }
-
     #[wasm_bindgen_test(unsupported = test)]
     fn correct_lengths_v7_2() {
         correct_lengths(CircuitVersion::V7, 2);
     }
-
     #[wasm_bindgen_test(unsupported = test)]
     fn correct_lengths_v7_3() {
         correct_lengths(CircuitVersion::V7, 3);
     }
-
     #[wasm_bindgen_test(unsupported = test)]
     fn correct_lengths_v7_4() {
         correct_lengths(CircuitVersion::V7, 4);
+    }
+    #[wasm_bindgen_test(unsupported = test)]
+    fn correct_lengths_v8_1() {
+        correct_lengths(CircuitVersion::V8, 1);
+    }
+    #[wasm_bindgen_test(unsupported = test)]
+    fn correct_lengths_v8_2() {
+        correct_lengths(CircuitVersion::V8, 2);
+    }
+    #[wasm_bindgen_test(unsupported = test)]
+    fn correct_lengths_v8_3() {
+        correct_lengths(CircuitVersion::V8, 3);
+    }
+    #[wasm_bindgen_test(unsupported = test)]
+    fn correct_lengths_v8_4() {
+        correct_lengths(CircuitVersion::V8, 4);
     }
 }

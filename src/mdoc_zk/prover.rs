@@ -90,6 +90,9 @@ impl MdocZkProver {
     }
 
     /// Create a proof of possession of a credential and a device binding signature.
+    ///
+    /// For V8 circuits, use [`Self::prove_with_ppid`] instead to provide the
+    /// verifier context required for PPID.
     pub fn prove(
         &self,
         device_response: &[u8],
@@ -98,8 +101,64 @@ impl MdocZkProver {
         session_transcript: &[u8],
         time: &str,
     ) -> Result<Vec<u8>, anyhow::Error> {
+        self.prove_internal(
+            device_response,
+            namespace,
+            requested_claims,
+            session_transcript,
+            time,
+            None,
+        )
+    }
+
+    /// Create a proof with PPID support (V8 circuits).
+    ///
+    /// `verifier_context` is a 32-byte value that binds the pseudonym to a
+    /// specific verifier, ensuring different verifiers see different pseudonyms
+    /// for the same credential holder.
+    pub fn prove_with_ppid(
+        &self,
+        device_response: &[u8],
+        namespace: &str,
+        requested_claims: &[&str],
+        session_transcript: &[u8],
+        time: &str,
+        verifier_context: &[u8; 32],
+    ) -> Result<Vec<u8>, anyhow::Error> {
+        if !matches!(self.circuit_version, CircuitVersion::V8) {
+            return Err(anyhow::anyhow!(
+                "prove_with_ppid requires a V8 circuit, got {:?}",
+                self.circuit_version
+            ));
+        }
+        self.prove_internal(
+            device_response,
+            namespace,
+            requested_claims,
+            session_transcript,
+            time,
+            Some(verifier_context),
+        )
+    }
+
+    fn prove_internal(
+        &self,
+        device_response: &[u8],
+        namespace: &str,
+        requested_claims: &[&str],
+        session_transcript: &[u8],
+        time: &str,
+        verifier_context: Option<&[u8; 32]>,
+    ) -> Result<Vec<u8>, anyhow::Error> {
         if requested_claims.len() != self.num_attributes {
             return Err(anyhow!("wrong number of attributes"));
+        }
+
+        // V8 requires a verifier_context
+        if matches!(self.circuit_version, CircuitVersion::V8) && verifier_context.is_none() {
+            return Err(anyhow!(
+                "V8 circuits require a verifier_context; use prove_with_ppid"
+            ));
         }
 
         let hash_sumcheck_prover = SumcheckProtocol::new(&self.hash_circuit);
@@ -120,6 +179,7 @@ impl MdocZkProver {
             requested_claims,
             time,
             &mac_prover_key_shares,
+            verifier_context,
         )?;
 
         // Check input sizes against circuit metadata.
@@ -263,9 +323,7 @@ mod tests {
         let compressed = include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice();
         let decompressed = zstd::decode_all(compressed).unwrap();
         let prover = MdocZkProver::new(&decompressed, CircuitVersion::V6, 1).unwrap();
-
         let test_vector_inputs = load_v6_v7_test_vector_inputs();
-
         prover
             .prove(
                 &test_vector_inputs.mdoc,
@@ -282,9 +340,7 @@ mod tests {
         let compressed = include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice();
         let decompressed = zstd::decode_all(compressed).unwrap();
         let prover = MdocZkProver::new(&decompressed, CircuitVersion::V7, 1).unwrap();
-
         let test_vector_inputs = load_v6_v7_test_vector_inputs();
-
         prover
             .prove(
                 &test_vector_inputs.mdoc,
@@ -301,9 +357,26 @@ mod tests {
         let compressed = include_bytes!("../../test-vectors/mdoc_zk/7_1_8d079211715200ff06c5109639245502bfe94aa869908d31176aae4016182121").as_slice();
         let decompressed = zstd::decode_all(compressed).unwrap();
         let prover = MdocZkProver::new(&decompressed, CircuitVersion::V6, 1).unwrap();
-
         let test_vector_inputs = load_v6_v7_test_vector_inputs();
+        prover
+            .prove(
+                &test_vector_inputs.mdoc,
+                "org.iso.18013.5.1",
+                &[&test_vector_inputs.attributes[0].id],
+                &test_vector_inputs.transcript,
+                &test_vector_inputs.now,
+            )
+            .unwrap_err();
+    }
 
+    /// Test V8 prover rejects missing verifier_context.
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_v8_requires_verifier_context() {
+        let compressed = include_bytes!("../../test-vectors/mdoc_zk/8_1_4259_2945_bd2d720cef03fe633646d66b510ea9a3b8515b645a76b5f71c9bc52e0220c8c7").as_slice();
+        let decompressed = zstd::decode_all(compressed).unwrap();
+        let prover = MdocZkProver::new(&decompressed, CircuitVersion::V8, 1).unwrap();
+        let test_vector_inputs = load_v6_v7_test_vector_inputs();
+        // prove() without verifier_context should fail for V8
         prover
             .prove(
                 &test_vector_inputs.mdoc,
@@ -315,3 +388,107 @@ mod tests {
             .unwrap_err();
     }
 }
+/// Create a proof with PPID support (V8 circuits).
+///
+/// @param {MdocZkProver} prover - The prover returned from `initialize_prover()`.
+/// @param {Uint8Array} device_response - The mdoc's DeviceResponse, as CBOR data.
+/// @param {string} namespace - The namespace of the attributes to be disclosed.
+/// @param {string[]} requested_claims - The identifiers of the attributes to disclose.
+/// @param {Uint8Array} session_transcript - The session transcript binding the presentation.
+/// @param {string} time - The current time in RFC 3339 format (e.g. "2026-03-05T22:39:45Z").
+/// @param {Uint8Array} verifier_context - 32-byte verifier context for PPID derivation.
+/// @returns {Uint8Array} The serialized proof.
+#[wasm_bindgen]
+pub fn prove_with_ppid_wasm(
+    prover: &MdocZkProver,
+    device_response: &[u8],
+    namespace: &str,
+    requested_claims: Vec<String>,
+    session_transcript: &[u8],
+    time: &str,
+    verifier_context: &[u8],
+) -> Result<Vec<u8>, wasm_bindgen::JsError> {
+    if verifier_context.len() != 32 {
+        return Err(wasm_bindgen::JsError::new(
+            "verifier_context must be 32 bytes",
+        ));
+    }
+    let ctx: &[u8; 32] = verifier_context
+        .try_into()
+        .map_err(|_| wasm_bindgen::JsError::new("verifier_context must be 32 bytes"))?;
+    let claims: Vec<&str> = requested_claims.iter().map(|s| s.as_str()).collect();
+    prover
+        .prove_internal(
+            device_response,
+            namespace,
+            &claims,
+            session_transcript,
+            time,
+            Some(ctx),
+        )
+        .map_err(|e| wasm_bindgen::JsError::new(&e.to_string()))
+}
+
+/// Initialize a V8 verifier from a circuit binary.
+#[wasm_bindgen]
+pub fn initialize_verifier(
+    circuit: &[u8],
+    circuit_version: CircuitVersion,
+    num_attributes: usize,
+) -> Result<crate::mdoc_zk::verifier::MdocZkVerifier, wasm_bindgen::JsError> {
+    crate::mdoc_zk::verifier::MdocZkVerifier::new(circuit, circuit_version, num_attributes)
+        .map_err(|e| wasm_bindgen::JsError::new(&e.to_string()))
+}
+
+/// Verify a V8 proof with PPID support.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn verify_with_ppid_wasm(
+    verifier: &crate::mdoc_zk::verifier::MdocZkVerifier,
+    issuer_public_key_sec1: &[u8],
+    given_name_cbor: &[u8],
+    ppid_cbor: &[u8],
+    _namespace: &str,
+    doc_type: &str,
+    session_transcript: &[u8],
+    time: &str,
+    verifier_context: &[u8],
+    proof: &[u8],
+) -> Result<(), wasm_bindgen::JsError> {
+    if verifier_context.len() != 32 {
+        return Err(wasm_bindgen::JsError::new(
+            "verifier_context must be 32 bytes",
+        ));
+    }
+    let ctx: &[u8; 32] = verifier_context
+        .try_into()
+        .map_err(|_| wasm_bindgen::JsError::new("verifier_context must be 32 bytes"))?;
+    verifier
+        .verify_with_ppid(
+            issuer_public_key_sec1,
+            &[
+                crate::mdoc_zk::verifier::Attribute {
+                    identifier: "given_name".to_owned(),
+                    value_cbor: given_name_cbor.to_vec(),
+                },
+                crate::mdoc_zk::verifier::Attribute {
+                    identifier: "pairwise_pseudonym".to_owned(),
+                    value_cbor: ppid_cbor.to_vec(),
+                },
+            ],
+            doc_type,
+            b"\xa0",
+            session_transcript,
+            time,
+            ctx,
+            proof,
+        )
+        .map_err(|e| wasm_bindgen::JsError::new(&e.to_string()))
+}
+
+// The plain C-ABI export for a Go (cgo) verifier ("rust_verify_with_ppid"
+// and friends) now lives in `crate::go_ffi`: it has grown well beyond a
+// hardcoded, single-purpose stub (variable-length attribute arrays, real
+// device_name_spaces_bytes, a cacheable verifier handle, and richer error
+// reporting), so it earns its own module rather than living inline here
+// alongside the WASM bindings.

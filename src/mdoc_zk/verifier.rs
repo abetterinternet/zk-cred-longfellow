@@ -12,9 +12,11 @@ use crate::{
 };
 use anyhow::{Context, anyhow};
 use std::borrow::Cow;
+use wasm_bindgen::prelude::wasm_bindgen;
 
 /// Zero-knowledge verifier for mdoc credential presentations.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
+#[wasm_bindgen]
 pub struct MdocZkVerifier {
     circuit_version: CircuitVersion,
     num_attributes: usize,
@@ -76,6 +78,70 @@ impl MdocZkVerifier {
         time: &str,
         proof: &[u8],
     ) -> Result<(), anyhow::Error> {
+        self.verify_internal(
+            issuer_public_key_sec_1,
+            attributes,
+            doc_type,
+            device_name_spaces_bytes,
+            session_transcript,
+            time,
+            None,
+            proof,
+        )
+    }
+
+    /// Verify a V8 proof with PPID support.
+    ///
+    /// Takes the same parameters as [`Self::verify`], plus `verifier_context`, the 32-byte value
+    /// that binds the pseudonym to a specific verifier. Requires a V8 circuit; use [`Self::verify`]
+    /// for V6/V7 circuits.
+    #[allow(clippy::too_many_arguments)]
+    pub fn verify_with_ppid(
+        &self,
+        issuer_public_key_sec_1: &[u8],
+        attributes: &[Attribute],
+        doc_type: &str,
+        device_name_spaces_bytes: &[u8],
+        session_transcript: &[u8],
+        time: &str,
+        verifier_context: &[u8; 32],
+        proof: &[u8],
+    ) -> Result<(), anyhow::Error> {
+        if !matches!(self.circuit_version, CircuitVersion::V8) {
+            return Err(anyhow!(
+                "verify_with_ppid requires a V8 circuit, got {:?}",
+                self.circuit_version
+            ));
+        }
+        self.verify_internal(
+            issuer_public_key_sec_1,
+            attributes,
+            doc_type,
+            device_name_spaces_bytes,
+            session_transcript,
+            time,
+            Some(verifier_context),
+            proof,
+        )
+    }
+
+    /// Common verification logic shared by [`Self::verify`] and [`Self::verify_with_ppid`].
+    ///
+    /// `verifier_context` is `Some` only when verifying a V8/PPID proof; it is threaded straight
+    /// through to [`CircuitStatements::new`], which is the only place the two verification paths
+    /// actually differ.
+    #[allow(clippy::too_many_arguments)]
+    fn verify_internal(
+        &self,
+        issuer_public_key_sec_1: &[u8],
+        attributes: &[Attribute],
+        doc_type: &str,
+        device_name_spaces_bytes: &[u8],
+        session_transcript: &[u8],
+        time: &str,
+        verifier_context: Option<&[u8; 32]>,
+        proof: &[u8],
+    ) -> Result<(), anyhow::Error> {
         if attributes.len() != self.num_attributes {
             return Err(anyhow!("wrong number of attributes"));
         }
@@ -107,6 +173,7 @@ impl MdocZkVerifier {
             time,
             &proof,
             mac_verifier_key_share,
+            verifier_context,
         )?;
 
         // Check public input sizes against circuit metadata.
@@ -255,5 +322,34 @@ mod tests {
                 proof,
             )
             .unwrap();
+    }
+
+    /// `verify_with_ppid()` must reject non-V8 circuits up front, the same way
+    /// `MdocZkProver::prove_with_ppid()` already does, instead of silently passing
+    /// `Some(verifier_context)` into a V6/V7 circuit statement.
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_verify_with_ppid_requires_v8_circuit() {
+        let compressed = include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice();
+        let decompressed = zstd::decode_all(compressed).unwrap();
+        let verifier = MdocZkVerifier::new(&decompressed, CircuitVersion::V6, 1).unwrap();
+
+        let test_vector_inputs = load_v6_v7_test_vector_inputs();
+
+        let err = verifier
+            .verify_with_ppid(
+                ISSUER_PUBLIC_KEY,
+                &[Attribute {
+                    identifier: "issue_date".to_owned(),
+                    value_cbor: b"\xd9\x03\xec\x6a2024-03-15".to_vec(),
+                }],
+                "org.iso.18013.5.1.mDL",
+                b"\xA0", // Empty CBOR map
+                &test_vector_inputs.transcript,
+                &test_vector_inputs.now,
+                &[0u8; 32],
+                b"",
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("V8"), "unexpected error: {err}");
     }
 }

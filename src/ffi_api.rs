@@ -9,6 +9,15 @@ use crate::mdoc_zk::{
 };
 use std::fmt::{self, Debug, Display};
 
+/// UniFFI doesn't support fixed-size array types across the FFI boundary
+/// (`[u8; 32]` isn't `LiftRef`-able), so PPID's `verifier_context` crosses
+/// as a slice and gets validated/converted here.
+fn verifier_context_from_slice(verifier_context: &[u8]) -> Result<[u8; 32], MdocZkError> {
+    verifier_context
+        .try_into()
+        .map_err(|_| MdocZkError(anyhow::anyhow!("verifier_context must be exactly 32 bytes")))
+}
+
 /// Initialize the prover by loading a decompressed circuit file.
 #[uniffi::export]
 pub fn initialize_prover(
@@ -71,6 +80,64 @@ pub fn verify(
             device_name_spaces_bytes,
             session_transcript,
             time,
+            proof,
+        )
+        .map_err(MdocZkError)
+}
+
+/// Create a proof for a credential presentation with pairwise-pseudonym
+/// (PPID) support - V8 circuits only. `verifier_context` binds the derived
+/// pseudonym to a specific verifier, so the same credential holder presents
+/// a different pseudonym to each distinct verifier.
+#[uniffi::export]
+pub fn prove_with_ppid(
+    prover: &MdocZkProver,
+    device_response: &[u8],
+    namespace: &str,
+    requested_claims: &[String],
+    session_transcript: &[u8],
+    time: &str,
+    verifier_context: &[u8],
+) -> Result<Vec<u8>, MdocZkError> {
+    let verifier_context = verifier_context_from_slice(verifier_context)?;
+    let requested_claims: Vec<_> = requested_claims.iter().map(String::as_str).collect();
+    prover
+        .prove_with_ppid(
+            device_response,
+            namespace,
+            &requested_claims,
+            session_transcript,
+            time,
+            &verifier_context,
+        )
+        .map_err(MdocZkError)
+}
+
+/// Verify a proof with pairwise-pseudonym (PPID) support - V8 circuits only.
+/// `verifier_context` must match the value the prover used to derive the
+/// pseudonym.
+#[uniffi::export]
+pub fn verify_with_ppid(
+    verifier: &MdocZkVerifier,
+    issuer_public_key_sec_1: &[u8],
+    attributes: &[Attribute],
+    doc_type: &str,
+    device_name_spaces_bytes: &[u8],
+    session_transcript: &[u8],
+    time: &str,
+    verifier_context: &[u8],
+    proof: &[u8],
+) -> Result<(), MdocZkError> {
+    let verifier_context = verifier_context_from_slice(verifier_context)?;
+    verifier
+        .verify_with_ppid(
+            issuer_public_key_sec_1,
+            attributes,
+            doc_type,
+            device_name_spaces_bytes,
+            session_transcript,
+            time,
+            &verifier_context,
             proof,
         )
         .map_err(MdocZkError)

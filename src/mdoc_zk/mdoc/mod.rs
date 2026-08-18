@@ -290,11 +290,87 @@ pub(super) struct MsoOffsets {
 }
 
 /// DeviceKeyInfo from ISO 18013-5.
-#[derive(Debug, Deserialize)]
+///
+/// `deviceKeyInfo`/`deviceKey` appear inside the MSO, so they are part of the issuer-signed data.
+/// The circuit does not fully parse the MSO's CBOR structure; per `circuit_interface.md`'s
+/// "Assumptions" section, it checks that CBOR fragments occur at fixed byte positions relative to
+/// `deviceKeyInfo`'s offset, and imposes "further limitations on the COSE encoding of the device's
+/// public key" that predate this deserializer. In other words, the circuit itself hard-codes an
+/// expectation of exactly one on-the-wire byte layout for `deviceKeyInfo`/`deviceKey`.
+///
+/// This Rust-side deserializer additionally tolerates a second, non-standard encoding, where
+/// `deviceKey` is a CBOR byte string (bstr) wrapping an encoded `COSE_Key`, rather than a
+/// `COSE_Key` map directly:
+/// 1. A COSE_Key map directly (standard, and the only form the circuit's fixed-offset checks are
+///    known to accept).
+/// 2. A bstr containing CBOR-encoded COSE_Key (added defensively; see caveat below).
+///
+/// Caveat: parsing case 2 here only lets this code *read* such an mdoc (e.g. to extract the
+/// device's public key coordinates for the ECDSA witness). It does not change what raw bytes
+/// actually appear in the MSO at the circuit's expected fixed offsets. Since the circuit assumes
+/// case 1's byte layout, a credential using case 2 would hash correctly on the Rust side, but the
+/// circuit's own internal fixed-position byte checks would not find the expected `COSE_Key` map
+/// structure there - so proof generation should fail to produce a valid proof of possession, not
+/// silently succeed with mismatched data (no soundness/false-accept issue is believed to exist
+/// either way). No issuer or test vector in this repository is known to produce mdocs with this
+/// second form, and there is no test coverage exercising it through actual proof generation - this
+/// analysis is based on inspecting this repository's code and `circuit_interface.md` alone, since
+/// the upstream C++ circuit implementation is not available to verify directly. Treat case 2
+/// support as unverified, lenient parsing for inspection purposes, not a supported proving path.
+#[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[serde(rename_all = "camelCase")]
 struct DeviceKeyInfo {
     device_key: CoseKey,
+}
+
+impl<'de> serde::Deserialize<'de> for DeviceKeyInfo {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        // Deserialize as a generic CBOR Value first
+        let map = ciborium::Value::deserialize(deserializer)?;
+        let ciborium::Value::Map(entries) = map else {
+            return Err(D::Error::custom("DeviceKeyInfo must be a map"));
+        };
+        let mut device_key = None;
+        for (k, v) in entries {
+            let ciborium::Value::Text(key_str) = k else {
+                continue;
+            };
+            if key_str == "deviceKey" {
+                device_key = Some(match v {
+                    // Standard: deviceKey is a COSE_Key map directly
+                    ciborium::Value::Map(_) => {
+                        let mut buf = Vec::new();
+                        ciborium::into_writer(
+                            &ciborium::Value::Map(if let ciborium::Value::Map(m) = v {
+                                m
+                            } else {
+                                unreachable!()
+                            }),
+                            &mut buf,
+                        )
+                        .map_err(D::Error::custom)?;
+                        ciborium::from_reader::<CoseKey, _>(buf.as_slice())
+                            .map_err(D::Error::custom)?
+                    }
+                    // Non-standard: deviceKey is bstr containing CBOR-encoded COSE_Key
+                    ciborium::Value::Bytes(bytes) => {
+                        ciborium::from_reader::<CoseKey, _>(bytes.as_slice())
+                            .map_err(D::Error::custom)?
+                    }
+                    other => {
+                        return Err(D::Error::custom(format!(
+                            "deviceKey has unexpected type: {:?}",
+                            other
+                        )));
+                    }
+                });
+            }
+        }
+        Ok(DeviceKeyInfo {
+            device_key: device_key.ok_or_else(|| D::Error::missing_field("deviceKey"))?,
+        })
+    }
 }
 
 /// ValidityInfo from ISO 18013-5.
@@ -501,6 +577,14 @@ pub(super) struct KeyValueData<T> {
 }
 
 /// Locate attributes by their identifier, and return their values and related witnesses.
+///
+/// `attribute_ids` are matched exactly (and only within `namespace`) against each
+/// `IssuerSignedItem`'s `elementIdentifier`. This function does not perform any alias or
+/// synonym matching - callers that need to look up an mdoc attribute under a different name
+/// than the identifier used elsewhere in the public API (for example, V8's
+/// `pairwise_pseudonym` circuit attribute, which is derived from the mdoc's real
+/// `pseudonym_seed` attribute) must resolve that mapping themselves before calling this
+/// function, and keep track of the original, public-facing id separately for any later use.
 pub(super) fn find_attributes(
     attribute_preimages: &HashMap<String, Vec<EncodedCbor>>,
     namespace: &str,
@@ -1240,6 +1324,42 @@ mod tests {
                 .windows(needle.len())
                 .any(|window| window == needle)
         );
+    }
+
+    /// `find_attributes()` must do exact identifier matching only, with no aliasing between
+    /// distinct identifier strings (e.g. no special-cased "pairwise_pseudonym" <->
+    /// "pseudonym_seed" equivalence). Any such alias resolution is the caller's responsibility,
+    /// done before calling this function.
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_find_attributes_no_implicit_aliasing() {
+        let mut data = Vec::new();
+        ciborium::into_writer(
+            &cbor!({
+                "digestID" => 0,
+                "random" => ByteString(b"0123456789012345".to_vec()),
+                "elementIdentifier" => "pseudonym_seed",
+                "elementValue" => ByteString([0x11; 32].to_vec()),
+            })
+            .unwrap(),
+            &mut Cursor::new(&mut data),
+        )
+        .unwrap();
+        let preimages = HashMap::from([(
+            "eu.europa.ec.eudi.pid.1".to_string(),
+            Vec::from([tag::Required(ByteString(data))]),
+        )]);
+
+        // Querying under the mdoc's real identifier succeeds.
+        find_attributes(&preimages, "eu.europa.ec.eudi.pid.1", &["pseudonym_seed"]).unwrap();
+
+        // Querying under the circuit-facing public alias, with no translation performed by the
+        // caller, must fail - find_attributes() does not know about this alias.
+        find_attributes(
+            &preimages,
+            "eu.europa.ec.eudi.pid.1",
+            &["pairwise_pseudonym"],
+        )
+        .unwrap_err();
     }
 
     /// Check that the manual deserialization code in [`parse_mso`] is equivalent to the generated

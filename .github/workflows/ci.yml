@@ -26,6 +26,11 @@ jobs:
       env:
         RUSTDOCFLAGS: "-D warnings"
     - name: Test
+      # debug_eu_offsets is marked #[ignore] (known-failing debug helper,
+      # see its own doc comment in prover_v8_test.rs) rather than skipped
+      # via a CLI flag here - the bench targets below are harness=false
+      # (criterion) and don't understand libtest's `--skip`, so any skip
+      # flag added at this level would break them instead.
       run: cargo test
     - name: Test benchmarks
       run: cargo test --benches

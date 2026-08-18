@@ -15,6 +15,8 @@ fn load_circuit_file(version: CircuitVersion) -> Vec<u8> {
         CircuitVersion::V7 => include_bytes!(
             "../test-vectors/mdoc_zk/7_1_8d079211715200ff06c5109639245502bfe94aa869908d31176aae4016182121"
         ).as_slice(),
+        // VERSIONS below only benchmarks V6/V7; this arm is unreachable in practice.
+        CircuitVersion::V8 => unreachable!("benchmark does not cover V8 circuits"),
     };
     zstd::decode_all(compressed).unwrap()
 }

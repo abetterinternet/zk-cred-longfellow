@@ -53,6 +53,7 @@ pub fn initialize_verifier(
 
 /// Verify a proof of a credential presentation.
 #[uniffi::export]
+#[allow(clippy::too_many_arguments)]
 pub fn verify(
     verifier: &MdocZkVerifier,
     issuer_public_key_sec_1: &[u8],
@@ -98,7 +99,7 @@ impl std::error::Error for MdocZkError {
 
 impl Display for MdocZkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:#}", &self.0)
+        write!(f, "{:#}", self.0)
     }
 }
 

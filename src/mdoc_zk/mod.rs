@@ -165,9 +165,11 @@ impl CircuitInputs {
         // Set signature circuit MAC witnesses, interleaving key shares and messages.
         let sig_mac_bit_plucker = BitPlucker::<2, FieldP256>::new();
         for ((key_shares_chunk, message), out) in mac_prover_key_shares_buffer
-            .chunks_exact(32)
-            .zip(mac_messages_buffer.chunks_exact(32))
-            .zip(split_signature_input.mac_witnesses.chunks_exact_mut(256))
+            .as_chunks::<32>()
+            .0
+            .iter()
+            .zip(mac_messages_buffer.as_chunks::<32>().0)
+            .zip(split_signature_input.mac_witnesses.as_chunks_mut::<256>().0)
         {
             sig_mac_bit_plucker.encode_byte_array(key_shares_chunk, &mut out[..128]);
             sig_mac_bit_plucker.encode_byte_array(message, &mut out[128..]);
@@ -544,7 +546,7 @@ impl CircuitInputs {
         let sig = self.layout.split_signature_input(&mut self.signature_input);
         for (tag, wires) in tags
             .iter()
-            .zip(sig.statement.mac_tags.chunks_exact_mut(128))
+            .zip(sig.statement.mac_tags.as_chunks_mut::<128>().0)
         {
             for (bit, wire) in tag.iter_bits().zip(wires.iter_mut()) {
                 *wire = FieldP256::from_u128(bit as u128);
@@ -609,7 +611,7 @@ fn fill_attribute_statement_v7(
 
 /// Encode an array of bytes as field elements, with one field element representing each bit.
 fn byte_array_as_bits(bytes: &[u8], out: &mut [Field2_128]) {
-    for (byte, out_chunk) in bytes.iter().zip(out.chunks_exact_mut(8)) {
+    for (byte, out_chunk) in bytes.iter().zip(out.as_chunks_mut::<8>().0) {
         let mut bits = *byte;
         for out_elem in out_chunk.iter_mut() {
             *out_elem = Field2_128::inject_bits::<1>((bits & 1) as u16);
@@ -754,7 +756,7 @@ impl CircuitStatements {
         for (tag, wires) in proof
             .mac_tags
             .iter()
-            .zip(split_signature_statement.mac_tags.chunks_exact_mut(128))
+            .zip(split_signature_statement.mac_tags.as_chunks_mut::<128>().0)
         {
             for (bit, wire) in tag.iter_bits().zip(wires.iter_mut()) {
                 *wire = FieldP256::from_u128(bit as u128);

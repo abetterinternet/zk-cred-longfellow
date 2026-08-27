@@ -53,9 +53,9 @@ pub(super) fn run_sha256(input: &[u8]) -> Sha256Digest {
     let mut padded_input = input.to_vec();
     pad_input(&mut padded_input);
     let mut hash_value = INITIAL_HASH_VALUE;
-    for chunk in padded_input.chunks_exact(64) {
+    for chunk in padded_input.as_chunks::<64>().0 {
         // Unwrap safety: chunks_exact above guarantees the length is correct.
-        process_block(chunk.try_into().unwrap(), &mut hash_value);
+        process_block(chunk, &mut hash_value);
     }
     serialize_hash_value(&hash_value)
 }
@@ -79,17 +79,14 @@ pub(super) fn run_sha256_witnessed<'a, 'b: 'a>(
     let mut hash_value = INITIAL_HASH_VALUE;
     let mut digest = None;
     for (block_number, (chunk, mut block_witness)) in padded_input
-        .chunks_exact(64)
+        .as_chunks::<64>()
+        .0
+        .iter()
         .zip(witness.iter_blocks())
         .enumerate()
     {
         // Unwrap safety: chunks_exact above guarantees the length is correct.
-        witness_block(
-            chunk.try_into().unwrap(),
-            &mut hash_value,
-            &mut block_witness,
-            bit_plucker,
-        );
+        witness_block(chunk, &mut hash_value, &mut block_witness, bit_plucker);
         if block_number + 1 == num_blocks {
             digest = Some(serialize_hash_value(&hash_value));
         }
@@ -135,7 +132,7 @@ pub(super) fn witness_block(
     for ((k_t, w_t), state_e_a) in K
         .iter()
         .zip(&message_schedule)
-        .zip(witness.state_e_a.chunks_exact_mut(2 * 32 / 4))
+        .zip(witness.state_e_a.as_chunks_mut::<{ 2 * 32 / 4 }>().0)
     {
         round(&mut state, *k_t, *w_t);
         bit_plucker.encode_u32_array(&[state[4], state[0]], state_e_a);
@@ -157,9 +154,9 @@ fn message_schedule(message: &[u8; 64]) -> [u32; 64] {
     let mut schedule = [0u32; 64];
 
     // Parse the message.
-    for (mi, chunk) in schedule[..16].iter_mut().zip(message.chunks_exact(4)) {
+    for (mi, chunk) in schedule[..16].iter_mut().zip(message.as_chunks::<4>().0) {
         // Unwrap safety: chunks_exact above guarantees the length is correct.
-        *mi = u32::from_be_bytes(chunk.try_into().unwrap());
+        *mi = u32::from_be_bytes(*chunk);
     }
 
     // Compute the rest of the message schedule from its recurrence relation.
@@ -194,7 +191,7 @@ fn round(state: &mut [u32; 8], k_t: u32, w_t: u32) {
 
 fn serialize_hash_value(hash_value: &[u32; 8]) -> Sha256Digest {
     let mut output = Sha256Digest([0; 32]);
-    for (h, chunk) in hash_value.iter().zip(output.0.chunks_exact_mut(4)) {
+    for (h, chunk) in hash_value.iter().zip(output.0.as_chunks_mut::<4>().0) {
         chunk.copy_from_slice(&h.to_be_bytes());
     }
     output

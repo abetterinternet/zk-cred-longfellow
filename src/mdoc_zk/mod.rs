@@ -1196,4 +1196,120 @@ pub(super) mod tests {
             )
             .unwrap();
     }
+
+    /// Issuer public key for the OpenID4VP test vectors, in SEC 1 form.
+    ///
+    /// These test vectors come from the mdoc test vectors of Polaris
+    /// (https://github.com/EgorKhaklin/polaris-id), whose keys are derived from public seeds. Their
+    /// session transcripts are OpenID4VP 1.0 handovers: `OpenID4VPHandover` for a redirect request,
+    /// and `OpenID4VPDCAPIHandover` for the Digital Credentials API.
+    const OPENID4VP_ISSUER_PUBLIC_KEY: &[u8] =
+        b"\x04\x08\xBC\xC2\x41\x23\x96\x02\xF8\xD7\x72\x72\xED\xF0\xB1\x20\xFE\xB7\x33\
+        \x5D\xFB\xD4\xA9\x41\x26\x4C\x07\xB3\x75\xC1\x59\xC2\xAE\xE4\x0A\x32\x3D\x75\xC0\
+        \x0A\xB3\x81\x74\xD3\xD7\xEE\x91\x8B\x42\x05\x5D\xC3\x2B\xEF\x74\xC1\x99\x62\xB0\
+        \x75\xA9\x1C\xB3\x75\xF8";
+
+    /// Compressed circuits for one attribute, for each circuit version.
+    fn one_attribute_circuits() -> [(CircuitVersion, &'static [u8]); 2] {
+        [
+            (CircuitVersion::V6, include_bytes!("../../test-vectors/mdoc_zk/6_1_137e5a75ce72735a37c8a72da1a8a0a5df8d13365c2ae3d2c2bd6a0e7197c7c6").as_slice()),
+            (CircuitVersion::V7, include_bytes!("../../test-vectors/mdoc_zk/7_1_8d079211715200ff06c5109639245502bfe94aa869908d31176aae4016182121").as_slice()),
+        ]
+    }
+
+    /// Prove and verify the presentation of a test vector's one attribute, with each circuit version.
+    fn end_to_end_one_attribute(test_vector_json: &[u8], value_cbor: &[u8]) {
+        let test_vector: TestVector = serde_json::from_slice(test_vector_json).unwrap();
+        let mdoc = parse_device_response(&test_vector.mdoc).unwrap();
+
+        for (version, compressed) in one_attribute_circuits() {
+            let decompressed = zstd::decode_all(compressed).unwrap();
+            let prover = MdocZkProver::new(&decompressed, version, 1).unwrap();
+            let proof = prover
+                .prove(
+                    &test_vector.mdoc,
+                    "org.iso.18013.5.1",
+                    &[&test_vector.attributes[0].id],
+                    &test_vector.transcript,
+                    &test_vector.now,
+                )
+                .unwrap();
+
+            let verifier = MdocZkVerifier::new(&decompressed, version, 1).unwrap();
+            verifier
+                .verify(
+                    OPENID4VP_ISSUER_PUBLIC_KEY,
+                    &[verifier::Attribute {
+                        identifier: test_vector.attributes[0].id.clone(),
+                        value_cbor: value_cbor.to_vec(),
+                    }],
+                    &mdoc.doc_type,
+                    &mdoc.device_name_spaces_bytes,
+                    &test_vector.transcript,
+                    &test_vector.now,
+                    &proof,
+                )
+                .unwrap();
+        }
+    }
+
+    /// Try to prove the presentation of a test vector's one attribute, with each circuit version,
+    /// and return each error message.
+    fn prove_one_attribute_errors(test_vector_json: &[u8]) -> Vec<String> {
+        let test_vector: TestVector = serde_json::from_slice(test_vector_json).unwrap();
+
+        one_attribute_circuits()
+            .into_iter()
+            .map(|(version, compressed)| {
+                let decompressed = zstd::decode_all(compressed).unwrap();
+                let prover = MdocZkProver::new(&decompressed, version, 1).unwrap();
+                prover
+                    .prove(
+                        &test_vector.mdoc,
+                        "org.iso.18013.5.1",
+                        &[&test_vector.attributes[0].id],
+                        &test_vector.transcript,
+                        &test_vector.now,
+                    )
+                    .unwrap_err()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn end_to_end_openid4vp_handover() {
+        end_to_end_one_attribute(
+            include_bytes!("../../test-vectors/mdoc_zk/openid4vp_1attr_family_name.json"),
+            b"\x6aMustermann",
+        );
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn end_to_end_openid4vp_dc_api_handover() {
+        end_to_end_one_attribute(
+            include_bytes!("../../test-vectors/mdoc_zk/openid4vp_dc_api_1attr_given_name.json"),
+            b"\x65Erika",
+        );
+    }
+
+    /// The same credential, with the low bit of the last byte of the issuer signature flipped.
+    #[wasm_bindgen_test(unsupported = test)]
+    fn prove_openid4vp_issuer_signature_changed() {
+        for error in prove_one_attribute_errors(include_bytes!(
+            "../../test-vectors/mdoc_zk/openid4vp_1attr_family_name_issuer_signature_changed.json"
+        )) {
+            assert_eq!(error, "problem building issuer signature witness");
+        }
+    }
+
+    /// The same credential, with a device signature over the handover of another nonce.
+    #[wasm_bindgen_test(unsupported = test)]
+    fn prove_openid4vp_other_session_transcript() {
+        for error in prove_one_attribute_errors(include_bytes!(
+            "../../test-vectors/mdoc_zk/openid4vp_1attr_family_name_other_transcript.json"
+        )) {
+            assert_eq!(error, "problem building device signature witness");
+        }
+    }
 }
